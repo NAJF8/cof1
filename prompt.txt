@@ -1,0 +1,1643 @@
+# 101 COFFEE — FULL SYSTEM AUDIT + DEVELOPMENT + SECURITY + UI/UX
+
+أريد منك العمل على **المشروع الحالي الموجود أمامك** وتطويره وإصلاحه بالكامل.
+
+**ممنوع إنشاء مشروع جديد أو إعادة بناء المشروع من الصفر.**
+
+قبل أي تعديل، قم بعمل **Full Audit شامل** للمشروع، وافهم بنية الملفات والربط والبيانات والـFirebase والـAuthentication والـAdmin والـCustomer والـLoyalty، ثم نفّذ التعديلات.
+
+---
+
+# 1. بنية النظام
+
+النظام يتكون من:
+
+1. Customer Menu
+2. Admin Dashboard
+3. Loyalty / Cashier System
+
+يجب أن تكون الأنظمة الثلاثة مرتبطة بنفس:
+
+* Firebase Project
+* Firebase Authentication
+* Firebase Realtime Database
+* Firebase Storage عند الحاجة
+
+ولا تنشئ Firebase Project جديد.
+
+---
+
+# 2. FULL SYSTEM AUDIT
+
+قبل التعديل افحص كامل المشروع:
+
+* HTML
+* CSS
+* JavaScript
+* Firebase Configuration
+* Authentication
+* Google Login
+* Realtime Database
+* Firebase Storage
+* Database Rules
+* جميع Nodes
+* جميع Reads
+* جميع Writes
+* Update
+* Delete
+* Firebase Listeners
+* API integrations
+* API Keys
+* LocalStorage
+* SessionStorage
+* Roles
+* Permissions
+* Admin
+* Customer
+* Loyalty
+* Cashier
+* Booking
+* Events
+* Rewards
+* Hearts
+* Songs
+* Chatbot
+* Background System
+
+افحص أيضًا:
+
+* Console Errors
+* Network Errors
+* JavaScript Errors
+* Authentication Errors
+* Firebase Errors
+* Broken Links
+* Missing Files
+* Relative Paths
+* Duplicate Listeners
+* Duplicate Accounts
+* Duplicate Transactions
+* Mock Data
+* Hardcoded Data
+
+لا تفترض أن أي شيء يعمل بشكل صحيح.
+
+ابحث عن **Root Cause** لكل مشكلة ثم أصلحها.
+
+---
+
+# 3. DATA FLOW
+
+يجب أن يكون النظام مترابطًا:
+
+Customer
+↓
+Firebase
+↓
+Admin
+
+Loyalty
+↓
+Firebase
+↓
+Admin
+
+Admin
+↓
+Firebase
+↓
+Customer
+
+Admin
+↓
+Firebase
+↓
+Loyalty
+
+Cashier
+↓
+Firebase
+↓
+Customer + Admin
+
+أي تعديل على البيانات يجب أن يظهر في المكان الصحيح.
+
+---
+
+# 4. NO MOCK DATA
+
+ممنوع استخدام:
+
+* Fake Customers
+* Fake Rewards
+* Fake Hearts
+* Fake Products
+* Fake Events
+* Fake Bookings
+* Fake Songs
+
+كل البيانات الحقيقية يجب أن تأتي من Firebase.
+
+---
+
+# 5. PRESERVE CURRENT DESIGN
+
+لا تعيد بناء التصميم من الصفر.
+
+حافظ على:
+
+* الهوية الحالية
+* Layout
+* Typography
+* Animations
+* Responsive Design
+* Mobile UI
+* Desktop UI
+* الألوان الحالية
+* شكل الواجهة
+
+لا تغير أي شيء إلا إذا كان ضمن المتطلبات.
+
+---
+
+# 6. 101 COFFEE BRANDING
+
+حافظ على هوية:
+
+**101 COFFEE**
+
+والعبارة:
+
+**مزاجك يستاهل 101**
+
+لا تضف ألوانًا عشوائية.
+
+---
+
+# 7. LOGO
+
+ألغِ اللوجو القديم الموجود داخل الشكل:
+
+**البيضوي / Oval**
+
+لا أريد:
+
+* Oval Logo Frame
+* Oval Border
+* White Oval Background
+
+لا تعيد إنشاء نفس الشكل.
+
+---
+
+# 8. COFFEE PHOTO / VIDEO BACKGROUND
+
+أريد نظام Background قابل للتحكم بالكامل من Admin.
+
+الخلفية يمكن أن تكون:
+
+### Image Background
+
+أو:
+
+### Video Background
+
+---
+
+## Admin Background Management
+
+أضف داخل Admin قسم:
+
+**Background Management**
+
+الأدمن يستطيع:
+
+* رفع صورة.
+* تغيير الصورة.
+* حذف الصورة.
+* رفع فيديو.
+* تغيير الفيديو.
+* حذف الفيديو.
+* اختيار Image أو Video.
+* تفعيل الخلفية.
+* إيقاف الخلفية.
+* الرجوع من Video إلى Image.
+* اختيار الخلفية الحالية.
+
+لا يحتاج الأدمن إلى تعديل الكود.
+
+---
+
+## Firebase Storage
+
+استخدم Firebase Storage للملفات الكبيرة مثل:
+
+* الصور
+* الفيديوهات
+
+واحفظ رابط الملف وإعداداته في Firebase Database.
+
+لا تخزن ملفات الفيديو الكبيرة مباشرة داخل Realtime Database.
+
+---
+
+## Video Background
+
+إذا تم اختيار Video:
+
+يعمل كـBackground:
+
+* Autoplay
+* Muted
+* Loop
+* Playsinline
+
+ولا تظهر Video Controls للمستخدم.
+
+يجب أن يكون مناسبًا:
+
+* Mobile
+* Tablet
+* Desktop
+
+---
+
+## Fallback
+
+إذا لم يعمل الفيديو:
+
+استخدم الصورة البديلة تلقائيًا.
+
+مثال:
+
+Video
+↓
+فشل التشغيل
+↓
+Image Fallback
+
+---
+
+## Performance
+
+لا تجعل الفيديو يسبب بطء شديد للموقع.
+
+اهتم بـ:
+
+* Compression
+* Lazy Loading عند الحاجة
+* Proper Video Format
+* Proper Image Size
+* Caching
+* Mobile Optimization
+
+---
+
+## Background Overlay
+
+إذا كانت الخلفية تؤثر على قراءة النصوص، استخدم Overlay مناسب.
+
+لكن لا تغير الهوية البصرية.
+
+---
+
+# 9. TOP BAR
+
+أضف Top Navigation:
+
+📍 الموقع
+
+☕ المنيو
+
+🎉 الفعاليات
+
+🏠 حجز غرفة الاجتماعات
+
+🌐 العربية / English
+
+ويجب أن تكون الفعاليات واضحة في Top Bar.
+
+---
+
+# 10. LANGUAGE
+
+المنيو يجب أن يدعم:
+
+**العربية**
+
+و:
+
+**English**
+
+عند اختيار العربية:
+
+RTL
+
+عند اختيار English:
+
+LTR
+
+يجب ترجمة:
+
+* Categories
+* Products
+* Descriptions
+* Buttons
+* Navigation
+* Events
+* Booking
+* Chatbot
+* Messages
+
+---
+
+# 11. CATEGORY TYPOGRAPHY
+
+مثال:
+
+**قهوة مختصة**
+
+المنتج:
+
+**قهوة مقطرة**
+
+الوصف:
+
+**قهوة مختصة محضّرة يدوياً بالتقطير**
+
+وحّد:
+
+* Font Size
+* Spacing
+* Alignment
+* Typography Hierarchy
+
+لكن:
+
+**«قهوة مختصة» تحافظ على حجمها الحالي.**
+
+لا تجعل عنوان القسم يظهر بحجم مختلف عند فتح المنتج.
+
+---
+
+# 12. CATEGORY FRAME
+
+إطار عناوين الأقسام يجب أن يكون مشابهًا لإطار:
+
+**تأكيد حجز عبر الواتساب**
+
+التصميم:
+
+* مستطيل.
+* Rounded Rectangle.
+* انحناء خفيف جدًا.
+* Border بسيط.
+* لا يكون دائريًا.
+* لا تستخدم Radius كبير.
+
+---
+
+# 13. SHOW / HIDE «الكل»
+
+أضف داخل Admin:
+
+**إظهار قسم الكل**
+
+ON:
+
+يظهر «الكل».
+
+OFF:
+
+يختفي «الكل».
+
+لكن لا يتم حذف أي Categories أو Products.
+
+فقط يتم إخفاء تبويب «الكل».
+
+الإعداد محفوظ في Firebase.
+
+---
+
+# 14. EVENTS
+
+أضف:
+
+**الفعاليات**
+
+إلى Customer Menu.
+
+ويجب أن تكون موجودة أيضًا في Top Bar.
+
+Admin يجب أن يحتوي على:
+
+**Events Management**
+
+---
+
+# 15. يوم الشموع
+
+فعالية:
+
+**يوم الشموع**
+
+المواصفات:
+
+* مجانية.
+* السعر = 0.
+* موعدها يوم 14 من كل شهر.
+* وقتها الافتراضي 4:00 PM.
+* Admin يستطيع تغيير الوقت.
+* Admin يستطيع Enable.
+* Admin يستطيع Disable.
+* يمكن تفعيلها أو إيقافها قبل موعدها.
+* إذا Disabled لا تظهر كفعالية متاحة.
+* إذا Enabled تظهر تلقائيًا.
+* النظام يحسب الموعد القادم تلقائيًا.
+
+كل ذلك من Admin.
+
+---
+
+# 16. MEETING ROOM
+
+حافظ على:
+
+**حجز غرفة الاجتماعات**
+
+Customer:
+
+Booking
+↓
+Firebase
+↓
+Admin
+
+يجب منع:
+
+Duplicate Booking
+
+ويجب حفظ بيانات الحجز بشكل صحيح.
+
+---
+
+# 17. LOYALTY — 5 HEARTS
+
+عدد القلوب:
+
+# 5 قلوب فقط
+
+وليس 10.
+
+Progress:
+
+1 / 5 ❤️
+
+2 / 5 ❤️
+
+3 / 5 ❤️
+
+4 / 5 ❤️
+
+5 / 5 ❤️
+
+---
+
+# 18. HEART DATABASE
+
+لكل Customer:
+
+* Current Hearts
+* Total Hearts Earned
+* Total Hearts Spent
+* Heart Transactions
+* Transaction Type
+* Employee
+* Date
+* Time
+* Reason
+
+مثال:
+
+Earned = 5
+
+Spent = 1
+
+Current = 4
+
+Total Earned يبقى:
+
+5
+
+ولا يتم حذف التاريخ.
+
+---
+
+# 19. CUSTOMER LOYALTY CARD
+
+أعد تصميم بطاقة العميل بهذا الأسلوب:
+
+**👤 بطاقتي | حساب العميل**
+
+ثم:
+
+**MOHAMMED MUSLIM**
+
+رقم العضوية:
+
+**101-1**
+
+ثم:
+
+**عضو مميز**
+
+ثم:
+
+**رصيد القلوب الحالي**
+
+ثم:
+
+**3 / 5 ❤️**
+
+ثم:
+
+**اجمع 5 قلوب للحصول على مكافأتك!**
+
+ثم:
+
+📱 رقم الهاتف:
+
+**07827337942**
+
+ثم:
+
+🔑 رمز PIN:
+
+**•••• إظهار**
+
+ثم:
+
+📧 البريد:
+
+**[mohameadalhaear100@gmail.com](mailto:mohameadalhaear100@gmail.com)**
+
+---
+
+## Dynamic Loyalty Card
+
+هذه البيانات مثال فقط.
+
+لا تستخدمها Hardcoded.
+
+كل مستخدم يرى بياناته من Firebase:
+
+* Name
+* Membership Number
+* Membership Type
+* Current Hearts
+* Phone
+* PIN
+* Email
+
+---
+
+# 20. PIN
+
+PIN يكون:
+
+**••••**
+
+بشكل افتراضي.
+
+زر:
+
+**إظهار**
+
+ثم:
+
+**إخفاء**
+
+ولا تعرض PIN بشكل مكشوف بشكل افتراضي.
+
+---
+
+# 21. GOOGLE LOGIN
+
+أصلح مشكلة:
+
+المستخدم يسجل لكنه لا يظهر في Loyalty.
+
+التدفق المطلوب:
+
+Google Login
+↓
+Firebase Authentication
+↓
+UID
+↓
+Customer Record
+↓
+Loyalty Record
+↓
+Membership
+↓
+Profile
+
+يجب إنشاء/تحديث الحساب تلقائيًا.
+
+---
+
+# 22. DUPLICATE ACCOUNT PREVENTION
+
+نفس Google UID:
+
+لا ينشئ حسابين.
+
+يجب استخدام UID كمعرف موثوق.
+
+---
+
+# 23. MEMBERSHIP
+
+الكروت مسبقة الطباعة:
+
+101-1
+
+101-2
+
+وهكذا.
+
+الكاشير يربط Membership بالزبون.
+
+---
+
+# 24. CASHIER PERMISSIONS
+
+Cashier يستطيع:
+
+* Search Customer
+* Open Profile
+* View Membership
+* View Hearts
+* Add Heart
+* View Rewards
+* Redeem Reward
+* Verify PIN
+* Open WhatsApp
+* View own operations
+
+ولا يستطيع:
+
+* Add Admin
+* Delete Admin
+* Add Manager
+* Delete Manager
+* Change Roles
+* Change Permissions
+* Manage Rewards
+* Delete General Logs
+* Change System Settings
+
+---
+
+# 25. RBAC
+
+الصلاحيات يجب أن تكون حقيقية.
+
+ممنوع الاعتماد فقط على:
+
+display:none
+
+أو إخفاء الأزرار.
+
+يجب فرض الصلاحيات من:
+
+Firebase Rules / Backend / Server-side validation
+
+حسب بنية المشروع.
+
+---
+
+# 26. REWARDS
+
+Rewards تأتي من Firebase.
+
+Admin يستطيع:
+
+* Add
+* Edit
+* Delete
+
+ويجب أن تنعكس التغييرات على:
+
+* Loyalty
+* Customer Explorer
+
+---
+
+# 27. REWARD TEASING
+
+احذف:
+
+**شنو راح تجيك مكافأة**
+
+لا تكشف اسم المكافأة قبل الاستحقاق.
+
+استخدم تشويق مثل:
+
+**وصل للعدد المطلوب لتحصل على مفاجأتك ❤️**
+
+بدون كشف اسم Reward.
+
+---
+
+# 28. REDEEM
+
+التدفق:
+
+Reward
+↓
+PIN
+↓
+Validation
+↓
+Redeem
+↓
+Firebase
+↓
+Transaction Log
+↓
+Admin
+
+ويجب منع الاستخدام المتكرر إذا كانت Single-use.
+
+---
+
+# 29. LOYALTY EXPLORER
+
+إذا يوجد:
+
+*
+
+-
+
+في Loyalty Explorer:
+
+يكون فقط Preview.
+
+لا يقوم بـ:
+
+* Firebase Write
+* Add Hearts
+* Remove Hearts
+* Transactions
+* WhatsApp
+
+---
+
+# 30. WHATSAPP AFTER HEART
+
+بعد نجاح:
+
+Add Heart
+
+في Firebase:
+
+افتح WhatsApp للرقم المسجل.
+
+Message تكون جاهزة.
+
+إذا لم توجد WhatsApp Business API:
+
+استخدم Deep Link / Message Prefill.
+
+لا تدّعي أن الرسالة أُرسلت تلقائيًا.
+
+الموظف يضغط Send.
+
+---
+
+# 31. SONGS
+
+أضف في Loyalty:
+
+**اسمع الأغاني**
+
+Categories مثل:
+
+* أغاني صباحية
+* أعياد ميلاد
+* مناسبات
+* وغيرها
+
+Admin يستطيع:
+
+* Add Category
+* Edit Category
+* Delete Category
+* Add Song
+* Edit Song
+* Delete Song
+* Change URL
+
+الأغنية يتم إضافتها عن طريق:
+
+**URL**
+
+ويتم حفظ الرابط.
+
+زر:
+
+▶️ تشغيل
+
+يشغل الأغنية.
+
+---
+
+# 32. AI CHATBOT
+
+أضف:
+
+**AI Coffee Assistant**
+
+داخل Customer Menu.
+
+ليس Chatbot عام.
+
+وظيفته:
+
+**مساعدة الزبون في اختيار الطلب.**
+
+---
+
+# 33. CHATBOT CONVERSATION
+
+مثال:
+
+Customer:
+
+«مشتهي شي بارد»
+
+AI:
+
+«تحب شي قهوة لو مشروب منعش؟»
+
+ثم:
+
+«تحب الطعم حلو لو خفيف؟»
+
+ثم يقترح المنتج المناسب.
+
+يمكنه السؤال:
+
+* شنو تحب؟
+* شنو مشتهي؟
+* حار لو بارد؟
+* قهوة لو مشروب؟
+* حلو؟
+* طعم قوي؟
+* طعم خفيف؟
+* عندك تفضيل معين؟
+
+---
+
+# 34. CHATBOT DATA
+
+Chatbot يعتمد على Firebase Menu Data.
+
+يعرف:
+
+* Categories
+* Products
+* Descriptions
+* Prices
+* Availability
+
+إذا المنتج Disabled:
+
+لا يقترحه.
+
+إذا المنتج Deleted:
+
+لا يقترحه.
+
+إذا تغير المنتج:
+
+تتحدث توصيات Chatbot.
+
+لا يخترع منتجات غير موجودة.
+
+---
+
+# 35. CHATBOT CHARACTER
+
+سأوفر صورة Anime Character.
+
+استخدمها كـ:
+
+* Avatar
+* Character
+* Chatbot Identity
+
+ويجب أن تكون متناسقة مع 101 COFFEE.
+
+---
+
+# 36. CHATBOT ADMIN
+
+أضف:
+
+**AI Chatbot Management**
+
+داخل Admin.
+
+الأدمن يستطيع:
+
+* Enable / Disable
+* API Provider
+* API Key
+* Model
+* System Prompt
+* Personality
+* Tone
+* Instructions
+* Coffee Shop Information
+* Menu Context
+* Welcome Message
+
+يمكن تغيير الـAPI والـModel من Admin حسب البنية.
+
+---
+
+# 37. API SECURITY
+
+لا تكشف API Key في Frontend.
+
+إذا كان Secret API:
+
+استخدم:
+
+Backend / Server-side Proxy / Secure Environment Variables
+
+حسب بنية المشروع.
+
+لا تضع API Secret في:
+
+* Public HTML
+* Client JavaScript
+* Public Firebase Database
+
+---
+
+# 38. ORDER RATING
+
+أضف Rating بعد إكمال الطلب فقط.
+
+التدفق:
+
+Order
+↓
+Completed
+↓
+Rating
+
+لا يظهر Rating قبل إكمال/إرسال الطلب.
+
+ويجب ربط التقييم بالطلب الصحيح.
+
+---
+
+# 39. ADMIN DASHBOARD
+
+Admin يجب أن يحتوي على أقسام واضحة:
+
+* Customers
+* Rewards
+* Cashiers
+* Managers
+* Operations
+* Logs
+* Permissions
+* Events
+* Meeting Room
+* Songs
+* Categories
+* Products
+* Loyalty
+* AI Chatbot
+* Background Management
+* General Settings
+
+---
+
+# 40. BACKGROUND MANAGEMENT ADMIN
+
+داخل Admin:
+
+## Background
+
+خيارات:
+
+### Current Type
+
+Image / Video
+
+### Image
+
+Upload / Replace / Delete
+
+### Video
+
+Upload / Replace / Delete
+
+### Enable / Disable
+
+### Fallback Image
+
+Upload / Replace
+
+### Preview
+
+يجب أن يستطيع الأدمن رؤية Preview قبل الحفظ إذا أمكن.
+
+---
+
+# 41. BACKGROUND DATA
+
+احفظ إعدادات الخلفية في Firebase مثل:
+
+* type
+* imageUrl
+* videoUrl
+* fallbackImageUrl
+* enabled
+
+والملفات في Firebase Storage.
+
+Customer Menu يقرأ الإعدادات ويطبقها تلقائيًا.
+
+---
+
+# 42. BACKGROUND SECURITY
+
+لا تسمح لأي Customer بتعديل Background.
+
+التعديل فقط Admin.
+
+---
+
+# 43. CUSTOMER DATA SECURITY
+
+Customer لا يستطيع تعديل:
+
+* Hearts
+* Rewards
+* Roles
+* Other Customers
+* System Settings
+* Events Settings
+* Background
+* Admin Data
+
+---
+
+# 44. FIREBASE RULES
+
+راجع كل Rules.
+
+لا تستخدم قواعد مفتوحة مثل:
+
+".read": true
+
+".write": true
+
+إذا لم تكن ضرورية.
+
+يجب منع:
+
+Customer → تعديل Hearts
+
+Customer → تعديل Rewards
+
+Customer → تغيير Role
+
+Cashier → تعديل Admin
+
+Cashier → تغيير Role
+
+Cashier → تعديل System Settings
+
+---
+
+# 45. SECURITY AUDIT
+
+افحص:
+
+* Authentication
+* Authorization
+* RBAC
+* IDOR
+* Privilege Escalation
+* Unauthorized Read
+* Unauthorized Write
+* API Keys
+* XSS
+* Injection
+* Client-side role manipulation
+* Heart manipulation
+* Reward manipulation
+* PIN abuse
+* Booking manipulation
+* Duplicate Transactions
+* Duplicate Accounts
+
+---
+
+# 46. PERFORMANCE
+
+افحص:
+
+* Firebase Listeners
+* Duplicate Listeners
+* Memory Leaks
+* Excessive Reads
+* Excessive Writes
+* API Requests
+* Chatbot Requests
+* Image Loading
+* Video Loading
+
+حسّن الأداء بدون تغيير الوظائف.
+
+---
+
+# 47. ERROR HANDLING
+
+كل عملية يجب أن تحتوي على:
+
+* Loading
+* Success
+* Error
+* Empty State
+
+لا تظهر Firebase Errors التقنية للمستخدم.
+
+استخدم رسائل واضحة.
+
+---
+
+# 48. RESPONSIVE
+
+اختبر:
+
+* Mobile
+* Tablet
+* Desktop
+
+خصوصًا:
+
+* Top Bar
+* Menu
+* Background
+* Events
+* Booking
+* Loyalty Card
+* Chatbot
+* Songs
+* Admin Dashboard
+
+---
+
+# 49. FINAL SYSTEM TEST
+
+بعد التنفيذ اختبر:
+
+## Customer
+
+* Menu
+* Categories
+* Products
+* Language
+* Events
+* Booking
+* Background
+* Chatbot
+
+## Admin
+
+* Login
+* Customers
+* Products
+* Categories
+* Rewards
+* Events
+* Background
+* Songs
+* Loyalty
+* Chatbot
+* Permissions
+
+## Loyalty
+
+* Google Login
+* Profile
+* Membership
+* Hearts
+* Rewards
+* Redeem
+* Songs
+
+---
+
+# 50. DATA SYNC TEST
+
+اختبر:
+
+### Product
+
+Admin
+→ Firebase
+→ Customer
+
+### Reward
+
+Admin
+→ Firebase
+→ Loyalty
+
+### Customer
+
+Google
+→ Firebase
+→ Loyalty
+→ Admin
+
+### Heart
+
+Cashier
+→ Firebase
+→ Customer
+→ Admin
+
+### Event
+
+Admin
+→ Firebase
+→ Customer
+
+### Song
+
+Admin
+→ Firebase
+→ Loyalty
+
+### Background
+
+Admin
+→ Firebase Storage
+→ Firebase
+→ Customer
+
+### Chatbot
+
+Firebase Menu
+→ AI
+→ Customer
+
+---
+
+# 51. REGISTRATION TEST
+
+اختبر:
+
+Google Login
+
+→ Auth
+
+→ UID
+
+→ Customer
+
+→ Loyalty
+
+→ Membership
+
+→ Profile
+
+→ Admin
+
+إذا فشل أي جزء، أصلحه.
+
+---
+
+# 52. HEART TEST
+
+اختبر:
+
+Add Heart
+
+→ Firebase
+
+→ Current Hearts
+
+→ Total Hearts
+
+→ Transaction
+
+→ Loyalty
+
+→ WhatsApp
+
+---
+
+# 53. REWARD TEST
+
+Admin Add
+
+→ Firebase
+
+→ Loyalty
+
+Admin Edit
+
+→ Firebase
+
+→ Loyalty
+
+Admin Delete
+
+→ Firebase
+
+→ Loyalty
+
+---
+
+# 54. EVENT TEST
+
+Enable Event
+
+→ Firebase
+
+→ Customer
+
+Disable Event
+
+→ Firebase
+
+→ Customer
+
+ويجب اختبار يوم 14 الخاص بـ«يوم الشموع».
+
+---
+
+# 55. BACKGROUND TEST
+
+اختبر:
+
+Admin Upload Image
+
+→ Firebase Storage
+
+→ Firebase Config
+
+→ Customer
+
+ثم:
+
+Admin Upload Video
+
+→ Firebase Storage
+
+→ Firebase Config
+
+→ Customer
+
+ثم:
+
+Disable
+
+→ Customer
+
+ثم:
+
+Fallback Image
+
+→ Customer
+
+---
+
+# 56. CHATBOT TEST
+
+اختبر:
+
+Customer opens Chatbot
+
+→ AI
+
+→ reads current menu
+
+→ asks preferences
+
+→ recommends actual products
+
+وتأكد أنه لا يقترح منتجات غير موجودة.
+
+---
+
+# 57. ORDER RATING TEST
+
+اختبر:
+
+Order not completed
+
+→ No Rating
+
+Order completed
+
+→ Rating appears
+
+Rating submitted
+
+→ Firebase
+
+→ linked to correct order
+
+---
+
+# 58. FINAL SECURITY TEST
+
+بعد الانتهاء حاول اختبار النظام كمستخدم غير مصرح له.
+
+حاول:
+
+* تعديل Hearts.
+* تعديل Rewards.
+* تعديل Roles.
+* تعديل Background.
+* تعديل Events.
+* قراءة بيانات Customer آخر.
+* تنفيذ Redeem بدون صلاحية.
+* تعديل PIN.
+* الوصول إلى Admin APIs.
+
+يجب رفض جميع العمليات غير المصرح بها.
+
+---
+
+# 59. IMPORTANT — DO NOT BREAK EXISTING FEATURES
+
+لا تحذف وظيفة موجودة تعمل إلا إذا كانت متعارضة مع المتطلبات الجديدة.
+
+لا تنشئ:
+
+* Firebase Project جديد.
+* Database جديدة.
+* Rewards Database منفصلة.
+* Customer Database منفصلة.
+* Loyalty Database منفصلة.
+
+كل شيء يجب أن يعمل من النظام الحالي.
+
+---
+
+# 60. IMPLEMENTATION ORDER
+
+نفذ بهذا الترتيب:
+
+## STEP 1
+
+Full Audit
+
+## STEP 2
+
+Find Root Causes
+
+## STEP 3
+
+Fix Firebase / Authentication / Data Sync
+
+## STEP 4
+
+Fix Security / RBAC
+
+## STEP 5
+
+Fix Loyalty / Hearts / Registration
+
+## STEP 6
+
+Implement Events / Booking
+
+## STEP 7
+
+Implement Language
+
+## STEP 8
+
+Implement Background Management
+
+## STEP 9
+
+Implement Songs
+
+## STEP 10
+
+Implement AI Chatbot
+
+## STEP 11
+
+Implement UI Improvements
+
+## STEP 12
+
+Full Testing
+
+## STEP 13
+
+Final Security Audit
+
+---
+
+# 61. FINAL REPORT
+
+بعد الانتهاء أعطني تقريرًا واضحًا:
+
+## FIXED
+
+كل المشاكل التي تم إصلاحها.
+
+## ADDED
+
+كل الميزات التي تمت إضافتها.
+
+## FIREBASE
+
+ما الذي تم تغييره.
+
+## AUTHENTICATION
+
+كيف تم إصلاح Google Login.
+
+## DATABASE
+
+ما الذي تم تغييره في Structure.
+
+## SECURITY
+
+المشاكل الأمنية التي تم إصلاحها.
+
+## RBAC
+
+صلاحيات كل Role.
+
+## SYNC
+
+كيف أصبح الربط:
+
+Customer ↔ Firebase ↔ Admin ↔ Loyalty
+
+## BACKGROUND
+
+كيف أصبح التحكم بالصورة والفيديو.
+
+## CHATBOT
+
+كيف تم ربط الـAI بالمنيو والـAPI.
+
+## TESTING
+
+ما الاختبارات التي تم تنفيذها ونتائجها.
+
+## REMAINING
+
+أي مشكلة متبقية، وسببها.
+
+---
+
+# 🔴 RULE
+
+لا أريد مجرد تعديل واجهة.
+
+أريد **Production-Ready System**.
+
+الهدف:
+
+**Customer + Admin + Loyalty + Firebase + AI**
+
+تعمل كنظام واحد:
+
+* مترابط.
+* آمن.
+* متزامن.
+* سريع.
+* Responsive.
+* قابل للإدارة.
+* بدون Mock Data.
+* بدون Duplicate Data.
+* بدون صلاحيات غير آمنة.
+
+وحافظ على هوية:
+
+# ☕ 101 COFFEE
+
+# مزاجك يستاهل 101

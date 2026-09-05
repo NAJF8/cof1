@@ -1,0 +1,6 @@
+functions/node_modules/
+cloudflare-worker/node_modules/
+cloudflare-worker/.dev.vars
+cloudflare-worker/.env
+cloudflare-worker/secrets/
+cloudflare-worker/.wrangler-config/

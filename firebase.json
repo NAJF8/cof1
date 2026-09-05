@@ -1,0 +1,9 @@
+{
+  "functions": { "source": "functions" },
+  "database": { "rules": "database.rules.json" },
+  "storage": { "rules": "storage.rules" },
+  "hosting": {
+    "public": ".",
+    "ignore": ["firebase.json", "firebase-rules.json", "database.rules.json", "storage.rules", "functions/**", "node_modules/**", ".git/**"]
+  }
+}

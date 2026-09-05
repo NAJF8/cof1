@@ -1,0 +1,1707 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>101 COFFEE - لوحة الولاء</title>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap" rel="stylesheet">
+<style>
+/* ── Variables (Dark Green Theme as requested) ── */
+:root {
+  --primary: #A9805F; --primary-dk: #8E694D; --primary-lt: #C4956A;
+  --bg-body: #3D5035; --surface: #536849; --surface2: #4A5F41;
+  --border: #69825C; --text: #FDFBF7; --text-muted: #C4D1BD;
+  --shadow: 0 8px 32px rgba(0,0,0,.25);
+  --bg-gradient: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23a98b6f' fill-opacity='0.1'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E"), linear-gradient(135deg, #3D5035 0%, #2A3824 100%);
+}
+body { font-family: 'Cairo', sans-serif; background: var(--bg-gradient); color: var(--text); margin: 0; min-height: 100vh; }
+* { box-sizing: border-box; }
+
+/* ── Auth Screen ── */
+.auth-wrap { display: flex; min-height: 100vh; align-items: center; justify-content: center; padding: 20px; }
+.auth-card { background: var(--surface); border-radius: 24px; padding: 40px; width: 100%; max-width: 400px; text-align: center; box-shadow: var(--shadow); border: 1px solid var(--border); }
+.auth-title { font-size: 24px; font-weight: 900; color: var(--primary-lt); margin: 0 0 5px; }
+.auth-sub { color: var(--text-muted); font-size: 14px; margin: 0 0 30px; }
+.google-btn { background: var(--surface2); border: 1px solid var(--border); color: var(--text); border-radius: 12px; padding: 12px; width: 100%; font-family: Cairo; font-weight: 700; font-size: 15px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 10px; transition: .2s; }
+.google-btn:hover { background: var(--border); }
+
+/* ── App Layout ── */
+.app-layout { display: none; max-width: 800px; margin: 0 auto; padding: 20px; }
+.header { background: var(--surface); border-radius: 20px; padding: 15px 25px; margin-bottom: 25px; display: flex; justify-content: space-between; align-items: center; border: 1px solid var(--border); box-shadow: var(--shadow); }
+.brand { font-size: 22px; font-weight: 900; color: var(--primary-lt); letter-spacing: 1px; }
+.cashier-info { display: flex; align-items: center; gap: 15px; }
+.logout-btn { background: rgba(229,57,53,.15); color: #ff8a80; border: 1px solid rgba(229,57,53,.3); padding: 6px 12px; border-radius: 8px; cursor: pointer; font-family: Cairo; font-weight: 700; }
+
+.card { background: var(--surface); border-radius: 20px; padding: 30px; border: 1px solid var(--border); box-shadow: var(--shadow); margin-bottom: 25px; }
+.card-title { color: var(--primary-lt); font-size: 20px; margin: 0 0 20px; font-weight: 800; border-bottom: 1px solid var(--border); padding-bottom: 10px; }
+
+/* ── Search ── */
+.search-box { display: flex; gap: 10px; }
+.search-input { flex: 1; background: var(--surface2); border: 1px solid var(--primary); color: var(--text); padding: 15px; border-radius: 12px; font-size: 18px; font-family: Cairo; font-weight: 700; text-align: center; }
+.search-input::placeholder { color: var(--text-muted); font-weight: 400; }
+.btn-primary { background: linear-gradient(135deg, var(--primary), var(--primary-lt)); color: #2A3824; border: none; padding: 15px 30px; border-radius: 12px; font-size: 18px; font-weight: 900; cursor: pointer; font-family: Cairo; transition: .2s; }
+.btn-primary:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(169, 139, 111, 0.4); }
+
+/* ── Customer Profile ── */
+.profile { display: none; animation: fadeIn .4s ease; }
+.prof-header { display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,.2); padding: 15px 20px; border-radius: 15px; border: 1px solid var(--border); margin-bottom: 20px; }
+.prof-name { font-size: 22px; font-weight: 800; margin: 0; }
+.prof-card { background: var(--primary); color: #2A3824; padding: 4px 12px; border-radius: 8px; font-weight: 900; letter-spacing: 1px; }
+
+.hearts-box { background: var(--surface2); border: 1px solid var(--primary); padding: 20px; border-radius: 15px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+.hearts-box span { font-size: 18px; font-weight: 700; color: var(--primary-lt); }
+.hearts-count { font-size: 36px; font-weight: 900; display: flex; align-items: center; gap: 10px; }
+.heart-icon { color: #e74c3c; animation: pulse 1.5s infinite; }
+
+.btn-add-heart { background: #e53935; color: #fff; width: 100%; padding: 18px; border: none; border-radius: 15px; font-size: 22px; font-weight: 900; font-family: Cairo; cursor: pointer; box-shadow: 0 8px 20px rgba(229,57,53,.3); transition: .2s; display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 20px; }
+.btn-add-heart:hover { background: #d32f2f; transform: translateY(-2px); }
+.btn-add-heart:disabled { background: var(--surface2); color: var(--text-muted); cursor: not-allowed; box-shadow: none; transform: none; border: 1px solid var(--border); }
+
+/* ── Rewards ── */
+.reward-box { background: linear-gradient(135deg, var(--primary), var(--primary-lt)); padding: 2px; border-radius: 15px; display: none; }
+.reward-inner { background: var(--surface); padding: 20px; border-radius: 13px; text-align: center; }
+.reward-title { font-size: 24px; font-weight: 900; margin: 10px 0 20px; }
+.btn-redeem { background: linear-gradient(135deg, var(--primary), var(--primary-lt)); color: #2A3824; border: none; width: 100%; padding: 15px; border-radius: 10px; font-size: 18px; font-weight: 900; font-family: Cairo; cursor: pointer; transition: .2s; }
+.btn-redeem:hover { transform: scale(1.02); }
+
+@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes pulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.15)} }
+#toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%) translateY(100px); background: var(--surface2); border: 1px solid var(--primary); padding: 12px 24px; border-radius: 12px; font-weight: 700; transition: .3s cubic-bezier(.2,.8,.2,1); opacity: 0; z-index: 9999; }
+#toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+.loyalty-nav{display:flex;gap:8px;flex-wrap:wrap;margin:-10px 0 22px}.loyalty-nav button{background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:10px;padding:8px 12px;font-family:Cairo;font-weight:800;cursor:pointer}.loyalty-nav button.active{background:var(--primary);color:#2A3824}.dash-section{display:none}.dash-section.active{display:block}.stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:20px}.stat{background:var(--surface);border:1px solid var(--border);border-top:3px solid var(--primary);padding:14px;border-radius:14px;text-align:center;box-shadow:var(--shadow)}.stat b{display:block;font-size:24px;color:var(--primary-lt)}.stat span{font-size:11px;color:var(--text-muted)}.data-table{width:100%;border-collapse:collapse;min-width:760px}.data-table th,.data-table td{padding:10px;border-bottom:1px solid var(--border);font-size:12px;text-align:right}.data-table th{color:var(--primary-lt)}.staff-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}.muted{color:var(--text-muted)}
+@media(max-width:700px){.app-layout{padding:12px}.stats-grid{grid-template-columns:repeat(2,1fr)}.staff-grid{grid-template-columns:1fr}.header{padding:14px;align-items:flex-start}.brand{font-size:17px}.card{padding:18px}}
+</style>
+</head>
+<body>
+
+<div id="toast"></div>
+
+<!-- ═══════════════════════ LOGIN SCREEN ═══════════════════════ -->
+<div id="loginScreen" class="auth-wrap">
+  <div class="auth-card">
+    <h1 class="auth-title">101 COFFEE</h1>
+    <p class="auth-sub">نظام الولاء | دخول الكاشير</p>
+    <button class="google-btn" id="googleBtn" onclick="signInCashier()">
+      <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" width="22" height="22" alt="Google">
+      تسجيل الدخول باستخدام Google
+    </button>
+    <div id="loginMsg" style="margin-top:15px; font-size:13px; font-weight:700;"></div>
+  </div>
+</div>
+
+<!-- ═══════════════════════ CASHIER APP ═══════════════════════ -->
+<div id="appScreen" class="app-layout">
+  
+  <header class="header">
+    <div class="brand">101 COFFEE <small style="font-size:12px;font-weight:600;opacity:0.7">LOYALTY DASHBOARD</small></div>
+    <div class="cashier-info">
+      <span id="cashierNameDisplay" style="font-weight:800; color:var(--primary-lt);"></span>
+      <button class="logout-btn" onclick="signOutCashier()">خروج</button>
+    </div>
+  </header>
+
+  <nav class="loyalty-nav" aria-label="أقسام لوحة الولاء">
+    <button class="active" data-nav="overview" onclick="showLoyaltySection('overview')">📊 الرئيسية</button>
+    <button data-nav="club" onclick="showLoyaltySection('club')">☕ 101 CLUB</button>
+    <button data-nav="customers" onclick="showLoyaltySection('customers')">👥 العملاء</button>
+    <button data-nav="rewards" onclick="showLoyaltySection('rewards')">🎁 المكافآت</button>
+    <button data-nav="staff" onclick="showLoyaltySection('staff')">☕ الكاشيرات والمدراء</button>
+    <button data-nav="songs" onclick="showLoyaltySection('songs')">🎵 اسمع الأغاني</button>
+    <button data-nav="logs" onclick="showLoyaltySection('logs')">📜 سجل العمليات</button>
+    <button data-nav="gifts" onclick="showLoyaltySection('gifts')">🎁 استلام هدية</button>
+  </nav>
+
+  <section id="loyalty-overview" class="dash-section active">
+    <div class="stats-grid">
+      <div class="stat"><b id="statCustomers">0</b><span>إجمالي الزبائن</span></div><div class="stat"><b id="statHearts">0 ❤️</b><span>إجمالي القلوب</span></div>
+      <div class="stat"><b id="statTodayHearts">0 ❤️</b><span>قلوب اليوم</span></div><div class="stat"><b id="statAvailableRewards">0</b><span>مكافآت متاحة</span></div>
+      <div class="stat"><b id="statRedeemed">0</b><span>مكافآت مستبدلة</span></div><div class="stat"><b id="statTodayOps">0</b><span>عمليات اليوم</span></div>
+      <div class="stat"><b id="statCashiers">0</b><span>الكاشيرات</span></div><div class="stat"><b id="statManagers">0</b><span>المدراء</span></div>
+    </div>
+    <div class="card"><h2 class="card-title">❤️ أهلاً بك في لوحة الولاء</h2><p class="muted">تُحدَّث الأرقام والعمليات مباشرةً من Firebase. استخدم الأقسام لإدارة العملاء والمكافآت وفريق العمل.</p></div>
+  </section>
+
+  <section id="loyalty-club" class="dash-section">
+    <div class="card">
+      <h2 class="card-title">☕ 101 CLUB (مستقل)</h2>
+      <div class="search-box">
+        <input type="text" id="clubSearchQ" class="search-input" placeholder="رقم النادي، الهاتف، أو الاسم" onkeypress="if(event.key==='Enter') searchClubCust()">
+        <button class="btn-primary" onclick="searchClubCust()">بحث</button>
+      </div>
+      <div id="clubSearchMsg" style="margin-top:15px; color:#e53935; font-weight:700; text-align:center;"></div>
+    </div>
+    
+    <div id="clubProfile" class="profile" style="display:none;">
+      <div class="prof-header" style="align-items:flex-start;">
+        <div>
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;">
+            <h3 class="prof-name" id="clubCustNameDisplay" style="margin:0;">--</h3>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span class="prof-card" id="clubCustNumberDisplay">--</span>
+          </div>
+        </div>
+      </div>
+      <div class="hearts-box">
+        <div>
+          <span style="font-size:16px;">الرصيد المتبقي:</span>
+          <div class="hearts-count" id="clubRemainingUsesDisplay" style="font-size:32px;">--</div>
+        </div>
+        <div style="text-align:left;">
+          <span style="font-size:12px;color:var(--text-muted)">ينتهي في:</span><br>
+          <span id="clubExpiresDisplay" style="font-weight:700;color:var(--text)">--</span>
+        </div>
+      </div>
+      <div id="clubRedeemAction" style="margin-top:20px; text-align:center;">
+        <input type="password" id="clubPinInput" placeholder="أدخل PIN المشترك" style="background:var(--surface2); border:1px solid var(--border); color:var(--text); padding:10px; border-radius:10px; font-family:Cairo; font-weight:700; text-align:center; letter-spacing:4px; margin-bottom:10px; width:100%; max-width:200px;">
+        <br>
+        <button class="btn-primary" onclick="redeemClubDrink()" style="background:#4CAF50; max-width:200px; width:100%;">
+          ☕ استهلاك مشروب
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <section id="loyalty-customers" class="dash-section">
+
+  <!-- Search & Quick Add Customer Bar -->
+  <div class="card">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+      <h2 class="card-title" style="margin:0;">🔍 البحث عن عميل</h2>
+      <button onclick="openNewCustomerModal()" style="background:var(--primary-lt); color:#2A3824; border:none; padding:8px 16px; border-radius:10px; font-weight:800; font-family:Cairo; cursor:pointer; font-size:13px; display:inline-flex; align-items:center; gap:6px;">
+        <span>➕</span> إضافة زبون جديد
+      </button>
+    </div>
+    <div class="search-box">
+      <input type="text" id="searchQ" class="search-input" placeholder="الاسم أو العضوية أو الهاتف أو البريد" oninput="renderCustomerTable()" onkeypress="if(event.key==='Enter') searchCust()">
+      <button class="btn-primary" onclick="searchCust()">بحث</button>
+    </div>
+    <div id="searchMsg" style="margin-top:15px; color:#e53935; font-weight:700; text-align:center;"></div>
+  </div>
+
+  <!-- Customer Profile Card -->
+  <div id="customerProfile" class="profile" style="display:none;">
+    
+    <div class="prof-header" style="align-items:flex-start;">
+      <div>
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;">
+          <h3 class="prof-name" id="custNameDisplay" style="margin:0;">--</h3>
+          <span id="custTypeDisplay" style="background:var(--primary-lt);color:#fff;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:800;letter-spacing:0.5px;">زبون</span>
+          <select id="customerTypeSelect" onchange="setCustomerType(this.value)" style="display:none;background:var(--surface2);color:var(--text);border:1px solid var(--border);padding:3px 6px;border-radius:6px;font-size:11px;cursor:pointer;font-family:Cairo;font-weight:700;"><option value="زبون">زبون</option><option value="عضو مميز">عضو مميز</option></select>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span class="prof-card" id="custCardDisplay">--</span>
+          <button id="saEditIdBtn" onclick="editCustomerId()" style="display:none;background:var(--surface2);color:var(--text);border:1px solid var(--border);padding:2px 6px;border-radius:6px;font-size:11px;cursor:pointer;font-family:Cairo;font-weight:700;" title="تعديل رقم العضوية (Super Admin)">✏️ تعديل</button>
+        </div>
+      </div>
+      <button onclick="deleteCurrentCustomer()" style="background:rgba(229,57,53,0.15); color:#e53935; border:1px solid rgba(229,57,53,0.3); padding:6px 12px; border-radius:8px; font-size:12px; font-weight:700; font-family:Cairo; cursor:pointer;">
+        🗑️ حذف العميل
+      </button>
+    </div>
+
+    <!-- Phone Number Edit -->
+    <div style="margin:15px 0; background:var(--surface2); padding:12px; border-radius:12px; border:1px solid var(--border);">
+      <label style="font-size:12px; color:var(--text-muted); display:block; margin-bottom:6px; font-weight:700;">📱 رقم الهاتف (لإشعارات واتساب):</label>
+      <div style="display:flex; gap:10px;">
+        <input type="tel" id="custPhoneInput" placeholder="مثال: 078XXXXXXX" style="flex:1; background:var(--surface); border:1px solid var(--border); color:var(--text); padding:10px; border-radius:10px; font-family:Cairo; text-align:left; font-weight:700;" dir="ltr">
+        <button onclick="savePhone()" style="background:var(--primary); color:#2A3824; border:none; padding:10px 16px; border-radius:10px; font-weight:800; font-family:Cairo; cursor:pointer;">حفظ الهاتف 💾</button>
+      </div>
+    </div>
+
+    <!-- Hearts Control Box -->
+    <div class="hearts-box" style="margin-bottom:15px;">
+      <span style="font-size:14px; font-weight:700;">رصيد القلوب الحالي:</span>
+      <div class="hearts-count">
+        <span id="custHeartsDisplay">0</span> <span class="heart-icon">❤️</span>
+      </div>
+    </div>
+    <div id="clubProfileBox" style="margin-bottom:15px;background:var(--surface2);border:1px solid var(--border);border-radius:14px;padding:14px;"></div>
+
+    <!-- Points Management Buttons (Add, Deduct, Set Custom) -->
+    <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:10px; margin-bottom:20px;">
+      <button id="addHeartBtn" onclick="addHeart()" style="background:var(--primary); color:#2A3824; border:none; padding:14px 10px; border-radius:12px; font-weight:900; font-family:Cairo; font-size:14px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:6px; box-shadow:0 4px 12px rgba(184,151,120,0.3);">
+        <span>➕</span> إضافة قلب (+1)
+      </button>
+
+      <button id="deductHeartBtn" onclick="deductHeart()" style="background:rgba(229,57,53,0.15); color:#e53935; border:1px solid rgba(229,57,53,0.3); padding:14px 10px; border-radius:12px; font-weight:900; font-family:Cairo; font-size:14px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:6px;">
+        <span>➖</span> خصم قلب (-1)
+      </button>
+
+      <button onclick="setCustomHearts()" style="background:var(--surface2); color:var(--text); border:1px solid var(--border); padding:14px 10px; border-radius:12px; font-weight:700; font-family:Cairo; font-size:13px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:4px;">
+        <span>✏️</span> تعديل مخصص
+      </button>
+    </div>
+
+    <!-- Available Rewards & Redemption Section -->
+    <div style="background:var(--surface2); border:1px solid var(--border); border-radius:14px; padding:16px; margin-bottom:15px;">
+      <h4 style="margin:0 0 12px; color:var(--primary-lt); font-size:15px; font-weight:800;">🎁 استبدال المكافآت</h4>
+      <div id="rewardListContainer" style="display:flex; flex-direction:column; gap:10px;">
+        <!-- Rewards injected dynamically -->
+      </div>
+    </div>
+
+  </div>
+
+  <!-- All Customers Section -->
+  <div style="margin-top:30px; background:var(--surface); border-radius:15px; padding:20px; border:1px solid var(--border);">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
+      <h3 style="margin:0; color:var(--primary-lt); font-size:18px; font-weight:800;">👥 جميع الزبائن المسجلين</h3>
+      <span id="custCountBadge" style="background:var(--surface2); color:var(--text-muted); padding:4px 12px; border-radius:20px; font-size:12px; font-weight:700;">0 زبون</span>
+    </div>
+    
+    <div style="overflow-x:auto;">
+      <table style="width:100%; text-align:right; border-collapse:collapse; min-width:550px;">
+        <thead>
+          <tr style="border-bottom:2px solid var(--border); color:var(--text-muted); font-size:13px;">
+            <th style="padding:10px;">الاسم</th>
+            <th style="padding:10px;">رقم العضوية</th>
+            <th style="padding:10px;">البريد</th>
+            <th style="padding:10px;">الهاتف</th>
+            <th style="padding:10px; text-align:center;">النقاط</th>
+            <th style="padding:10px; text-align:center;">إجراءات سريعة</th>
+          </tr>
+        </thead>
+        <tbody id="allCustomersTbody">
+          <tr><td colspan="6" style="text-align:center; padding:20px; color:var(--text-muted);">جارٍ التحميل...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</section>
+
+  <section id="loyalty-rewards" class="dash-section">
+    <div class="card" id="rewardManagement"><h2 class="card-title">🎁 إدارة المكافآت</h2>
+      <div class="search-box"><input id="rewardTitle" class="search-input" placeholder="اسم المكافأة"><input id="rewardRequired" class="search-input" type="number" min="1" value="3" style="max-width:130px"><button class="btn-primary" onclick="saveReward()">حفظ</button></div>
+      <input id="editingRewardId" type="hidden"><p class="muted" style="margin-top:12px">مثال: 3 ❤️ → جاي مجاني ☕</p>
+    </div>
+    <div class="card"><div style="overflow-x:auto"><table class="data-table"><thead><tr><th>المكافأة</th><th>القلوب المطلوبة</th><th>الحالة</th><th>إجراءات</th></tr></thead><tbody id="rewardManagementBody"></tbody></table></div></div>
+  </section>
+
+  <section id="loyalty-staff" class="dash-section">
+    <div class="card" id="staffManagement"><h2 class="card-title">👨‍💼 إضافة كاشير أو مدير</h2><p class="muted">تتم الدعوة بالبريد؛ يتفعّل الحساب عندما يسجّل صاحبه الدخول بحساب Google المطابق.</p>
+      <div class="search-box"><input id="staffEmail" class="search-input" type="email" placeholder="email@gmail.com"><select id="staffRole" class="search-input" style="max-width:150px" onchange="renderInvitePermissions()"><option value="cashier">كاشير</option><option value="manager">مدير</option></select><button class="btn-primary" onclick="inviteStaff()">إضافة</button></div>
+      <div id="invitePermissions" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-top:12px"></div>
+    </div>
+    <div class="staff-grid"><div class="card"><h2 class="card-title">☕ الكاشيرات</h2><div id="cashiersList"></div></div><div class="card"><h2 class="card-title">👨‍💼 المدراء</h2><div id="managersList"></div></div></div>
+  </section>
+
+  
+  <!-- ═══════════════════════ SONGS SECTION ═══════════════════════ -->
+  <section id="loyalty-songs" class="dash-section">
+    <div class="card" style="margin-bottom:20px; background:linear-gradient(135deg, var(--surface), var(--surface2)); border:2px solid var(--primary);">
+      <h2 class="card-title" style="display:flex;align-items:center;gap:8px;">🎵 مشغل أغاني كافيه 101</h2>
+      <p class="muted" style="margin-bottom:14px;">استمع للأغاني في الصالة وشغّل الموسيقى المناسبة لأجواء الكافيه والمناسبات.</p>
+      
+      <!-- Currently Playing Bar -->
+      <div id="nowPlayingCard" style="background:var(--bg); border:1px solid var(--border); border-radius:12px; padding:14px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; margin-bottom:16px;">
+        <div style="display:flex; align-items:center; gap:12px;">
+          <span style="font-size:28px;">🎶</span>
+          <div>
+            <strong id="currentTrackTitle" style="font-size:15px; color:var(--text); display:block;">اختر أغنية للتشغيل</strong>
+            <small id="currentTrackMeta" style="color:var(--text-muted); font-size:12px;">101 Coffee Playlist</small>
+          </div>
+        </div>
+        <audio id="loyaltyAudioPlayer" controls style="flex:1; max-width:320px; height:36px;"></audio>
+      </div>
+
+      <!-- Categories Filter Tabs -->
+      <div style="display:flex; gap:8px; overflow-x:auto; padding-bottom:8px; margin-bottom:14px;" id="songFilterTabs">
+        <button class="btn-primary" style="padding:6px 14px; font-size:12px; border-radius:20px;" onclick="filterLoyaltySongs('all')">الكل 🎵</button>
+      </div>
+
+      <!-- Songs Grid / List -->
+      <div id="loyaltySongsList" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(280px, 1fr)); gap:12px;">
+        <p class="muted">جارٍ تحميل الأغاني...</p>
+      </div>
+    </div>
+
+    <!-- Admin / Manager Song Management -->
+    <div class="card" id="songManageCard" style="display:none;">
+      <h3 style="margin-top:0; color:var(--primary-lt);">⚙️ إدارة قائمة الأغاني والتصنيفات</h3>
+      
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:18px; margin-top:16px;">
+        <!-- Add Category -->
+        <div style="background:var(--surface2); padding:14px; border-radius:12px; border:1px solid var(--border);">
+          <h4 style="margin:0 0 10px;">➕ تصنيف أغاني جديد</h4>
+          <div style="display:flex; gap:8px;">
+            <input type="text" id="newLoyaltySongCat" class="search-input" placeholder="مثال: أغاني صباحية">
+            <button class="btn-primary" onclick="addLoyaltySongCat()">إضافة</button>
+          </div>
+          <div id="loyaltySongCatsBadges" style="display:flex; gap:6px; flex-wrap:wrap; margin-top:10px;"></div>
+        </div>
+
+        <!-- Add/Edit Song Form -->
+        <div style="background:var(--surface2); padding:14px; border-radius:12px; border:1px solid var(--border);">
+          <h4 id="songFormHeading" style="margin:0 0 10px;">➕ إضافة أغنية جديدة</h4>
+          <input type="hidden" id="editingSongId">
+          <div style="display:flex; flex-direction:column; gap:8px;">
+            <input type="text" id="songFormTitle" class="search-input" placeholder="اسم الأغنية / المعزوفة">
+            <select id="songFormCat" class="search-input"></select>
+            <input type="url" id="songFormUrl" class="search-input" placeholder="رابط الملف الصوتي (MP3 / Stream URL)">
+            <input type="text" id="songFormArtist" class="search-input" placeholder="الفنان / العازف (اختياري)">
+            <div style="display:flex; gap:8px; margin-top:6px;">
+              <button class="btn-primary" onclick="saveLoyaltySong()" style="flex:1;">حفظ الأغنية 💾</button>
+              <button onclick="resetLoyaltySongForm()" style="background:var(--surface); border:1px solid var(--border); padding:8px 12px; border-radius:8px; font-family:Cairo; cursor:pointer;">إلغاء</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="loyalty-logs" class="dash-section"><div class="card"><h2 class="card-title">📜 سجل العمليات</h2><div style="overflow-x:auto"><table class="data-table"><thead><tr><th>التاريخ</th><th>نوع العملية</th><th>العميل</th><th>التفاصيل</th><th>المنفذ</th><th>الدور</th></tr></thead><tbody id="loyaltyLogsBody"></tbody></table></div></div></section>
+  <section id="loyalty-gifts" class="dash-section"><div class="card"><h2 class="card-title">🎁 استلام هدية</h2><p class="muted">ابحث بكود الهدية أو رقم الطلب أو هاتف المستلم، ثم تحقّق من الحالة قبل التسليم.</p><div class="search-box"><input id="giftRedeemSearch" class="search-input" placeholder="101-GIFT-XXXX أو GIFT-101-XXXX أو الهاتف" dir="ltr"><button class="btn-primary" type="button" onclick="findGiftForRedeem()">بحث</button></div><div id="giftRedeemResult" style="margin-top:18px"></div></div></section>
+</div>
+
+<!-- ═══════════════════════ NEW CUSTOMER MODAL ═══════════════════════ -->
+<div id="newCustomerModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.7); z-index:999; align-items:center; justify-content:center; padding:15px; backdrop-filter:blur(4px);">
+  <div style="background:var(--surface); width:100%; max-width:420px; border-radius:20px; padding:22px; border:1px solid var(--border); box-shadow:0 10px 30px rgba(0,0,0,0.5);">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+      <h3 style="margin:0; font-size:17px; font-weight:800; color:var(--primary-lt);">➕ إضافة زبون جديد</h3>
+      <button onclick="closeNewCustomerModal()" style="background:none; border:none; color:var(--text-muted); font-size:22px; cursor:pointer;">×</button>
+    </div>
+
+    <div style="margin-bottom:12px;">
+      <label style="display:block; font-size:12px; font-weight:700; margin-bottom:4px;">اسم الزبون:</label>
+      <input type="text" id="newCustName" placeholder="الاسم الكامل" style="width:100%; padding:10px; border-radius:10px; border:1px solid var(--border); background:var(--surface2); color:var(--text); font-family:Cairo; box-sizing:border-box;">
+    </div>
+
+    <div style="margin-bottom:12px;">
+      <label style="display:block; font-size:12px; font-weight:700; margin-bottom:4px;">رقم الهاتف (اختياري):</label>
+      <input type="tel" id="newCustPhone" placeholder="078XXXXXXX" style="width:100%; padding:10px; border-radius:10px; border:1px solid var(--border); background:var(--surface2); color:var(--text); font-family:Cairo; box-sizing:border-box;" dir="ltr">
+    </div>
+
+    <div style="display:flex; gap:10px; margin-bottom:16px;">
+      <div style="flex:1;">
+        <label style="display:block; font-size:12px; font-weight:700; margin-bottom:4px;">النقاط المبدئية:</label>
+        <input type="number" id="newCustHearts" value="0" min="0" max="5" style="width:100%; padding:10px; border-radius:10px; border:1px solid var(--border); background:var(--surface2); color:var(--text); font-family:Cairo; box-sizing:border-box; text-align:center;">
+      </div>
+      <div style="flex:1;">
+        <label style="display:block; font-size:12px; font-weight:700; margin-bottom:4px;">رمز PIN (4 أرقام):</label>
+        <input type="text" id="newCustPin" placeholder="توليد تلقائي" maxlength="6" style="width:100%; padding:10px; border-radius:10px; border:1px solid var(--border); background:var(--surface2); color:var(--text); font-family:monospace; box-sizing:border-box; text-align:center;">
+      </div>
+    </div>
+    <div style="margin:-5px 0 16px;"><label style="display:block;font-size:12px;font-weight:700;margin-bottom:4px;">نوع العميل:</label><select id="newCustType" style="width:100%;padding:10px;border-radius:10px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-family:Cairo;"><option value="زبون">زبون</option><option value="عضو مميز">عضو مميز</option></select></div>
+
+    <div style="display:flex; gap:10px;">
+      <button onclick="submitNewCustomer()" style="flex:1; background:var(--primary); color:#2A3824; border:none; padding:12px; border-radius:10px; font-weight:800; font-family:Cairo; cursor:pointer; font-size:14px;">
+        حفظ العضوية ✅
+      </button>
+      <button onclick="closeNewCustomerModal()" style="background:var(--surface2); color:var(--text-muted); border:1px solid var(--border); padding:12px; border-radius:10px; font-weight:700; font-family:Cairo; cursor:pointer;">
+        إلغاء
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Super Admin Edits ──
+async function setCustomerType(newType) {
+  if (!currentCustomer || !requirePermission('manage_customers')) return;
+  if (!['زبون','عضو مميز'].includes(newType)) return;
+  try {
+    await db.ref('loyalty_customers/' + currentCustomer.id + '/memberType').set(newType);
+    showToast('✅ تم تحديث نوع العميل إلى: ' + newType);
+  } catch(e) { showToast('❌ خطأ: ' + e.message); }
+}
+
+async function editCustomerId() {
+  if (!currentCustomer) return;
+  const oldId = currentCustomer.id;
+  const newId = prompt("أدخل رقم العضوية الجديد (لا يمكن استخدام رقم موجود مسبقاً):", oldId);
+  if (!newId || newId.trim() === '' || newId === oldId) return;
+  
+  const cleanNewId = newId.trim();
+  try {
+    const checkSnap = await db.ref('loyalty_customers/' + cleanNewId).once('value');
+    if (checkSnap.exists()) {
+      alert("⚠️ هذا الرقم مستخدم لزبون آخر!");
+      return;
+    }
+    
+    const custData = { ...currentCustomer };
+    delete custData.id;
+    
+    const updates = {};
+    updates['loyalty_customers/' + cleanNewId] = custData;
+    updates['loyalty_customers/' + oldId] = null;
+    
+    if (custData.uid) {
+      updates['loyalty_links/' + custData.uid] = cleanNewId;
+    }
+    
+    updates['loyalty_logs/' + db.ref('loyalty_logs').push().key] = {
+      type: 'CHANGE_CARD_ID',
+      oldCardId: oldId,
+      newCardId: cleanNewId,
+      customerName: custData.name,
+      cashierName: currentCashier ? currentCashier.name : 'Super Admin',
+      timestamp: firebase.database.ServerValue.TIMESTAMP
+    };
+    
+    await db.ref().update(updates);
+    
+    if (currentCustomerRef) { currentCustomerRef.off(); currentCustomerRef = null; }
+    document.getElementById('searchQ').value = cleanNewId;
+    searchCust();
+    showToast('✅ تم تغيير رقم العضوية بنجاح!');
+  } catch(e) {
+    showToast('❌ خطأ في تغيير الرقم: ' + e.message);
+  }
+}
+
+</script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-functions-compat.js"></script>
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyD2oQ1UGsFrIqSu2nQX6m6zQbkQ3AEYwhM",
+  authDomain: "coffee-30fa7.firebaseapp.com",
+  databaseURL: "https://coffee-30fa7-default-rtdb.firebaseio.com",
+  projectId: "coffee-30fa7",
+  storageBucket: "coffee-30fa7.firebasestorage.app",
+  messagingSenderId: "270560177888",
+  appId: "1:270560177888:web:25445d71b2a7097515ea85",
+  measurementId: "G-GS7B79LHCE"
+};
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.database();
+const loyaltyPersistenceReady = auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(async error => {
+  console.warn('[LOYALTY_AUTH_PERSISTENCE_FAILED]', { code:error?.code||'unknown' });
+  await auth.setPersistence(firebase.auth.Auth.Persistence.SESSION);
+});
+auth.getRedirectResult().then(result => {
+  if(result?.user)console.log('[LOYALTY_GOOGLE_REDIRECT_SUCCESS]', { hasCurrentUser:Boolean(auth.currentUser) });
+}).catch(error => {
+  console.error('[LOYALTY_GOOGLE_REDIRECT_FAILED]', { code:error?.code||'unknown' });
+});
+
+let currentCashier = null;
+let currentCustomer = null;
+let rewardRules = [];
+let currentCustomerRef = null;
+let customers = [], staff = [], logs = [];
+const SUPER_ADMIN_EMAIL = 'mohameadalhaear100@gmail.com';
+const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
+function can(action) {
+  if (!currentCashier) return false;
+  if (currentCashier.role === 'super_admin') return true;
+  if ((currentCashier.role === 'manager' || currentCashier.role === 'admin') && ['search_customers','manage_points','redeem_rewards','manage_customers','manage_rewards','manage_staff'].includes(action)) return true;
+  if (currentCashier.role === 'cashier' && ['search_customers','manage_points','redeem_rewards'].includes(action)) return true;
+  const p = currentCashier.permissions || {};
+  return p[action] === true || (action === 'search_customers' && currentCashier.role === 'cashier');
+}
+function can(action) {
+  if (!currentCashier) return false;
+  if (currentCashier.role === 'super_admin') return true;
+  if ((currentCashier.role === 'manager' || currentCashier.role === 'admin') && ['search_customers','manage_points','add_points','redeem_rewards','manage_customers','manage_rewards','manage_staff'].includes(action)) return true;
+  if (currentCashier.role === 'cashier' && ['search_customers','add_points','redeem_rewards'].includes(action)) return true;
+  
+  const p = currentCashier.permissions || {};
+  return p[action] === true || (action === 'search_customers' && currentCashier.role === 'cashier');
+}﻿
+function isCashierRole(){ return currentCashier?.role === 'cashier'; }
+function canInviteRole(role){ return currentCashier?.role === 'super_admin' || ((currentCashier?.role === 'manager' || currentCashier?.role === 'admin') && role === 'cashier'); }
+function canEditStaffRole(role){ return currentCashier?.role === 'super_admin' || ((currentCashier?.role === 'manager' || currentCashier?.role === 'admin') && role === 'cashier'); }
+function requirePermission(action) {
+  if (can(action)) return true;
+  showToast('🚫 لا تملك صلاحية لهذه العملية.');
+  return false;
+}
+function showLoyaltySection(name) {
+  if (currentCashier && currentCashier.role === 'cashier') {
+    if (name === 'rewards' || name === 'staff') {
+      showToast('🚫 ليس لديك صلاحية للوصول إلى هذه الصفحة.');
+      name = 'overview';
+    }
+  }
+  document.querySelectorAll('.dash-section').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('[data-nav]').forEach(el => el.classList.toggle('active', el.dataset.nav === name));
+  document.getElementById('loyalty-' + name)?.classList.add('active');
+  if (name === 'songs') renderLoyaltySongs();
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  if(!t) return;
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+// ── Auth and role bootstrap ──
+const LOYALTY_ALLOWED_ROLES=['cashier','manager','admin','super_admin'];
+const loyaltyAdminPath=user=>`admins/${user.uid}`;
+const loyaltyInvitePath=email=>`pending_admins/${email.replace(/\./g,',').replace(/@/g,'_at_')}`;
+function restoreLoyaltyLoginButton(){const btn=document.getElementById('googleBtn');if(btn){btn.disabled=false;btn.innerHTML='<img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" width="22" height="22" alt="Google"> تسجيل الدخول باستخدام Google';}}
+function loyaltyBootstrapError(message,code,path){const error=new Error(message);error.code=code;error.path=path;return error;}
+async function readLoyaltyAdminRecord(user){
+  const path=loyaltyAdminPath(user);
+  console.log('[LOYALTY_ADMIN_RECORD_READ_START]',{path:'/admins/{current-user}'});
+  try{
+    const snapshot=await db.ref(path).once('value');
+    const record=snapshot.val();
+    console.log('[LOYALTY_ADMIN_RECORD_READ_SUCCESS]',{path:'/admins/{current-user}',exists:snapshot.exists(),role:record?.role||null});
+    return snapshot;
+  }catch(error){
+    console.error('[LOYALTY_ADMIN_RECORD_READ_FAILED]',{path:'/admins/{current-user}',code:error?.code||'unknown'});
+    throw loyaltyBootstrapError('تعذر قراءة صلاحيات الموظف.',error?.code||'database/read-failed',`/${path}`);
+  }
+}
+async function bootstrapLoyaltyRole(user){
+  const email=(user.email||'').toLowerCase().trim();
+  let adminSnapshot=await readLoyaltyAdminRecord(user);
+  if(!adminSnapshot.exists()&&email!==SUPER_ADMIN_EMAIL){
+    const invitePath=loyaltyInvitePath(email);
+    console.log('[LOYALTY_PENDING_INVITE_READ_START]',{path:'/pending_admins/{matching-email}'});
+    let inviteSnapshot;
+    try{
+      inviteSnapshot=await db.ref(invitePath).once('value');
+      console.log('[LOYALTY_PENDING_INVITE_READ_SUCCESS]',{exists:inviteSnapshot.exists()});
+    }catch(error){
+      console.error('[LOYALTY_PENDING_INVITE_READ_FAILED]',{code:error?.code||'unknown'});
+      throw loyaltyBootstrapError('تعذر التحقق من دعوة الموظف.',error?.code||'database/read-failed',`/${invitePath}`);
+    }
+    if(inviteSnapshot.exists()){
+      const invite=inviteSnapshot.val()||{};
+      const updates={};
+      updates[loyaltyAdminPath(user)]={uid:user.uid,email,pendingKey:invitePath.split('/')[1],displayName:user.displayName||email,role:invite.role,permissions:invite.permissions||{},status:'active',joinedAt:firebase.database.ServerValue.TIMESTAMP};
+      updates[invitePath]=null;
+      try{
+        await db.ref().update(updates);
+      }catch(error){
+        throw loyaltyBootstrapError('تعذر تفعيل دعوة الموظف.',error?.code||'database/write-failed','/admins/{current-user}');
+      }
+      adminSnapshot=await readLoyaltyAdminRecord(user);
+    }
+  }
+  const record=adminSnapshot.val();
+  if(email===SUPER_ADMIN_EMAIL&&(!record||record.status!=='active'||record.role!=='super_admin')){
+    db.ref(loyaltyAdminPath(user)).update({email,displayName:'Super Admin',role:'super_admin',status:'active'}).catch(()=>{});
+    db.ref('loyalty_customers/101-1').update({uid:user.uid,email,name:user.displayName||'Super Admin',memberType:'Super Admin',hearts:0}).catch(()=>{});
+    db.ref('loyalty_links/'+user.uid).set('101-1').catch(()=>{});
+    db.ref('loyalty_counter').transaction(value=>Math.max(Number(value)||0,2)).catch(()=>{});
+    return {uid:user.uid,name:'Super Admin',role:'super_admin',permissions:{}};
+  }
+  if(!record)throw loyaltyBootstrapError('لا يوجد سجل موظف مفعّل لهذا الحساب.','role/not-found','/admins/{current-user}');
+  if(record.status!=='active'||!LOYALTY_ALLOWED_ROLES.includes(record.role))throw loyaltyBootstrapError('حساب الموظف غير مفعّل أو أن دوره غير صالح.','role/not-authorized','/admins/{current-user}');
+  return {uid:user.uid,name:record.displayName||email,role:record.role,permissions:record.permissions||{}};
+}
+auth.onAuthStateChanged(async user=>{
+  console.log('[LOYALTY_AUTH_STATE]',{signedIn:Boolean(user),hasCurrentUser:Boolean(auth.currentUser),currentUserMatches:Boolean(user&&auth.currentUser&&user.uid===auth.currentUser.uid)});
+  if(!user){
+    currentCashier=null;
+    document.getElementById('loginScreen').style.display='flex';
+    document.getElementById('appScreen').style.display='none';
+    restoreLoyaltyLoginButton();
+    return;
+  }
+  try{
+    currentCashier=await bootstrapLoyaltyRole(user);
+    document.getElementById('loginScreen').style.display='none';
+    document.getElementById('appScreen').style.display='block';
+    document.getElementById('cashierNameDisplay').textContent=currentCashier.name;
+    if(currentCashier.role==='cashier'){
+      const rewardsTab=document.querySelector('[data-nav="rewards"]');if(rewardsTab)rewardsTab.style.display='none';
+      const staffTab=document.querySelector('[data-nav="staff"]');if(staffTab)staffTab.style.display='none';
+    }
+    loadDashboardData();
+  }catch(error){
+    console.error('[LOYALTY_LOGIN_BOOTSTRAP_FAILED]',{authSuccess:Boolean(auth.currentUser),firstFailedPath:error?.path||'unknown',code:error?.code||'unknown'});
+    currentCashier=null;
+    document.getElementById('loginMsg').textContent=`⚠️ تم تسجيل الدخول بحساب Google، لكن تعذر التحقق من صلاحيات هذا الحساب (${error?.code||'unknown'}).`;
+    document.getElementById('loginMsg').style.color='#e53935';
+    restoreLoyaltyLoginButton();
+    auth.signOut().catch(()=>{});
+  }
+});
+async function signInCashier(){
+  console.log('[LOYALTY_LOGIN_CLICK]');
+  const btn=document.getElementById('googleBtn');
+  const msg=document.getElementById('loginMsg');
+  if(btn){btn.disabled=true;btn.innerHTML='<span style="animation:spin .8s linear infinite;display:inline-block">⏳</span> جاري التحقق...';}
+  if(msg)msg.innerHTML='<div style="color:var(--text-muted);font-size:13px;margin-top:10px;">جاري فتح نافذة Google...</div>';
+  try{
+    if(typeof firebase==='undefined'||typeof auth==='undefined')throw loyaltyBootstrapError('لم يتم تحميل Firebase بشكل صحيح.','auth/sdk-not-loaded','Firebase SDK');
+    await loyaltyPersistenceReady;
+    const provider=new firebase.auth.GoogleAuthProvider();
+    provider.addScope('email');
+    provider.setCustomParameters({prompt:'select_account'});
+    console.log('[LOYALTY_GOOGLE_POPUP_START]');
+    const result=await auth.signInWithPopup(provider);
+    console.log('[LOYALTY_GOOGLE_POPUP_SUCCESS]',{hasResultUser:Boolean(result?.user),hasCurrentUser:Boolean(auth.currentUser)});
+    if(msg)msg.innerHTML='<div style="color:var(--primary-lt);font-size:13px;margin-top:10px;">✅ تم تسجيل Google، جاري التحقق من الصلاحيات...</div>';
+  }catch(error){
+    console.error('[LOYALTY_GOOGLE_POPUP_FAILED]',{code:error?.code||'unknown'});
+    if(error?.code==='auth/popup-blocked'||error?.code==='auth/operation-not-supported-in-this-environment'){
+      try{
+        if(msg)msg.innerHTML='<div style="color:var(--text-muted);font-size:13px;margin-top:10px;">سيتم فتح تسجيل Google في نفس الصفحة...</div>';
+        const provider=new firebase.auth.GoogleAuthProvider();
+        provider.addScope('email');
+        provider.setCustomParameters({prompt:'select_account'});
+        await auth.signInWithRedirect(provider);
+        return;
+      }catch(redirectError){
+        console.error('[LOYALTY_GOOGLE_REDIRECT_FAILED]',{code:redirectError?.code||'unknown'});
+        error=redirectError;
+      }
+    }
+    restoreLoyaltyLoginButton();
+    const friendly=error?.code==='auth/api-key-not-valid'||error?.code==='auth/invalid-api-key'?'مفتاح Firebase غير صالح.':error?.code==='auth/unauthorized-domain'?'هذا النطاق غير مضاف إلى Authorized Domains في Firebase.':error?.code==='auth/operation-not-supported-in-this-environment'||location.protocol==='file:'?'جوجل لا يدعم تسجيل الدخول عند فتح الملف مباشرة.':'تعذر فتح تسجيل Google. حاول مرة أخرى.';
+    if(msg)msg.innerHTML=`<div style="color:#e53935;font-size:13px;margin-top:10px;">❌ ${friendly}</div>`;
+  }
+}
+
+function signOutCashier() { auth.signOut().catch(()=>{}); location.reload(); }
+
+function loadRewardRules() {
+  db.ref('loyalty_reward_rules').on('value', snap => {
+    rewardRules = [];
+    if(snap.exists()){
+      snap.forEach(child => {
+        const val = child.val();
+        rewardRules.push({ id: child.key, ...val });
+      });
+      rewardRules.sort((a,b) => a.heartsRequired - b.heartsRequired);
+    }
+    renderRewardManagement();
+    if (currentCustomer) renderRewards();
+  });
+}
+
+function loadDashboardData() {
+  loadRewardRules();
+  loadAllCustomers();
+    let adminsArray = [];
+  let pendingArray = [];
+  const updateStaff = () => {
+      staff = [...adminsArray, ...pendingArray];
+      renderStaff();
+      renderStats();
+  };
+  const canReadStaffDirectory=['super_admin','admin','manager'].includes(currentCashier?.role);
+  if(canReadStaffDirectory){
+    db.ref('admins').on('value', snap => { 
+        adminsArray=[]; 
+        snap.forEach(c=>adminsArray.push({uid:c.key,...c.val()})); 
+        updateStaff();
+    });
+    db.ref('pending_admins').on('value', snap => {
+        pendingArray=[];
+        snap.forEach(c=>{
+            console.log('[INVITE_SNAPSHOT_RECEIVED]', {key: c.key, email: c.val().email});
+            pendingArray.push({uid:c.key, isPending: true, ...c.val()});
+        });
+        updateStaff();
+    });
+  }
+  db.ref('loyalty_logs').limitToLast(250).on('value', snap => { logs=[]; snap.forEach(c=>logs.push({id:c.key,...c.val()})); logs.sort((a,b)=>(b.timestamp||0)-(a.timestamp||0)); renderLogs(); renderStats(); });
+  db.ref('song_categories').on('value', snap => {
+    songCategories = [];
+    if (snap.exists()) {
+      snap.forEach(child => {
+        const val = child.val() || {};
+        console.log('[LOYALTY_CATEGORY_SNAPSHOT]', { id: child.key, name: val.name, enabled: val.enabled });
+        songCategories.push({ id: child.key, ...val });
+      });
+    }
+    console.info('[LOYALTY_SONGS_SNAPSHOT]',{path:'song_categories',count:songCategories.length});
+    renderLoyaltySongs();
+  }, error => { console.error('[SONG_LISTENER_ERROR]', {operation:'categories', path:'song_categories', code:error?.code, message:error?.message}); renderLoyaltySongs(); });
+  db.ref('songs').on('value', snap => {
+    loyaltySongs = [];
+    if (snap.exists()) {
+      snap.forEach(c => {
+        const val = c.val();
+        loyaltySongs.push({ 
+          id: c.key, 
+          ...val,
+          audioUrl: val.audioUrl || val.url
+        });
+      });
+    }
+    console.info('[LOYALTY_SONGS_SNAPSHOT]',{path:'songs',count:loyaltySongs.length});
+    renderLoyaltySongs();
+  }, error => { console.error('[SONG_LISTENER_ERROR]', {operation:'songs', path:'songs', code:error?.code, message:error?.message}); renderLoyaltySongs(); });
+}
+
+let loyaltySongs = [], songCategories = [], activeSongCategory = 'all';
+function renderLoyaltySongs() {
+  const tabs = document.getElementById('songFilterTabs');
+  const list = document.getElementById('loyaltySongsList');
+  if (!tabs || !list) return;
+
+  const normalizedSongs = loyaltySongs.map(song => {
+    let finalCategoryId = song.categoryId;
+    if (!finalCategoryId || !songCategories.some(c => c.id === finalCategoryId)) {
+      const legacyCat = songCategories.find(c => c.name === song.category);
+      if (legacyCat) finalCategoryId = legacyCat.id;
+    }
+    return { ...song, finalCategoryId };
+  });
+
+  let activeCategories = songCategories.filter(c => c.enabled !== false);
+  activeCategories.sort((a, b) => (a.order || 0) - (b.order || 0));
+  
+  const categories = activeCategories.map(c => {
+    const catName = c.name || c.title || 'تصنيف بدون اسم';
+    console.log('[LOYALTY_CATEGORY_BUTTON_RENDER]', { id: c.id, name: catName });
+    return { id: c.id, name: catName };
+  });
+
+  const categoryById = new Map(songCategories.map(c => [c.id, c.name || c.title || 'تصنيف بدون اسم']));
+  const legacyCategories=[...new Set(normalizedSongs.filter(s=>!s.finalCategoryId).map(s=>s.category).filter(Boolean))].map(name=>({id:`legacy:${name}`,name}));
+  const allCategories=[...categories,...legacyCategories];
+  
+  tabs.innerHTML = [{id:'all',name:'الكل 🎵'},...allCategories].map(category => `<button class="btn-primary" type="button" style="padding:6px 14px;font-size:12px;border-radius:20px;${activeSongCategory === category.id ? '' : 'opacity:.72'}" onclick='filterLoyaltySongs(${JSON.stringify(category.id)})'>${esc(category.name)}</button>`).join('');
+  
+  const visible = activeSongCategory === 'all' ? normalizedSongs : normalizedSongs.filter(song => song.finalCategoryId===activeSongCategory || `legacy:${song.category||''}`===activeSongCategory);
+  
+  list.innerHTML = visible.length ? visible.map(song => { 
+    const categoryName=categoryById.get(song.finalCategoryId)||song.category||'101 Coffee'; 
+    return `<article style="background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:12px;display:flex;gap:10px;align-items:center;"><button type="button" onclick='playLoyaltySong(${JSON.stringify(song.id)})' aria-label="تشغيل ${esc(song.title || 'الأغنية')}" style="border:0;border-radius:50%;width:38px;height:38px;background:var(--primary);cursor:pointer;font-size:16px;flex:0 0 auto;">▶</button><div style="min-width:0"><strong style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(song.title || 'بدون عنوان')}</strong><small class="muted">${esc(song.artist || categoryName)}</small></div></article>`; 
+  }).join('') : '<p class="muted" style="grid-column:1/-1;text-align:center;padding:20px">لا توجد أغاني متاحة حاليًا.</p>';
+  
+  console.info('[LOYALTY_SONG_RENDER]',{songs:normalizedSongs.length,visible:visible.length,categories:allCategories.length});
+}
+function filterLoyaltySongs(category) { activeSongCategory = category || 'all'; renderLoyaltySongs(); }
+function loyaltyMediaErrorDetails(error) {
+  const codes={1:'MEDIA_ERR_ABORTED',2:'MEDIA_ERR_NETWORK',3:'MEDIA_ERR_DECODE',4:'MEDIA_ERR_SRC_NOT_SUPPORTED'};
+  const code=Number(error?.code)||0;
+  return {code,name:codes[code]||'MEDIA_ERR_UNKNOWN'};
+}
+async function inspectLoyaltyAudioResponse(audioUrl) {
+  try {
+    const response=await fetch(audioUrl,{method:'HEAD',redirect:'follow'});
+    return {status:response.status,contentType:response.headers.get('content-type')||null};
+  } catch(error) {
+    return {status:null,contentType:null,networkError:error?.message||'Network inspection unavailable'};
+  }
+}
+function waitForLoyaltyAudio(player, timeoutMs=12000) {
+  return new Promise((resolve,reject)=>{
+    let settled=false;
+    const events=[];
+    const snapshot=()=>({readyState:player.readyState,networkState:player.networkState,currentSrc:player.currentSrc,mediaError:loyaltyMediaErrorDetails(player.error)});
+    const record=type=>{const state=snapshot();events.push({type,...state});console.info('[SONG_AUDIO_EVENT]',{type,...state});};
+    const cleanup=()=>Object.entries(handlers).forEach(([type,handler])=>player.removeEventListener(type,handler));
+    const finish=(fn,value)=>{if(settled)return;settled=true;clearTimeout(timer);cleanup();fn(value);};
+    const handlers={
+      loadedmetadata:()=>record('loadedmetadata'),
+      canplay:()=>record('canplay'),
+      playing:()=>{record('playing');finish(resolve,{events,...snapshot()});},
+      stalled:()=>record('stalled'),
+      waiting:()=>record('waiting'),
+      error:()=>{record('error');const detail=loyaltyMediaErrorDetails(player.error);finish(reject,Object.assign(new Error(detail.name),detail,{events,...snapshot()}));}
+    };
+    const timer=setTimeout(()=>{const state=snapshot();finish(reject,Object.assign(new Error('MEDIA_PLAY_TIMEOUT'),{events,...state}));},timeoutMs);
+    Object.entries(handlers).forEach(([type,handler])=>player.addEventListener(type,handler));
+  });
+}
+async function playLoyaltySong(id) {
+  const song = loyaltySongs.find(item => item.id === id);
+  const player = document.getElementById('loyaltyAudioPlayer');
+  const audioUrl = song?.audioUrl || song?.url;
+  if (!audioUrl || !player) return showToast('تعذر تشغيل هذه الأغنية.');
+  try { const parsed=new URL(audioUrl, location.href); if(!/^https?:$/.test(parsed.protocol)) throw new Error('Audio URL must use http(s)'); } catch(error) { console.error('[SONG_AUDIO_PLAY_FAILED]',{operation:'validate',path:`songs/${song.id}`,code:error?.code,message:error?.message}); return showToast('رابط الصوت غير صالح. استخدم رابط MP3 مباشر.'); }
+  document.getElementById('currentTrackTitle').textContent = song.title || 'بدون عنوان';
+  document.getElementById('currentTrackMeta').textContent = song.artist || song.category || '101 Coffee Playlist';
+  player.pause();
+  const networkPromise=inspectLoyaltyAudioResponse(audioUrl);
+  const playbackStarted=waitForLoyaltyAudio(player);
+  player.src = audioUrl;
+  player.load();
+  const playPromise=player.play();
+  try {
+    const [playback,network]=await Promise.all([Promise.all([playbackStarted,playPromise]),networkPromise]);
+    console.info('[SONG_AUDIO_PLAY_SUCCESS]',{operation:'play',path:`songs/${song.id}`,url:audioUrl,httpStatus:network.status,contentType:network.contentType,readyState:playback[0].readyState,networkState:playback[0].networkState,events:playback[0].events});
+  } catch(error) {
+    const detail=loyaltyMediaErrorDetails(player.error);
+    const network=await networkPromise;
+    console.error('[SONG_AUDIO_PLAY_FAILED]',{operation:'play',path:`songs/${song.id}`,url:audioUrl,code:detail.code||error?.name,message:error?.message,mediaError:detail.name,httpStatus:network.status,contentType:network.contentType,networkError:network.networkError||null,readyState:error?.readyState??player.readyState,networkState:error?.networkState??player.networkState,currentSrc:error?.currentSrc??player.currentSrc,events:error?.events||[]});
+    showToast('تعذر تشغيل الأغنية. استخدم رابط ملف صوت مباشر أو مصدر صوت مدعوم.');
+  }
+}
+function renderStats() {
+  const put=(id,v)=>{const el=document.getElementById(id);if(el)el.textContent=v;};
+  const isToday=t => Number(t) && new Date(Number(t)).toDateString() === new Date().toDateString();
+  const customerOnly=customers; // Show all including Super Admin
+  const visibleLogs=logs.filter(l=>!l.deleted);
+  put('statCustomers', customerOnly.length);
+  put('statHearts', customerOnly.reduce((n,c)=>n+(Number(c.hearts)||0),0)+' ❤️');
+  put('statTodayHearts', visibleLogs.filter(l=>isToday(l.timestamp) && (l.type==='HEART_ADDED'||l.type==='ADD_HEART')).reduce((n,l)=>n+Math.max(0, Number(l.amount)||((Number(l.newHearts)||0)-(Number(l.oldHearts)||0))),0)+' ❤️');
+  put('statAvailableRewards', rewardRules.filter(r=>r.isActive !== false).length);
+  put('statRedeemed', visibleLogs.filter(l=>l.type==='REWARD_REDEEMED'||l.type==='REDEEM_REWARD').length);
+  put('statTodayOps', visibleLogs.filter(l=>isToday(l.timestamp)).length);
+  put('statCashiers', staff.filter(s=>s.role==='cashier'&&s.status==='active').length);
+  put('statManagers', staff.filter(s=>(s.role==='manager'||s.role==='admin')&&s.status==='active').length);
+}
+
+// ── Search Customer ──
+async function searchCust() {
+  const q = document.getElementById('searchQ').value.trim();
+  const msg = document.getElementById('searchMsg');
+  const prof = document.getElementById('customerProfile');
+  msg.textContent = '';
+  prof.style.display = 'none';
+  
+  if (currentCustomerRef) {
+    currentCustomerRef.off();
+    currentCustomerRef = null;
+  }
+  currentCustomer = null;
+
+  if (!q) { msg.textContent = 'الرجاء إدخال رقم العضوية أو الهاتف.'; return; }
+
+  try {
+    if (currentCashier?.role === 'cashier') {
+      const lookup = firebase.functions().httpsCallable('searchCustomer');
+      const result = await lookup({ query:q });
+      const found = result.data?.customer;
+      if (!found) { msg.textContent = '❌ لم يتم العثور على عميل بهذا الرقم.'; return; }
+      currentCustomerRef?.off();
+      currentCustomerRef = db.ref('loyalty_customers/' + found.id);
+      currentCustomerRef.on('value', snapshot => { if (snapshot.exists()) { currentCustomer = { id:found.id, ...snapshot.val(), email:undefined }; renderProfile(); } });
+      return;
+    }
+    let cust = null;
+    let custId = q;
+
+    // Search by ID first
+    let snap = await db.ref('loyalty_customers/' + q).once('value');
+    if (snap.exists()) {
+      cust = snap.val();
+      custId = q;
+    } else {
+      // If not found by ID, search by phone
+      const allSnap = await db.ref('loyalty_customers').once('value');
+      allSnap.forEach(child => {
+        if (child.val().phone === q) {
+          cust = child.val();
+          custId = child.key;
+        }
+      });
+    }
+
+    if (cust) {
+      currentCustomerRef = db.ref('loyalty_customers/' + custId);
+      currentCustomerRef.on('value', snapshot => {
+        if(snapshot.exists()) {
+          currentCustomer = { id: custId, ...snapshot.val() };
+          renderProfile();
+        } else {
+          currentCustomer = null;
+          prof.style.display = 'none';
+        }
+      });
+    } else {
+      msg.textContent = '❌ لم يتم العثور على عميل بهذا الرقم.';
+    }
+  } catch (e) {
+    msg.textContent = '❌ خطأ في البحث: ' + e.message;
+  }
+}
+
+function loadAllCustomers() {
+  if (currentCashier?.role === 'cashier') { customers=[]; renderCustomerTable(); renderStats(); return; }
+  db.ref('loyalty_customers').on('value', snap => {
+    const tb = document.getElementById('allCustomersTbody');
+    const badge = document.getElementById('custCountBadge');
+    if(!tb) return;
+    customers=[];
+    snap.forEach(c => { customers.push({...c.val(), id: c.key}); });
+    customers.sort((a,b) => (b.createdAt||0) - (a.createdAt||0));
+    renderCustomerTable();
+    renderStats();
+  });
+}
+function renderCustomerTable() {
+    const tb=document.getElementById('allCustomersTbody'); const badge=document.getElementById('custCountBadge');
+    if(!tb) return;
+    const q=(document.getElementById('searchQ')?.value||'').toLowerCase().trim();
+    const custs=customers.filter(c=>(!q || `${c.name||''} ${c.id} ${c.phone||''} ${c.email||''}`.toLowerCase().includes(q)));
+    if (badge) badge.textContent = custs.length + ' زبون';
+    if(!custs.length) { tb.innerHTML='<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--text-muted);">لا توجد نتائج</td></tr>'; return; }
+    let html = '';
+    custs.forEach(c => {
+      html += `<tr style="border-bottom:1px solid var(--border);">
+        <td style="padding:12px;font-weight:800;">${c.name || 'عميل'}</td>
+        <td style="padding:12px;font-family:monospace;color:var(--primary-lt);font-weight:700;">${c.id}</td>
+        <td style="padding:12px;" dir="ltr">${esc(c.email || '-')}</td>
+        <td style="padding:12px;" dir="ltr">${esc(c.phone || '-')}</td>
+        <td style="padding:12px;text-align:center;font-size:18px;font-weight:900;color:#e53935;">${c.hearts||0} ❤️</td>
+        <td style="padding:12px;text-align:center;">
+          <div style="display:inline-flex;gap:6px;">
+             ${can('manage_points')?`<button onclick="quickAddPoint('${c.id}', 1)" title="إضافة نقطة" style="background:var(--primary);color:#2A3824;border:none;padding:5px 9px;border-radius:6px;font-weight:900;cursor:pointer;">+1</button><button onclick="quickAddPoint('${c.id}', -1)" title="خصم نقطة" style="background:rgba(229,57,53,0.15);color:#e53935;border:1px solid rgba(229,57,53,0.3);padding:5px 9px;border-radius:6px;font-weight:900;cursor:pointer;">-1</button>`:''}
+            <button onclick="openCustomer('${c.id}')" style="background:var(--surface2);color:var(--text);border:1px solid var(--border);padding:5px 10px;border-radius:6px;font-weight:700;cursor:pointer;font-family:Cairo;">الملف 👤</button>
+             ${can('manage_customers')?`<button onclick="quickDeleteCustomer('${c.id}', '${esc(c.name).replace(/'/g,'&#039;')}')" title="حذف الزبون" style="background:none;border:none;color:#e53935;cursor:pointer;font-size:15px;padding:4px 6px;">🗑️</button>`:''}
+          </div>
+        </td>
+      </tr>`;
+    });
+    tb.innerHTML = html;
+}
+
+async function openCustomer(id) {
+  document.getElementById('searchQ').value = id;
+  await searchCust();
+  document.getElementById('customerProfile')?.scrollIntoView({behavior:'smooth'});
+}
+
+function renderProfile() {
+  if (!currentCustomer) return;
+  document.getElementById('custNameDisplay').textContent = currentCustomer.name || 'عميل';
+  document.getElementById('custCardDisplay').textContent = currentCustomer.id;
+  document.getElementById('custHeartsDisplay').textContent = currentCustomer.hearts || 0;
+  document.getElementById('custPhoneInput').value = currentCustomer.phone || '';
+  
+  const typeBadge = currentCustomer.memberType || 'زبون';
+  document.getElementById('custTypeDisplay').textContent = typeBadge;
+  document.getElementById('addHeartBtn').style.display = (can('manage_points') || can('add_points')) ? '' : 'none';
+  document.getElementById('deductHeartBtn').style.display = can('manage_points') ? '' : 'none';
+  document.querySelector('#customerProfile button[onclick="setCustomHearts()"]').style.display = can('manage_points') ? '' : 'none';
+  document.querySelector('#customerProfile button[onclick="deleteCurrentCustomer()"]').style.display = can('manage_customers') ? '' : 'none';
+
+  // Super Admin check
+  const typeSelect=document.getElementById('customerTypeSelect');
+  if (currentCashier && currentCashier.role === 'super_admin') {
+    typeSelect.style.display = 'inline-block';
+    typeSelect.value=['زبون','عضو مميز'].includes(typeBadge) ? typeBadge : 'زبون';
+    document.getElementById('saEditIdBtn').style.display = 'inline-block';
+  } else {
+    typeSelect.style.display = 'none';
+    document.getElementById('saEditIdBtn').style.display = 'none';
+  }
+  
+  document.getElementById('customerProfile').style.display = 'block';
+  renderClubProfile();
+  renderRewards();
+}
+
+async function renderClubProfile(){
+  const box=document.getElementById('clubProfileBox');
+  if(!box||!currentCustomer)return;
+  const subscriptionId=currentCustomer.activeSubscriptionId;
+  if(!subscriptionId){box.innerHTML='<b>☕ 101 CLUB</b><p class="muted" style="margin:7px 0 0">لا يوجد اشتراك فعال</p>';return;}
+  try{
+    const snap=await db.ref('subscriptions/'+subscriptionId).once('value');
+    const sub=snap.val();
+    if(!sub||sub.status!=='active'||Number(sub.expiresAt||0)<=Date.now()||Number(sub.remainingUses||0)<=0){box.innerHTML='<b>☕ 101 CLUB</b><p class="muted" style="margin:7px 0 0">لا يوجد اشتراك فعال</p>';return;}
+    box.innerHTML=`<b>☕ 101 CLUB — ${String(sub.planId||'').toUpperCase()}</b><p style="margin:7px 0">المتبقي: <strong>${Number(sub.remainingUses)} / ${Number(sub.totalUses)}</strong><br>صالح لغاية: ${new Date(Number(sub.expiresAt)).toLocaleDateString('ar-IQ')}</p>${can('manage_points')||can('add_points')?'<button type="button" class="btn-primary" onclick="useClubDrink()">استخدام مشروب من الاشتراك</button>':''}`;
+    window.currentClubSubscription={id:subscriptionId,...sub};
+  }catch(error){box.innerHTML='<b>☕ 101 CLUB</b><p class="muted">تعذر تحميل الاشتراك.</p>';}
+}
+async function useClubDrink(){
+  const sub=window.currentClubSubscription;
+  if(!sub||!currentCustomer)return;
+  if(!confirm(`تأكيد استخدام مشروب من اشتراك ${String(sub.planId).toUpperCase()}؟`))return;
+  const ref=db.ref('subscriptions/'+sub.id);
+  try{
+    const result=await ref.transaction(current=>{if(!current||current.status!=='active'||Number(current.expiresAt)<=Date.now()||Number(current.remainingUses)<=0)return;current.remainingUses=Number(current.remainingUses)-1;if(current.remainingUses===0)current.status='completed';current.updatedAt=firebase.database.ServerValue.TIMESTAMP;return current;});
+    if(!result.committed)throw new Error('الاشتراك غير متاح أو انتهى.');
+    const remainingAfter=Number(result.snapshot.val()?.remainingUses||0), cashierUid=auth.currentUser?.uid||null;
+    await db.ref('subscription_usage').push({subscriptionId:sub.id,membershipNumber:currentCustomer.id,usedAt:firebase.database.ServerValue.TIMESTAMP,cashierUid,remainingAfter});
+    await db.ref('loyalty_logs').push({type:'CLUB_USE',customerId:currentCustomer.id,subscriptionId:sub.id,timestamp:firebase.database.ServerValue.TIMESTAMP,cashierId:cashierUid,details:`remainingAfter:${remainingAfter}`});
+    renderClubProfile();showToast('✅ تم استخدام مشروب من اشتراك 101 CLUB.');
+  }catch(error){showToast('❌ '+error.message);}
+}
+
+function renderRewards() {
+  const rw = document.getElementById('rewardListContainer');
+  if (!rw) return;
+  if (!currentCustomer) { rw.innerHTML = '<p class="muted">اختر عميلاً أولاً.</p>'; return; }
+  
+  const earned = currentCustomer.earnedRewards || {};
+  const earnedList = Object.keys(earned).map(k => ({id: k, ...earned[k]}));
+  
+  if (!earnedList.length) {
+      rw.innerHTML = '<p class="muted" style="text-align:center;padding:12px;">لا توجد مكافآت مستحقة حالياً.</p>';
+      return;
+  }
+  
+  let html = '';
+  earnedList.forEach(r => {
+    const isAvail = r.status === 'available';
+    html += `<div style="display:flex;justify-content:space-between;align-items:center;background:var(--surface2);padding:12px 14px;border-radius:10px;margin-bottom:10px;border:1px solid ${isAvail ? 'var(--primary)' : 'var(--border)'};">
+      <div>
+        <strong style="color:var(--text);font-size:14px;display:block;">${esc(r.title)}</strong>
+        ${isAvail ? '<span style="color:#4caf50;font-size:12px;font-weight:bold;">🟢 متاحة للاستبدال</span>' : '<span style="color:#e53935;font-size:12px;font-weight:bold;">🔴 تم الاستبدال مسبقاً</span>'}
+      </div>
+      ${isAvail ? `<button class="btn-primary" onclick="redeemReward('${r.id}', '${esc(r.title)}')" style="padding:6px 14px;font-size:13px;font-weight:800;">استبدال 🎁</button>` : '<span style="color:var(--text-muted);font-size:12px;">مستبدلة</span>'}
+    </div>`;
+  });
+  rw.innerHTML = html;
+}
+
+function renderRewardManagement() {
+  const body=document.getElementById('rewardManagementBody'); if(!body) return;
+  body.innerHTML=rewardRules.map(r=>`<tr><td>${esc(r.title)}</td><td>${Number(r.heartsRequired)||0} ❤️</td><td>${r.isActive!==false?'🟢 مفعلة':'🔴 موقفة'}</td><td>${can('manage_rewards')?`<button onclick="editReward('${r.id}')">✏️</button> <button onclick="toggleReward('${r.id}',${r.isActive!==false})">${r.isActive!==false?'إيقاف':'تفعيل'}</button> <button onclick="deleteRewardRule('${r.id}')">🗑️</button>`:'—'}</td></tr>`).join('') || '<tr><td colspan="4" class="muted">لا توجد مكافآت.</td></tr>';
+}
+async function saveReward() {
+  if(!requirePermission('manage_rewards')) return;
+  const title=document.getElementById('rewardTitle').value.trim(); const hearts=Number(document.getElementById('rewardRequired').value); const id=document.getElementById('editingRewardId').value;
+  if(!title || !Number.isFinite(hearts) || hearts<1) return showToast('أدخل اسم المكافأة وعدد قلوب صحيح.');
+  const ref=db.ref('loyalty_reward_rules/'+(id || db.ref('loyalty_reward_rules').push().key));
+  await ref.update({title,heartsRequired:hearts,isActive:true,updatedAt:firebase.database.ServerValue.TIMESTAMP});
+  document.getElementById('rewardTitle').value=''; document.getElementById('rewardRequired').value=3; document.getElementById('editingRewardId').value=''; showToast('✅ تم حفظ المكافأة.');
+}
+function editReward(id) { if(!requirePermission('manage_rewards')) return; const r=rewardRules.find(x=>x.id===id);if(!r)return; document.getElementById('rewardTitle').value=r.title;document.getElementById('rewardRequired').value=r.heartsRequired;document.getElementById('editingRewardId').value=id; }
+async function toggleReward(id, active) { if(!requirePermission('manage_rewards')) return; await db.ref('loyalty_reward_rules/'+id+'/isActive').set(!active); }
+async function deleteRewardRule(id) { if(!requirePermission('manage_rewards') || !confirm('حذف المكافأة؟')) return; await db.ref('loyalty_reward_rules/'+id).remove(); }
+const PERMISSION_LABELS={
+  search_customers:'بحث العملاء',
+  manage_points:'إضافة/تعديل القلوب',
+  redeem_rewards:'استبدال المكافآت',
+  manage_customers:'إدارة العملاء',
+  manage_rewards:'إدارة المكافآت',
+  manage_staff:'إدارة الموظفين'
+};
+function defaultPermissionsForRole(role){
+  if(role==='manager'||role==='admin') return {search_customers:true,manage_points:true,add_points:true,redeem_rewards:true,manage_customers:true,manage_rewards:true,manage_staff:true};
+  return {search_customers:true,add_points:true,redeem_rewards:true};
+}
+function renderInvitePermissions(){
+  const box=document.getElementById('invitePermissions'); if(!box) return;
+  const role=document.getElementById('staffRole')?.value || 'cashier';
+  const perms=defaultPermissionsForRole(role);
+  box.innerHTML=Object.keys(PERMISSION_LABELS).map(k=>`<label style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:8px 10px;font-size:12px;font-weight:700"><input type="checkbox" data-invite-perm="${k}" ${perms[k]?'checked':''}> ${PERMISSION_LABELS[k]}</label>`).join('');
+}
+function renderStaff() {
+  if (currentCashier && currentCashier.role === 'cashier') return; // Strict block
+  const roleSelect=document.getElementById('staffRole');
+  if(roleSelect){
+    const current=roleSelect.value;
+    roleSelect.innerHTML='<option value="cashier">كاشير</option>'+(currentCashier?.role==='super_admin'?'<option value="manager">مدير</option>':'');
+    roleSelect.value=(current==='manager'&&currentCashier?.role==='super_admin')?'manager':'cashier';
+  }
+  const render=(role,id)=>{
+      const el=document.getElementById(id);if(!el)return;
+      const list=staff.filter(s=>role==='manager'?(s.role==='manager'||s.role==='admin'):s.role===role);
+      el.innerHTML=list.map(s=> {
+          const statusText = s.isPending ? '🟡 بانتظار الدخول' : (s.status==='active'?'🟢 نشط':'🔴 معطل');
+          let buttons = '';
+          if (can('manage_staff') && s.role !== 'super_admin' && canEditStaffRole(s.role)) {
+              buttons = '<div style="margin-top:7px">';
+              if (s.isPending) {
+                  buttons += `<button onclick="removePendingStaff('${s.uid}')">إلغاء الدعوة</button>`;
+              } else {
+                  buttons += `<button onclick="toggleStaff('${s.uid}','${s.status||'active'}')">${s.status==='active'?'تعطيل':'تفعيل'}</button> <button onclick="editStaffPermissions('${s.uid}')">الصلاحيات</button> <button onclick="removeStaff('${s.uid}')">حذف</button>`;
+              }
+              buttons += '</div>';
+          }
+          const permissionUi=(!s.isPending && can('manage_staff') && canEditStaffRole(s.role))?`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:6px;margin-top:8px">${Object.keys(PERMISSION_LABELS).map(k=>`<label style="font-size:11px;background:var(--surface2);padding:6px;border-radius:8px"><input type="checkbox" onchange="updateStaffPermission('${s.uid}','${k}',this.checked)" ${s.permissions?.[k]?'checked':''}> ${PERMISSION_LABELS[k]}</label>`).join('')}</div>`:'';
+          if (s.isPending) console.log('[INVITE_RENDERED]', {key: s.uid, email: s.email});
+          return `<div style="padding:10px;border-bottom:1px solid var(--border)"><b>${esc(s.displayName||s.email)}</b><br><small class="muted">${esc(s.email||'')} — ${statusText}</small>${permissionUi}${buttons}</div>`;
+      }).join('') || '<p class="muted">لا يوجد.</p>';
+  };
+  render('cashier','cashiersList');render('manager','managersList');
+  renderInvitePermissions();
+}
+async function removePendingStaff(key) {
+    if(!requirePermission('manage_staff')||!confirm('إلغاء الدعوة؟'))return;
+    await db.ref('pending_admins/'+key).remove();
+}
+async function inviteStaff(){
+  if(!requirePermission('manage_staff'))return;
+  const email=document.getElementById('staffEmail').value.toLowerCase().trim();
+  const role=document.getElementById('staffRole').value;
+  if(!canInviteRole(role))return showToast(role==='manager'?'🚫 إضافة مدير متاحة للمشرف فقط.':'🚫 لا تملك صلاحية إضافة هذا الدور.');
+  if(!/^\S+@\S+\.\S+$/.test(email))return showToast('أدخل بريداً صحيحاً.');
+  const permissions={};
+  document.querySelectorAll('[data-invite-perm]').forEach(x=>{permissions[x.dataset.invitePerm]=x.checked;});
+  const key=email.replace(/\./g,',').replace(/@/g,'_at_');
+  console.log('[INVITE_WRITE_START]', {key, email, role});
+  try {
+      await db.ref('pending_admins/'+key).set({email,role,status:'pending',permissions,addedAt:firebase.database.ServerValue.TIMESTAMP,addedBy:currentCashier.email||currentCashier.name});
+      console.log('[INVITE_WRITE_SUCCESS]', {key});
+      document.getElementById('staffEmail').value='';
+      showToast('✅ تمت إضافة الدعوة.');
+  } catch (e) {
+      console.log('[INVITE_WRITE_FAILED]', {key, error: e.message});
+      showToast('❌ تعذر الحفظ: ' + e.message);
+  }
+}
+async function toggleStaff(uid,status){if(!requirePermission('manage_staff'))return;await db.ref('admins/'+uid+'/status').set(status==='active'?'disabled':'active');}
+async function removeStaff(uid){if(!requirePermission('manage_staff')||!confirm('حذف الحساب من لوحة الولاء؟'))return;await db.ref('admins/'+uid).remove();}
+async function editStaffPermissions(uid){if(!requirePermission('manage_staff'))return;showToast('عدّل الصلاحيات من المربعات الظاهرة في قائمة الموظفين.');}
+async function updateStaffPermission(uid,perm,checked){if(!requirePermission('manage_staff'))return;const s=staff.find(x=>x.uid===uid);if(!s||!canEditStaffRole(s.role))return showToast('🚫 لا تملك صلاحية تعديل هذا الحساب.');await db.ref('admins/'+uid+'/permissions/'+perm).set(!!checked);}
+function renderLogs(){
+  const body=document.getElementById('loyaltyLogsBody');if(!body)return;
+  const title=l=>{
+    if(l.type==='HEART_ADDED'||l.type==='ADD_HEART') return '❤️ HEART_ADDED';
+    if(l.type==='HEART_REMOVED'||l.type==='DEDUCT_HEART') return '❤️ HEART_REMOVED';
+    if(l.type==='REWARD_EARNED') return '🎁 REWARD_EARNED';
+    if(l.type==='REWARD_REDEEMED'||l.type==='REDEEM_REWARD') return '🎁 REWARD_REDEEMED';
+    if(l.type==='PIN_FAILED') return '🔐 PIN_FAILED';
+    return l.type||'—';
+  };
+  const detail=l=>l.oldHearts!==undefined?`${l.oldHearts} → ${l.newHearts} ❤️`:esc(l.rewardTitle||l.details||'—');
+  let visible = logs.filter(l => !l.deleted);
+  if (currentCashier && currentCashier.role === 'cashier') {
+      visible = visible.filter(l => l.cashierId === currentCashier.uid);
+  }
+  visible = visible.slice(0, 100);
+  body.innerHTML=visible.map(l=>`<tr><td>${l.timestamp?new Date(Number(l.timestamp)).toLocaleString('ar-IQ'):'—'}</td><td>${title(l)}</td><td>${esc(l.customerName||'—')}<br><small>${esc(l.cardId||l.customerId||'')}</small></td><td>${detail(l)}</td><td>${esc(l.cashierName||'—')}</td><td>${esc(l.cashierRole||'—')}</td></tr>`).join('')||'<tr><td colspan="6" class="muted">لا توجد عمليات بعد.</td></tr>';
+}
+
+// ── Save Phone ──
+async function savePhone() {
+  if (!requirePermission('manage_customers')) return;
+  if (!currentCustomer) return;
+  const newPhone = document.getElementById('custPhoneInput').value.trim();
+  try {
+    await db.ref('loyalty_customers/' + currentCustomer.id + '/phone').set(newPhone);
+    showToast('تم حفظ رقم الهاتف بنجاح ✅');
+  } catch(e) {
+    showToast('خطأ في حفظ الرقم: ' + e.message);
+  }
+}
+
+// ── Points Management: Add, Deduct, Set Custom ──
+async function addHeart() {
+  if (!requirePermission('manage_points')) return;
+  if (isCashierRole() && !verifyCurrentCustomerPin('إضافة قلب')) return;
+  await modifyPoints(1);
+}
+
+async function deductHeart() {
+  if (!requirePermission('manage_points')) return;
+  if(!currentCustomer) return;
+  if((currentCustomer.hearts || 0) <= 0) {
+    showToast('⚠️ رصيد القلوب 0 بالفعل!');
+    return;
+  }
+  if (isCashierRole() && !verifyCurrentCustomerPin('خصم قلب')) return;
+  await modifyPoints(-1);
+}
+
+async function setCustomHearts() {
+  if (!requirePermission('manage_points')) return;
+  if(!currentCustomer) return;
+  const current = currentCustomer.hearts || 0;
+  const val = prompt('أدخل رصيد القلوب الجديد للزبون ' + currentCustomer.name + ':', current);
+  if(val === null) return;
+  const num = parseInt(val, 10);
+  if(isNaN(num) || num < 0) {
+    alert('يرجى إدخال رقم صحيح أكبر من أو يساوي 0.');
+    return;
+  }
+  const diff = num - current;
+  if (isCashierRole() && diff !== 0 && !verifyCurrentCustomerPin('تعديل الرصيد')) return;
+  await modifyPoints(diff, true, num);
+}
+
+async function quickAddPoint(cardId, amount) {
+  if (!requirePermission('manage_points')) return;
+  const cust=customers.find(c=>c.id===cardId);
+  if (!cust) return showToast('تعذر العثور على بيانات العميل.');
+  if (isCashierRole() && !verifyCustomerPin(cust, amount > 0 ? 'إضافة قلب' : 'خصم قلب')) return;
+  // Reuse the scoped balance transaction used by the profile control.  This
+  // avoids a second implementation that transactions the entire customer.
+  const previousCustomer=currentCustomer;
+  currentCustomer=cust;
+  try { await modifyPoints(amount); } finally { currentCustomer=previousCustomer; }
+  return;
+  /* Legacy path retained below only for source-history context; unreachable. */
+  try {
+    let oldHearts = 0;
+    const res = await db.ref('loyalty_customers/' + cardId).transaction(cust => {
+      if(!cust) return cust;
+      oldHearts = Number(cust.currentHearts ?? cust.hearts)||0;
+      const nextVal = Math.min(5, Math.max(0, oldHearts + amount));
+      cust.hearts = nextVal;
+      cust.currentHearts = nextVal;
+      if (amount > 0) { cust.totalEarned = Number(cust.totalEarned || cust.totalHeartsEarned || 0) + (nextVal - oldHearts); cust.totalHeartsEarned = cust.totalEarned; }
+      if (amount < 0) { cust.totalSpent = Number(cust.totalSpent || 0) + (oldHearts - nextVal); cust.totalHeartsSpent = Number(cust.totalHeartsSpent || 0) + (oldHearts - nextVal); }
+      if(!cust.earnedRewards) cust.earnedRewards = {};
+      rewardRules.filter(r=>r.isActive!==false).forEach(r => {
+        const need = Number(r.heartsRequired || r.hearts)||0;
+        if(need && nextVal >= need && !cust.earnedRewards[r.id]){
+          cust.earnedRewards[r.id] = {status:'available',title:r.title||r.name,heartsRequired:need,earnedAt:firebase.database.ServerValue.TIMESTAMP};
+        }
+      });
+      return cust;
+    });
+    if(!res.committed || !res.snapshot.exists()) return;
+    const saved=res.snapshot.val();
+    const nextVal=Number(saved.hearts)||0;
+    await db.ref('loyalty_logs/' + db.ref('loyalty_logs').push().key).set({
+      type: amount > 0 ? 'HEART_ADDED' : 'HEART_REMOVED',
+      cardId,
+      customerId: cardId,
+      customerName: saved.name || 'عميل',
+      cashierId: currentCashier?.uid || '',
+      cashierName: currentCashier ? currentCashier.name : 'كاشير',
+      cashierEmail: auth.currentUser?.email || '',
+      cashierRole: currentCashier ? currentCashier.role : 'cashier',
+      timestamp: firebase.database.ServerValue.TIMESTAMP,
+      amount,
+      oldHearts,
+      newHearts: nextVal
+    });
+    for (const r of rewardRules.filter(r=>r.isActive!==false)) {
+      const need = Number(r.heartsRequired || r.hearts)||0;
+      if (amount > 0 && need && oldHearts < need && nextVal >= need) {
+        await db.ref('loyalty_logs/' + db.ref('loyalty_logs').push().key).set({
+          type: 'REWARD_EARNED',
+          rewardId: r.id,
+          rewardTitle: r.title || r.name,
+          customerId: cardId,
+          cardId,
+          customerName: saved.name || 'عميل',
+          cashierId: currentCashier?.uid || '',
+          cashierName: currentCashier ? currentCashier.name : 'كاشير',
+          cashierEmail: auth.currentUser?.email || '',
+          cashierRole: currentCashier ? currentCashier.role : 'cashier',
+          timestamp: firebase.database.ServerValue.TIMESTAMP
+        });
+      }
+    }
+    showToast(`تم ${amount > 0 ? 'إضافة' : 'خصم'} نقطة بنجاح!`);
+  } catch(e) {
+    showToast('خطأ: ' + e.message);
+  }
+}
+
+function verifyCustomerPin(customer, action) {
+  if (!customer) { showToast('اختر العميل أولاً.'); return false; }
+  const entered=prompt(`تأكيد العملية: ${action}\nليُدخل العميل رمز PIN الخاص به:`);
+  if (entered === null) return false;
+  const storedPin=String(customer.pin||'');
+  if (!storedPin || String(entered).trim() !== storedPin) { showToast('❌ رمز PIN غير صحيح. لم تُنفّذ العملية.'); return false; }
+  return true;
+}
+function verifyCurrentCustomerPin(action) { return verifyCustomerPin(currentCustomer, action); }
+
+
+let pinLockout = {};
+function checkPinLockout(customerId) {
+    if (pinLockout[customerId] && pinLockout[customerId].attempts >= 3) {
+        if (Date.now() - pinLockout[customerId].time < 60000) {
+            alert('⚠️ تم إيقاف محاولات التحقق مؤقتًا بسبب تكرار الأخطاء.');
+            return false;
+        } else {
+            pinLockout[customerId] = null;
+        }
+    }
+    return true;
+}
+function recordPinFailure(customerId) {
+    if (!pinLockout[customerId]) pinLockout[customerId] = { attempts: 0, time: Date.now() };
+    pinLockout[customerId].attempts++;
+    pinLockout[customerId].time = Date.now();
+    const logId = db.ref('loyalty_logs').push().key;
+    db.ref('loyalty_logs/' + logId).set({
+        type: 'PIN_FAILED',
+        customerId: customerId,
+        cashierName: currentCashier?.name || 'كاشير',
+        timestamp: firebase.database.ServerValue.TIMESTAMP
+    });
+}
+
+async function modifyPoints(delta, isExact = false, exactVal = 0) {
+  if (!currentCustomer) return;
+  const custId = currentCustomer.id;
+  
+  try {
+      const custRef = db.ref('loyalty_customers/' + custId);
+      // Transaction only on the allowed balance field.  A cashier must never
+      // write the whole customer record (and therefore cannot overwrite PIN,
+      // identity, or membership fields while adding a heart).
+      let oldH = 0;
+      const res = await custRef.child('currentHearts').transaction(current => {
+          oldH = Number(current ?? currentCustomer.currentHearts ?? currentCustomer.hearts) || 0;
+          return isExact ? Math.min(5, Math.max(0, exactVal)) : Math.min(5, Math.max(0, oldH + delta));
+      });
+
+      if (res.committed && res.snapshot.exists()) {
+          const newH = Number(res.snapshot.val()) || 0;
+          const actualDelta = newH - oldH;
+          if (actualDelta === 0) { showToast('رصيد القلوب وصل إلى الحد المسموح.'); return; }
+          // Keep compatibility fields and totals in the same existing record.
+          // The balance transaction has already succeeded before any UI or WA action.
+          const customerSnapshot = await custRef.once('value');
+          const before = customerSnapshot.val() || {};
+          const updates = { hearts:newH, currentHearts:newH };
+          if (actualDelta > 0) { updates.totalEarned=Number(before.totalEarned || before.totalHeartsEarned || 0)+actualDelta; updates.totalHeartsEarned=updates.totalEarned; }
+          if (actualDelta < 0) { updates.totalSpent=Number(before.totalSpent || 0)+Math.abs(actualDelta); updates.totalHeartsSpent=Number(before.totalHeartsSpent || 0)+Math.abs(actualDelta); }
+          // Write each permitted operational field directly so cashier access
+          // remains least-privilege under the existing RTDB rules.
+          await Promise.all(Object.entries(updates).map(([field,value]) => custRef.child(field).set(value)));
+          const snapVal = { ...before, ...updates, hearts:newH, currentHearts:newH };
+          
+          if (actualDelta > 0 && snapVal.phone) {
+              const phone = snapVal.phone;
+              let cleanPhone = phone.replace(/\D/g, '');
+              if(cleanPhone.startsWith('07')) cleanPhone = '964' + cleanPhone.substring(1);
+              else if(cleanPhone.startsWith('7')) cleanPhone = '964' + cleanPhone;
+              
+              const custName = (snapVal.name || 'عميلنا العزيز').split(' ')[0];
+              const heartsStr = `${newH} / 5 ❤️`;
+              const msg = 'مبروك ❤️ حصلت على قلب جديد من 101 COFFEE';
+              
+              const waUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(msg)}`;
+              const popup = window.open(waUrl, '_blank');
+              if (!popup) console.error('[WHATSAPP_PREPARE_FAILED]', {operation:'open', path:`loyalty_customers/${custId}/phone`, code:'POPUP_BLOCKED', message:'Browser blocked the WhatsApp window'});
+          } else if (actualDelta > 0) {
+              showToast('تمت إضافة القلب، لكن العميل لا يملك رقم WhatsApp محفوظًا.');
+          }
+          
+          const logId = db.ref('loyalty_logs').push().key;
+          await db.ref('loyalty_logs/' + logId).set({
+            type: delta > 0 ? 'HEART_ADDED' : (delta < 0 ? 'HEART_REMOVED' : 'EDIT_HEARTS'),
+            customerId: custId,
+            cardId: custId,
+            customerName: snapVal.name,
+            cashierId: currentCashier?.uid || '',
+            cashierName: currentCashier ? currentCashier.name : 'كاشير',
+            cashierEmail: auth.currentUser?.email || '',
+            cashierRole: currentCashier ? currentCashier.role : 'cashier',
+            timestamp: firebase.database.ServerValue.TIMESTAMP,
+            oldHearts: oldH,
+            newHearts: newH,
+            amount: actualDelta
+          });
+          for (const r of rewardRules.filter(r=>r.isActive!==false)) {
+            const need = Number(r.heartsRequired || r.hearts)||5;
+            if (actualDelta > 0 && need && oldH < need && newH >= need) {
+              await db.ref('loyalty_logs/' + db.ref('loyalty_logs').push().key).set({
+                type: 'REWARD_EARNED',
+                rewardId: r.id,
+                rewardTitle: r.title || r.name,
+                customerId: custId,
+                cardId: custId,
+                customerName: snapVal.name,
+                cashierId: currentCashier?.uid || '',
+                cashierName: currentCashier ? currentCashier.name : 'كاشير',
+                cashierEmail: auth.currentUser?.email || '',
+                cashierRole: currentCashier ? currentCashier.role : 'cashier',
+                timestamp: firebase.database.ServerValue.TIMESTAMP
+              });
+            }
+          }
+          
+          showToast(`✅ تم تحديث الرصيد: ${newH} / 5 ❤️`);
+      }
+  } catch (e) {
+      console.error('[LOYALTY_HEART_FAILED]', {operation:'transaction-or-audit', path:`loyalty_customers/${custId}`, code:e?.code, message:e?.message});
+      showToast('❌ حدث خطأ أثناء تحديث النقاط: ' + e.message);
+  }
+}
+
+// ── Redeem Reward ──
+async function redeemReward(rewardId, rewardTitle) {
+  if (!requirePermission('redeem_rewards')) return;
+  if (!currentCustomer) return;
+  if (!checkPinLockout(currentCustomer.id)) return;
+  
+  if (isCashierRole() && !verifyCurrentCustomerPin('استبدال المكافأة')) {
+      recordPinFailure(currentCustomer.id);
+      return;
+  }
+  
+  if (!confirm(`هل أنت متأكد من استبدال مكافأة: "${rewardTitle}"؟`)) return;
+
+  try {
+      const rewardRef = db.ref(`loyalty_customers/${currentCustomer.id}/earnedRewards/${rewardId}`);
+      const res = await rewardRef.transaction((reward) => {
+          if (reward && reward.status === 'available') {
+              reward.status = 'redeemed';
+              reward.redeemedAt = firebase.database.ServerValue.TIMESTAMP;
+              reward.redeemedBy = currentCashier ? currentCashier.name : 'كاشير';
+              return reward;
+          }
+          return undefined; // abort if not available
+      });
+      
+      if (res.committed) {
+          const reward = rewardRules.find(r => r.id === rewardId);
+          const required = Number(reward?.heartsRequired || reward?.hearts || res.snapshot.val()?.heartsRequired || 5);
+          await db.ref(`loyalty_customers/${currentCustomer.id}`).transaction(customer => {
+            if (!customer) return customer;
+            const current = Number(customer.currentHearts ?? customer.hearts) || 0;
+            const next = Math.max(0, current - Math.min(required, current));
+            customer.hearts = next;
+            customer.currentHearts = next;
+            customer.totalSpent = Number(customer.totalSpent || 0) + required;
+            customer.totalHeartsRedeemed = Number(customer.totalHeartsRedeemed || 0) + required;
+            customer.totalHeartsSpent = Number(customer.totalHeartsSpent || 0) + required;
+            return customer;
+          });
+          const logId = db.ref('loyalty_logs').push().key;
+          await db.ref('loyalty_logs/' + logId).set({
+              type: 'REWARD_REDEEMED',
+              rewardTitle: rewardTitle,
+              customerId: currentCustomer.id,
+              cardId: currentCustomer.id,
+              customerName: currentCustomer.name,
+              cashierId: currentCashier?.uid || '',
+              cashierName: currentCashier ? currentCashier.name : 'كاشير',
+              cashierEmail: auth.currentUser?.email || '',
+              cashierRole: currentCashier ? currentCashier.role : 'cashier',
+              timestamp: firebase.database.ServerValue.TIMESTAMP
+              ,heartsSpent: required
+          });
+          showToast('🎉 تم استبدال المكافأة بنجاح!');
+      } else {
+          alert('❌ هذه المكافأة تم استبدالها مسبقًا أو لم تعد متاحة.');
+      }
+  } catch (e) {
+      showToast('❌ حدث خطأ أثناء الاستبدال: ' + e.message);
+  }
+}
+
+
+// ── Customer Deletion ──
+async function deleteCurrentCustomer() {
+  if (!currentCustomer) return;
+  await quickDeleteCustomer(currentCustomer.id, currentCustomer.name);
+}
+
+async function quickDeleteCustomer(cardId, name) {
+  if (!requirePermission('manage_customers')) return;
+  if (!confirm(`⚠️ هل أنت متأكد من حذف الزبون "${name || cardId}" نهائياً من النظام؟`)) return;
+  
+  try {
+    // If has UID link, remove link too
+    const snap = await db.ref('loyalty_customers/' + cardId).once('value');
+    if (snap.exists()) {
+      const data = snap.val();
+      if (data.uid) {
+        await db.ref('loyalty_links/' + data.uid).remove().catch(()=>{});
+      }
+    }
+    
+    await db.ref('loyalty_customers/' + cardId).remove();
+    
+    // Log deletion
+    await db.ref('loyalty_logs').push({
+      type: 'DELETE_CUSTOMER',
+      cardId: cardId,
+      customerName: name,
+      cashierName: currentCashier ? currentCashier.name : 'كاشير',
+      timestamp: Date.now()
+    });
+
+    if (currentCustomer && currentCustomer.id === cardId) {
+      if (currentCustomerRef) { currentCustomerRef.off(); currentCustomerRef = null; }
+      currentCustomer = null;
+      document.getElementById('customerProfile').style.display = 'none';
+      document.getElementById('searchQ').value = '';
+    }
+    
+    showToast('🗑️ تم حذف الزبون بنجاح!');
+  } catch(e) {
+    showToast('خطأ في الحذف: ' + e.message);
+  }
+}
+
+// ── New Customer Creation Modal ──
+function openNewCustomerModal() {
+  if (!requirePermission('manage_customers')) return;
+  document.getElementById('newCustName').value = '';
+  document.getElementById('newCustPhone').value = '';
+  document.getElementById('newCustHearts').value = '0';
+  document.getElementById('newCustPin').value = '';
+  document.getElementById('newCustType').value = 'زبون';
+  document.getElementById('newCustomerModal').style.display = 'flex';
+}
+
+function closeNewCustomerModal() {
+  document.getElementById('newCustomerModal').style.display = 'none';
+}
+
+async function submitNewCustomer() {
+  if (!requirePermission('manage_customers')) return;
+  const name = document.getElementById('newCustName').value.trim();
+  const phone = document.getElementById('newCustPhone').value.trim();
+  const hearts = parseInt(document.getElementById('newCustHearts').value, 10) || 0;
+  const memberType = document.getElementById('newCustType').value === 'عضو مميز' ? 'عضو مميز' : 'زبون';
+  let pin = document.getElementById('newCustPin').value.trim();
+  
+  if (!name) {
+    alert('يرجى إدخال اسم الزبون.');
+    return;
+  }
+  
+  if (pin === '0224') return alert('الرمز 0224 محجوز ولا يمكن استخدامه لعضوية جديدة.');
+  
+  try {
+    pin = pin || await generateUniqueLoyaltyPin();
+    const duplicatePin = await db.ref('loyalty_customers').orderByChild('pin').equalTo(pin).once('value');
+    if (duplicatePin.exists()) return alert('رمز العضوية مستخدم بالفعل. اختر رمزًا آخر.');
+    const counterSnap = await db.ref('loyalty_counter').transaction(c => (Number(c)||0) + 1);
+    const nextNum = counterSnap.snapshot.val() || 1;
+    const newCardId = '101-' + nextNum;
+    
+    const newCustData = {
+      name: name,
+      phone: phone,
+      hearts: hearts,
+      totalEarned: hearts,
+      totalSpent: 0,
+      memberType: memberType,
+      pin: pin,
+      createdAt: Date.now(),
+      createdBy: currentCashier ? currentCashier.name : 'كاشير'
+    };
+    
+    await db.ref('loyalty_customers/' + newCardId).set(newCustData);
+    
+    await db.ref('loyalty_logs').push({
+      type: 'register',
+      cardId: newCardId,
+      customerName: name,
+      cashierName: currentCashier ? currentCashier.name : 'كاشير يدوي',
+      timestamp: Date.now()
+    });
+    
+    closeNewCustomerModal();
+    showToast(`🎉 تم إنشاء العضوية ${newCardId} بنجاح!`);
+    
+    // Open the new customer profile
+    openCustomer(newCardId);
+  } catch(e) {
+    alert('حدث خطأ أثناء إنشاء العضوية: ' + e.message);
+  }
+}
+
+function randomLoyaltyPin() {
+  if (window.crypto?.getRandomValues) { const values = new Uint32Array(1); window.crypto.getRandomValues(values); return String(values[0] % 10000).padStart(4, '0'); }
+  return String(Math.floor(Math.random() * 10000)).padStart(4, '0');
+}
+async function generateUniqueLoyaltyPin() {
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const pin = randomLoyaltyPin();
+    if (pin === '0224') continue;
+    const existing = await db.ref('loyalty_customers').orderByChild('pin').equalTo(pin).once('value');
+    if (!existing.exists()) return pin;
+  }
+  throw new Error('تعذر توليد رمز عضوية فريد. حاول مرة أخرى.');
+}
+</script>
+
+<script>
+function checkFirebaseLoaded() {
+  if(typeof firebase === 'undefined') {
+    const msg = document.getElementById('loginMsg');
+    if(msg) msg.innerHTML = '<div style="color:#e53935;font-size:13px;padding:10px;border:1px solid #e53935;border-radius:8px;margin-top:10px;">❌ لم يتم تحميل مكتبات Firebase. يرجى التأكد من اتصالك بالإنترنت أو إيقاف مانع الإعلانات (AdBlock).</div>';
+  }
+}
+window.addEventListener('load', checkFirebaseLoaded);
+</script>
+<script>
+/* Gift redemption: transaction guarantees that a code cannot be redeemed twice. */
+let giftRedeemMatch=null;
+const giftEsc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
+const giftFmt=value=>Number(value||0).toLocaleString('en-US')+' د.ع';
+function findGiftForRedeem(){const q=(document.getElementById('giftRedeemSearch')?.value||'').trim().toLowerCase(),box=document.getElementById('giftRedeemResult');if(!q)return;box.innerHTML='<p class="muted">جارٍ البحث…</p>';db.ref('gift_orders').once('value').then(snap=>{let found=null;snap.forEach(c=>{const g={id:c.key,...c.val()};if(!found&&[g.giftCode,g.orderCode,g.recipientPhone,g.senderPhone].some(v=>String(v||'').toLowerCase().includes(q)))found=g;});giftRedeemMatch=found;if(!found){box.innerHTML='<p style="color:#e53935;font-weight:700">لم يتم العثور على هدية مطابقة.</p>';return;}renderGiftRedeemResult(found);}).catch(e=>box.innerHTML='<p style="color:#e53935">تعذر البحث: '+giftEsc(e.message)+'</p>');}
+function renderGiftRedeemResult(g){const box=document.getElementById('giftRedeemResult'),expired=g.expiresAt&&Number(g.expiresAt)<=Date.now();let state='';if(g.giftStatus==='awaiting_payment')state='❌ لم يتم تأكيد الدفع بعد';else if(g.giftStatus==='redeemed')state=`❌ تم استخدام هذه الهدية سابقاً${g.redeemedAt?' بتاريخ '+new Date(g.redeemedAt).toLocaleString('ar-IQ'):''}`;else if(g.giftStatus==='expired'||expired)state='⌛ انتهت صلاحية الهدية';else if(g.giftStatus==='active')state='✅ الهدية فعالة';else state='❌ الهدية غير متاحة';const canRedeem=g.giftStatus==='active'&&!expired;box.innerHTML=`<div style="background:var(--surface2);border:1px solid var(--border);border-radius:14px;padding:16px"><h3 style="margin:0 0 8px;color:var(--primary-lt)">${state}</h3><p><b>الطلب:</b> ${giftEsc(g.orderCode)}<br><b>كود الهدية:</b> ${giftEsc(g.giftCode||'—')}<br><b>المستلم:</b> ${giftEsc(g.recipientName)}<br><b>المحتوى:</b> ${giftEsc(g.productName||'مبلغ مفتوح')} — ${giftFmt(g.giftValue)}<br><b>الصلاحية:</b> ${g.expiresAt?new Date(g.expiresAt).toLocaleDateString('ar-IQ'):'—'}</p>${canRedeem?'<button class="btn-primary" type="button" onclick="redeemGift()">🎁 تم تسليم الهدية</button>':''}</div>`;}
+async function redeemGift(){const gift=giftRedeemMatch;if(!gift||gift.giftStatus!=='active')return;if(!confirm('تأكيد تسليم الهدية؟ لا يمكن استخدام الكود مرة ثانية.'))return;try{const result=await db.ref('gift_orders/'+gift.id).transaction(current=>{if(!current||current.giftStatus!=='active'||(current.expiresAt&&Number(current.expiresAt)<=Date.now()))return;current.giftStatus='redeemed';current.redeemedAt=firebase.database.ServerValue.TIMESTAMP;current.redeemedBy=auth.currentUser?.uid||null;current.redeemedByName=currentCashier?.name||null;current.redeemedByRole=currentCashier?.role||null;return current;});if(!result.committed)throw new Error('تعذر التسليم: قد تكون الهدية انتهت أو استُخدمت من جهاز آخر.');await db.ref('gift_logs').push({type:'gift_redeemed',giftId:gift.id,uid:auth.currentUser?.uid||null,role:currentCashier?.role||null,timestamp:firebase.database.ServerValue.TIMESTAMP});giftRedeemMatch={...gift,giftStatus:'redeemed'};renderGiftRedeemResult(giftRedeemMatch);showToast('✅ تم تسليم الهدية بنجاح.');}catch(e){showToast('❌ '+e.message);}}
+</script>
+<script>
+/* 101 CLUB LOGIC */
+let currentClubCustomer = null;
+async function searchClubCust() {
+  const q = document.getElementById('clubSearchQ').value.trim();
+  const msg = document.getElementById('clubSearchMsg');
+  msg.textContent = '';
+  document.getElementById('clubProfile').style.display = 'none';
+  if(!q) return;
+
+  msg.textContent = 'جارٍ البحث...';
+  let found = null;
+  const snap = await db.ref('subscription_customers').once('value');
+  snap.forEach(c => {
+    const cust = c.val();
+    if (cust.clubNumber === q || cust.phone === q || cust.name === q) {
+      found = { uid: c.key, ...cust };
+    }
+  });
+
+  if(!found) {
+    msg.textContent = '❌ لم يتم العثور على مشترك 101 CLUB بهذا الرقم أو الاسم.';
+    return;
+  }
+
+  currentClubCustomer = found;
+  msg.textContent = '';
+  
+  document.getElementById('clubCustNameDisplay').textContent = found.name || '—';
+  document.getElementById('clubCustNumberDisplay').textContent = found.clubNumber || '—';
+  document.getElementById('clubPinInput').value = '';
+  
+  const subId = found.activeSubscriptionId;
+  const usesDisplay = document.getElementById('clubRemainingUsesDisplay');
+  const expiresDisplay = document.getElementById('clubExpiresDisplay');
+  
+  if(!subId) {
+    usesDisplay.textContent = 'لا يوجد';
+    expiresDisplay.textContent = '—';
+  } else {
+    const subSnap = await db.ref('subscriptions/' + subId).once('value');
+    const sub = subSnap.val();
+    if(!sub || sub.status !== 'active') {
+      usesDisplay.textContent = 'غير فعال';
+      expiresDisplay.textContent = '—';
+    } else {
+      usesDisplay.textContent = `${sub.remainingUses} / ${sub.totalUses}`;
+      expiresDisplay.textContent = new Date(Number(sub.expiresAt)).toLocaleDateString('ar-IQ');
+    }
+  }
+  document.getElementById('clubProfile').style.display = 'block';
+}
+
+async function redeemClubDrink() {
+  if(!currentClubCustomer) return;
+  const pinInput = document.getElementById('clubPinInput').value.trim();
+  if(!pinInput) return alert('يرجى إدخال PIN المكون من 4 أرقام.');
+  if(pinInput !== currentClubCustomer.pin) {
+    return alert('❌ الـ PIN غير صحيح.');
+  }
+  
+  const subId = currentClubCustomer.activeSubscriptionId;
+  if(!subId) return alert('❌ هذا العميل ليس لديه اشتراك.');
+  
+  try {
+    const result = await db.ref('subscriptions/' + subId).transaction(current => {
+      if(!current) return;
+      if(current.status !== 'active') return;
+      if(Number(current.expiresAt) <= Date.now()) return;
+      if(current.remainingUses <= 0) return;
+      current.remainingUses -= 1;
+      if(current.remainingUses === 0) current.status = 'completed';
+      return current;
+    });
+    
+    if(!result.committed) {
+      throw new Error('فشل الاستهلاك. قد يكون الرصيد منتهياً أو تم استخدامه.');
+    }
+    
+    const sub = result.snapshot.val();
+    
+    await db.ref('subscription_usage').push({
+      subscriptionId: subId,
+      uid: currentClubCustomer.uid,
+      usedAt: firebase.database.ServerValue.TIMESTAMP,
+      cashierUid: auth.currentUser.uid,
+      cashierName: currentCashier?.name || 'كاشير',
+      remainingAfter: sub.remainingUses
+    });
+    
+    alert('☕ تم استهلاك المشروب بنجاح! الرصيد المتبقي: ' + sub.remainingUses);
+    
+    document.getElementById('clubRemainingUsesDisplay').textContent = `${sub.remainingUses} / ${sub.totalUses}`;
+    document.getElementById('clubPinInput').value = '';
+    
+  } catch(e) {
+    alert('❌ حدث خطأ: ' + e.message);
+  }
+}
+</script>
+</body>
+</html>
