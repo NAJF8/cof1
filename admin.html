@@ -976,7 +976,7 @@ let products=[], categoriesDB=[], eventsDB=[], tablesDB=[], eventBookingsDB=[], 
 let rewardsDB=[], bookingsDB=[], adminsData={}, pendingAdmins={}, ordersDB=[], loyaltyPendingDB=[];
 let backgroundSettings = { type: 'none', imageUrl: '', videoUrl: '', fallbackImageUrl: '', enabled: true };
 let songsDB = [], songCategoriesDB = [];
-let subscriptionPlans = {}, subscriptionRequests = [], clubCustomers = [], clubAccountClaims = [], clubSettings = {}, pendingClubPaymentRequest = null;
+let subscriptionPlans = {}, subscriptionRequests = [], clubRequestSnapshotCount = 0, clubCustomers = [], clubAccountClaims = [], clubSettings = {}, pendingClubPaymentRequest = null;
 let aiConfig = { enabled: true, provider: 'smart_rules', model: 'gemini-1.5-flash', apiKey: '', welcomeAr: 'أهلاً بيك في 101 COFFEE ☕! شلون أقدر أساعدك باختيار طلبك اليوم؟', welcomeEn: 'Welcome to 101 COFFEE ☕! How can I help you choose your drink or dessert today?', systemPrompt: 'أنت باريستا ذكي وودود في مقهى 101 COFFEE...', shopInfo: 'موقعنا: النجف الأشرف' };
 let orderRatingsDB = [];
 let candleSettings = { enabled: true, startTime: '16:00', endTime: '18:00', capacity: 10, price: 0 };
@@ -2466,7 +2466,19 @@ function startFirebaseListeners(){
   });
   db.ref('roomSettings').on('value',snap=>{ if(snap.val()) roomSettings=snap.val(); refreshUI(); });
   db.ref('subscription_plans').on('value', snap => { subscriptionPlans=snap.val()||{}; renderClubPlansForm(); renderClubRequests(); renderClubCustomers(); });
-  db.ref('subscription_requests').on('value', snap => { subscriptionRequests=[]; snap.forEach(c=>subscriptionRequests.push({id:c.key,...(c.val()||{})})); renderClubRequests(); });
+  db.ref('subscription_requests').on('value', snap => {
+    const snapshotKeys=[];
+    subscriptionRequests=[];
+    snap.forEach(child=>{
+      const value=child.val()||{};
+      snapshotKeys.push(child.key);
+      subscriptionRequests.push({id:child.key,...value,requestId:value.requestId||child.key});
+    });
+    clubRequestSnapshotCount=snap.numChildren();
+    console.info('[CLUB_REQUEST_TOTAL_SNAPSHOT_COUNT]',clubRequestSnapshotCount);
+    console.info('[CLUB_REQUEST_KEYS]',snapshotKeys);
+    renderClubRequests();
+  });
   db.ref('subscription_customers').on('value', snap => { clubCustomers=[]; snap.forEach(c=>clubCustomers.push({id:c.key,...(c.val()||{})})); renderClubCustomers(); });
   db.ref('subscription_account_claims').on('value', snap => { clubAccountClaims=[]; snap.forEach(c=>clubAccountClaims.push({id:c.key,...(c.val()||{})})); renderClubAccountClaims(); });
   db.ref('subscription_settings').on('value', snap => { clubSettings=snap.val()||{}; const field=document.getElementById('clubWhatsAppTemplate'); if(field&&document.activeElement!==field)field.value=clubSettings.whatsappActivationMessage||clubDefaultWhatsAppTemplate(); });
@@ -2775,8 +2787,14 @@ window.saveClubPlan=async function(){
 document.addEventListener('change',event=>{if(event.target?.id==='clubPlanId')renderClubPlansForm();});
 function renderClubRequests(){
   const table=document.getElementById('clubRequestsTable');if(!table)return;
-  const rows=subscriptionRequests.slice().sort((a,b)=>Number(b.createdAt||0)-Number(a.createdAt||0));
-  table.innerHTML=rows.length?rows.map(request=>`<tr><td dir="ltr">${esc(request.requestId||request.id)}</td><td>${esc(request.registrationMethod||'manual')}</td><td>${esc(request.name||request.customerName||'—')}</td><td dir="ltr">${esc(request.email||'—')}</td><td dir="ltr">${esc(request.phone||'—')}</td><td>${esc(request.planName||String(request.planId||'').toUpperCase())}<br><small>${money(request.price||0)}</small></td><td>${request.createdAt?new Date(Number(request.createdAt)).toLocaleString('ar-IQ'):'—'}</td><td>${esc(request.paymentStatus||'pending')}</td><td>${esc(request.status||'pending')}</td><td>${request.status==='pending'?`<button class="btn btn-primary" onclick="approveClubRequest('${esc(request.id)}')">تم الدفع</button>`:'—'}</td></tr>`).join(''):'<tr><td colspan="10" style="text-align:center;padding:18px;color:var(--text-muted)">لا توجد طلبات اشتراك.</td></tr>';
+  const normalized=subscriptionRequests.filter(Boolean);
+  const filtered=normalized;
+  const rows=filtered.slice().sort((a,b)=>{
+    const createdDiff=Number(b.createdAt||0)-Number(a.createdAt||0);
+    return createdDiff||String(b.id||'').localeCompare(String(a.id||''));
+  });
+  table.innerHTML=rows.length?rows.map(request=>`<tr data-club-request-row="${esc(request.id)}"><td dir="ltr">${esc(request.requestId||request.id)}</td><td>${esc(request.registrationMethod||'manual')}</td><td>${esc(request.name||request.customerName||'—')}</td><td dir="ltr">${esc(request.email||'—')}</td><td dir="ltr">${esc(request.phone||'—')}</td><td>${esc(request.planName||String(request.planId||'').toUpperCase())}<br><small>${money(request.price||0)}</small></td><td>${request.createdAt?new Date(Number(request.createdAt)).toLocaleString('ar-IQ'):'—'}</td><td>${esc(request.paymentStatus||'pending')}</td><td>${esc(request.status||'pending')}</td><td>${request.status==='pending'?`<button class="btn btn-primary" onclick="approveClubRequest('${esc(request.id)}')">تم الدفع</button>`:'—'}</td></tr>`).join(''):'<tr><td colspan="10" style="text-align:center;padding:18px;color:var(--text-muted)">لا توجد طلبات اشتراك.</td></tr>';
+  console.info('[CLUB_REQUEST_RENDER_COUNTS]',{firebaseSnapshotCount:clubRequestSnapshotCount,normalizedCount:normalized.length,filteredCount:filtered.length,renderedDomCount:table.querySelectorAll('tr[data-club-request-row]').length});
 }
 window.approveClubRequest=async function(requestId){
   if(!canManageClub())return showNotif('ليس لديك صلاحية إدارة الاشتراكات.','error');
