@@ -1649,6 +1649,12 @@ async function searchClubCust() {
       subscriptions.push(...linkedSubs.filter(Boolean));
       console.info('[CLUB_SEARCH_SUBSCRIPTION_FALLBACK]',{count:subscriptions.length});
     }
+    const customerMatches=customers.filter(c=>String(c.clubNumber||'').toUpperCase()===normalizedClubNumber||(normalizedPhone&&clubPhoneMatches(c.phone||c.customerPhone,q))||String(c.name||c.customerName||'').trim().toLowerCase().includes(q.toLowerCase()));
+    for(const customer of customerMatches){
+      if(customer.activeSubscriptionId&&!subscriptions.some(s=>s.subscriptionId===customer.activeSubscriptionId)){
+        try{const snap=await db.ref('subscriptions/'+customer.activeSubscriptionId).once('value');if(snap.exists())subscriptions.push({subscriptionId:customer.activeSubscriptionId,...(snap.val()||{})});}catch(error){console.info('[CLUB_SEARCH_LINKED_SUBSCRIPTION_SKIPPED]',{code:error?.code||'denied'});}
+      }
+    }
     let loyaltyById={};
     try{const loyaltySnap=await db.ref('loyalty_customers').once('value');loyaltySnap.forEach(c=>loyaltyById[c.key]={id:c.key,...(c.val()||{})});}catch(error){console.info('[CLUB_SEARCH_LOYALTY_LOOKUP_SKIPPED]',{code:error?.code||'denied'});}
     const matches=[];
