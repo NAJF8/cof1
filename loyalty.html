@@ -1640,9 +1640,10 @@ async function searchClubCust() {
   msg.textContent = 'جارٍ البحث...';
   console.info('[CLUB_SEARCH_QUERY]',{queryType:normalizedPhone?'phone':normalizedClubNumber.startsWith('CLUB-')?'club':'name'});
   try{
-    const [customersSnap,subscriptionsSnap]=await Promise.all([db.ref('subscription_customers').once('value'),db.ref('subscriptions').once('value')]);
+    const [customersSnap,subscriptionsSnap,requestsSnap]=await Promise.all([db.ref('subscription_customers').once('value'),db.ref('subscriptions').once('value'),db.ref('subscription_requests').once('value')]);
     const customers=[];customersSnap.forEach(c=>customers.push({id:c.key,...(c.val()||{})}));
     const subscriptions=[];subscriptionsSnap.forEach(s=>subscriptions.push({subscriptionId:s.key,...(s.val()||{})}));
+    const requests=[];requestsSnap.forEach(r=>requests.push({id:r.key,...(r.val()||{})}));
     if(!subscriptions.length){
       const linkedIds=[...new Set(customers.map(c=>c.activeSubscriptionId).filter(Boolean))];
       const linkedSubs=await Promise.all(linkedIds.map(async id=>{try{const snap=await db.ref('subscriptions/'+id).once('value');return snap.exists()?{subscriptionId:id,...(snap.val()||{})}:null;}catch{return null;}}));
@@ -1660,8 +1661,9 @@ async function searchClubCust() {
     const matches=[];
     for(const sub of subscriptions){
       const linked=customers.find(c=>c.activeSubscriptionId===sub.subscriptionId||c.id===sub.customerId||(sub.clubNumber&&c.clubNumber===sub.clubNumber)||(sub.uid&&c.uid===sub.uid));
+      const request=requests.find(r=>r.id===sub.requestId||(sub.uid&&r.uid===sub.uid)||(sub.clubNumber&&r.clubNumber===sub.clubNumber));
       const loyalty=(sub.membershipNumber&&loyaltyById[sub.membershipNumber])||(linked?.membershipNumber&&loyaltyById[linked.membershipNumber])||Object.values(loyaltyById).find(c=>(sub.uid&&c.uid===sub.uid)||(linked?.uid&&c.uid===linked.uid));
-      const record={...(linked||{}),...(loyalty||{}),...sub,id:linked?.id||sub.customerId||sub.clubNumber||sub.subscriptionId,subscriptionId:sub.subscriptionId,loyaltyMembership:loyalty?.id||linked?.membershipNumber||sub.membershipNumber||''};
+      const record={...(request||{}),...(linked||{}),...(loyalty||{}),...sub,phone:sub.phone||sub.customerPhone||linked?.phone||request?.phone||'',name:sub.name||sub.customerName||linked?.name||request?.name||request?.customerName||'',id:linked?.id||sub.customerId||sub.clubNumber||sub.subscriptionId,subscriptionId:sub.subscriptionId,loyaltyMembership:loyalty?.id||linked?.membershipNumber||sub.membershipNumber||''};
       const name=String(record.name||record.customerName||'').trim().toLowerCase(),club=String(record.clubNumber||'').toUpperCase();
       if(club===normalizedClubNumber||(normalizedPhone&&clubPhoneMatches(record.phone,q))||(name&&name.includes(q.toLowerCase()))||String(record.loyaltyMembership).toLowerCase()===q.toLowerCase())matches.push(record);
     }
