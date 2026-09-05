@@ -1644,6 +1644,7 @@ async function searchClubCust() {
     const customers=[];customersSnap.forEach(c=>customers.push({id:c.key,...(c.val()||{})}));
     const subscriptions=[];subscriptionsSnap.forEach(s=>subscriptions.push({subscriptionId:s.key,...(s.val()||{})}));
     const requests=[];requestsSnap.forEach(r=>requests.push({id:r.key,...(r.val()||{})}));
+    console.info('[CLUB_SEARCH_SOURCE_COUNTS]',{customers:customers.length,subscriptions:subscriptions.length,requests:requests.length,subscriptionKeys:subscriptions.slice(0,5).map(s=>s.subscriptionId),clubFields:subscriptions.slice(0,5).map(s=>Boolean(s.clubNumber||s.membershipNumber)),phoneFields:subscriptions.slice(0,5).map(s=>Boolean(s.phone||s.customerPhone))});
     if(!subscriptions.length){
       const linkedIds=[...new Set(customers.map(c=>c.activeSubscriptionId).filter(Boolean))];
       const linkedSubs=await Promise.all(linkedIds.map(async id=>{try{const snap=await db.ref('subscriptions/'+id).once('value');return snap.exists()?{subscriptionId:id,...(snap.val()||{})}:null;}catch{return null;}}));
