@@ -4660,6 +4660,7 @@
             setText('aiChatName', assistantName);
             setText('aiChatTitle', welcome);
             setText('aiChatSubtitle', subtitle);
+            setText('aiChatSubmit', en ? 'Send' : 'إرسال');
             setText('aiVoiceName', assistantName);
             setText('aiVoiceState', en ? '🎙 Listening...' : '🎙 جاري الاستماع...');
             setText('aiVoiceMute', en ? 'Mute' : 'كتم');
@@ -4670,6 +4671,8 @@
                 msgs.dataset.started = '1';
                 msgs.innerHTML = `<div class="ai-welcome">${esc(welcome)}</div><div class="ai-quick-choices">${choices.map(([key,label]) => `<button type="button" data-ai-choice="${key}">${label}</button>`).join('')}</div>`;
             } else if (msgs) {
+                const welcomeEl = msgs.querySelector('.ai-welcome');
+                if (welcomeEl) welcomeEl.textContent = welcome;
                 const actions = msgs.querySelector('.ai-quick-choices');
                 if (actions) actions.innerHTML = choices.map(([key,label]) => `<button type="button" data-ai-choice="${key}">${label}</button>`).join('');
             }
