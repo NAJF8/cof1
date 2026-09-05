@@ -2449,6 +2449,7 @@
         .ai-chat-messages {
             flex: 1;
             overflow-y: auto;
+            overscroll-behavior: contain;
             padding: 16px;
             display: flex;
             flex-direction: column;
@@ -2464,9 +2465,10 @@
         }
         .ai-bubble-bot {
             align-self: flex-start;
-            background: var(--surface);
-            color: var(--text);
-            border: 1px solid var(--border);
+            background: #315d3a;
+            color: #fff;
+            border: 0;
+            box-shadow: 0 5px 14px rgba(28,61,37,.14);
             border-bottom-right-radius: 4px;
         }
         [dir="ltr"] .ai-bubble-bot {
@@ -2542,9 +2544,15 @@
             font-weight: 800;
             cursor: pointer;
         }
-        .ai-quick-choices { display:flex; flex-wrap:wrap; gap:7px; padding:2px 0 4px; }
-        .ai-quick-choices button { min-height:34px; padding:6px 10px; border:1px solid var(--border); border-radius:999px; color:var(--text); background:var(--surface); font:700 12px Cairo,Arial,sans-serif; }
-        .ai-quick-choices button:hover { background:var(--surface2); border-color:var(--accent); }
+        .ai-welcome { max-width:92%; padding:12px 14px; border-radius:18px; background:#fffaf0; color:#26472f; font-size:14px; line-height:1.7; box-shadow:0 5px 14px rgba(28,61,37,.08); }
+        .ai-quick-choices { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; padding:2px 0 4px; }
+        .ai-quick-choices button { min-width:0; min-height:42px; padding:7px 9px; border:1px solid rgba(49,93,58,.22); border-radius:999px; color:#fff; background:#315d3a; font:700 12px Cairo,Arial,sans-serif; cursor:pointer; }
+        .ai-quick-choices button:nth-child(4) { background:#a9805f; }
+        .ai-quick-choices button:hover { filter:brightness(1.08); }
+        .ai-chat-message { max-width:80%; padding:10px 14px; border-radius:16px; font-size:14px; line-height:1.6; white-space:pre-wrap; word-break:break-word; }
+        .ai-chat-message.user { align-self:flex-end; background:#a9805f; color:#fff; border-bottom-left-radius:4px; }
+        .ai-chat-message.assistant { align-self:flex-start; background:#315d3a; color:#fff; border-bottom-right-radius:4px; }
+        .ai-chat-typing { align-self:flex-start; color:#687568; font-size:12px; }
         .ai-chat-drawer { background:#10321f; }
         .ai-chat-hero { min-height:clamp(230px,31vh,310px); padding:24px 26px; background:radial-gradient(circle at 72% 18%,#315d3a 0,#0d2618 62%); }
         .ai-chat-hero-copy { width:min(250px,61%); z-index:3; }
@@ -2602,26 +2610,31 @@
         .club-link-form { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin-top:12px; }
         .club-link-form input { min-height:42px; padding:9px 11px; border:1px solid var(--border); border-radius:10px; background:var(--surface); color:var(--text); font:700 13px Cairo,Arial,sans-serif; }
         @media (max-width:600px) {
-            .ai-chat-hero { min-height:clamp(276px,72vw,310px); height:clamp(276px,72vw,310px); padding:18px 16px; }
-            .ai-chat-hero-copy { width:clamp(148px,48vw,200px); padding:10px 12px; z-index:3; }
-            .ai-chat-hero-copy strong { font-size:clamp(16px,4.5vw,19px); line-height:1.35; }
-            .ai-chat-hero .ai-barista-character { inset:auto auto 0 -28px !important; right:auto !important; left:-28px !important; bottom:0 !important; width:clamp(170px,48vw,206px) !important; height:auto !important; max-height:calc(100% - 6px) !important; object-fit:contain !important; object-position:bottom left !important; z-index:2; }
-            [dir="ltr"] .ai-chat-hero .ai-barista-character { right:-28px; left:auto; object-position:bottom right; }
-            .ai-chat-close { top:12px; right:12px; width:38px; height:38px; z-index:4; }
-            .ai-chat-hero .ai-chat-brand-logo { inset:12px auto auto 12px !important; right:auto !important; bottom:auto !important; width:40px !important; height:40px !important; border-radius:12px; object-fit:cover !important; object-position:center !important; z-index:4; }
+            .ai-chat-hero { flex:0 0 clamp(245px,64vw,305px); min-height:clamp(245px,64vw,305px); height:auto; padding:16px; }
+            .ai-chat-hero-copy { width:clamp(155px,49vw,205px); padding:12px; z-index:3; margin-top:52px; }
+            .ai-chat-hero-copy strong { font-size:clamp(16px,4.5vw,20px); line-height:1.35; }
+            .ai-chat-hero .ai-barista-character { inset:auto auto 0 -48px !important; right:auto !important; left:-48px !important; bottom:0 !important; width:clamp(220px,64vw,285px) !important; height:auto !important; max-height:100% !important; object-fit:contain !important; object-position:bottom right !important; z-index:2; mix-blend-mode:lighten; }
+            [dir="ltr"] .ai-chat-hero .ai-barista-character { right:-48px !important; left:auto !important; object-position:bottom left !important; }
+            .ai-chat-close { top:12px; right:12px; width:40px; height:40px; z-index:4; }
+            .ai-chat-hero .ai-chat-brand-logo { inset:12px auto auto 12px !important; right:auto !important; bottom:auto !important; width:48px !important; height:48px !important; border-radius:14px; object-fit:cover !important; object-position:center !important; z-index:4; }
+            .ai-chat-messages { min-height:0; padding:14px 12px; }
+            .ai-chat-input-bar { flex:0 0 auto; gap:6px; padding:9px 10px max(9px,env(safe-area-inset-bottom)); }
+            .ai-chat-input-bar input { min-width:0; font-size:16px; }
+            .ai-chat-input-bar button { min-width:44px; min-height:44px; }
+            .ai-voice-mode-btn { display:none !important; }
             .club-account-form,.club-link-form,.club-account-summary { grid-template-columns:1fr; }
             .club-promo-card { padding:15px; }
             .club-plans-grid { grid-template-columns:1fr; }
         }
         @media (max-width:600px) {
-            .ai-chat-drawer.has-conversation .ai-chat-hero { min-height:188px; height:188px; }
-            .ai-chat-drawer.has-conversation .ai-chat-hero-copy { width:clamp(142px,45vw,184px); padding:9px 10px; }
-            .ai-chat-drawer.has-conversation .ai-chat-hero-copy strong { font-size:16px; }
-            .ai-chat-drawer.has-conversation .ai-chat-hero .ai-barista-character { width:clamp(135px,39vw,165px) !important; max-height:calc(100% - 5px) !important; }
+            .ai-chat-drawer.has-conversation .ai-chat-hero { min-height:clamp(245px,64vw,305px); height:auto; }
+            .ai-chat-drawer.has-conversation .ai-chat-hero-copy { width:clamp(155px,49vw,205px); padding:12px; }
+            .ai-chat-drawer.has-conversation .ai-chat-hero-copy strong { font-size:clamp(16px,4.5vw,20px); }
+            .ai-chat-drawer.has-conversation .ai-chat-hero .ai-barista-character { width:clamp(220px,64vw,285px) !important; max-height:100% !important; }
         }
         @media (max-width:600px) and (max-height:560px) {
-            .ai-chat-hero { min-height:238px; height:238px; }
-            .ai-chat-hero .ai-barista-character { width:clamp(150px,44vw,180px); max-height:calc(100% - 6px); }
+            .ai-chat-hero { min-height:clamp(220px,58vw,270px); height:auto; }
+            .ai-chat-hero .ai-barista-character { width:clamp(190px,58vw,245px); max-height:100%; }
         }
         @media (min-width:601px) { .meeting-room-card { grid-template-columns:auto minmax(0,1fr) auto; padding:20px 24px; } .meeting-room-card .primary-btn { grid-column:auto; justify-self:end; } }
         @media (prefers-reduced-motion:reduce) { .ai-chat-drawer { transition:none; } .ai-assistant-float { animation:none; } }
@@ -3010,9 +3023,9 @@
         <div class="ai-chat-hero"><img class="ai-chat-brand-logo" src="logo.jpg" alt="شعار 101 COFFEE"><img class="ai-barista-character" src="chatbot-panel-v2.png" alt="باريستا 101" onerror="this.src='chatbot ai .PNG'"><div class="ai-chat-hero-copy"><span id="aiChatName">المساعد الذكي</span><strong id="aiChatTitle">أهلاً بك ♥<br>كيف أگدر أساعدك اليوم؟</strong><span class="ai-chat-status" id="aiChatSubtitle">جاهزة أساعدك تختار ☕</span></div><button id="aiChatCloseBtn" class="ai-chat-close" type="button" aria-label="إغلاق المساعد">✕</button></div>
         <div class="ai-chat-messages" id="aiChatMessages"></div>
         <form class="ai-chat-input-bar" id="aiChatForm">
-            <button class="ai-mic-btn" id="aiChatMic" type="button" aria-label="التحدث إلى المساعد">🎙</button><input type="text" id="aiChatInput" placeholder="اكتب سؤالك أو شنو تشتهي..." data-i18n-placeholder="ai_input_placeholder" autocomplete="off"><button id="aiChatSubmit" type="submit" aria-label="إرسال">➤</button><button class="ai-voice-mode-btn" id="aiVoiceModeBtn" type="button" aria-label="محادثة صوتية">محادثة صوتية</button>
+            <button class="ai-mic-btn" id="aiChatMic" type="button" aria-label="التحدث إلى المساعد">🎙</button><input type="text" id="aiChatInput" placeholder="اكتب ذوقك أو ما تشتهيه..." data-i18n-placeholder="ai_input_placeholder" autocomplete="off"><button id="aiChatSubmit" type="submit" aria-label="إرسال">➤</button><button class="ai-voice-mode-btn" id="aiVoiceModeBtn" type="button" aria-label="محادثة صوتية">محادثة صوتية</button>
         </form>
-        <section class="ai-voice-mode" id="aiVoiceMode" aria-label="محادثة صوتية"><div class="ai-voice-card"><img class="ai-barista-character" src="chatbot-panel-v2.png" alt="باريستا 101"><strong id="aiVoiceName">المساعد الذكي</strong><span id="aiVoiceState">أسمعك...</span><div class="ai-voice-pulse" aria-hidden="true"></div><div class="ai-voice-actions"><button id="aiVoiceMute" type="button" aria-label="كتم الميكروفون">كتم</button><button id="aiVoiceText" type="button" aria-label="العودة للمحادثة النصية">العودة للنص</button><button id="aiVoiceEnd" type="button" aria-label="إنهاء المحادثة">إنهاء المحادثة</button></div></div></section>
+        <section class="ai-voice-mode" id="aiVoiceMode" aria-label="محادثة صوتية"><div class="ai-voice-card"><img class="ai-barista-character" src="chatbot-panel-v2.png" alt="باريستا 101"><strong id="aiVoiceName">ريتا</strong><span id="aiVoiceState">🎙 جاري الاستماع...</span><div class="ai-voice-pulse" aria-hidden="true"></div><div class="ai-voice-actions"><button id="aiVoiceMute" type="button" aria-label="كتم الميكروفون">كتم</button><button id="aiVoiceText" type="button" aria-label="العودة للمحادثة النصية">العودة للنص</button><button id="aiVoiceEnd" type="button" aria-label="إنهاء المحادثة">إنهاء المحادثة</button></div></div></section>
     </section>
 
     <!-- ═══════════════════════ ORDER RATING MODAL ═══════════════════════ -->
@@ -3372,6 +3385,7 @@
             renderCategoryNav();
             renderCatalog(currentCat);
             updateLanguageDependentUI();
+            if (document.getElementById('aiChatDrawer')?.classList.contains('open')) renderChatbotWelcome();
             updateCandleDayUI();
             const aboutTitle = document.getElementById('aboutTitleText');
             const aboutDesc = document.getElementById('aboutDescText');
@@ -4637,6 +4651,29 @@
 
         // ── FLOATING AI BARISTA ────────────────────────────────
         let chatScrollY = 0;
+        function renderChatbotWelcome(force = false) {
+            const en = currentLang === 'en';
+            const assistantName = en ? (aiConfig.assistantNameEn || 'Rita') : (aiConfig.assistantNameAr || 'ريتا');
+            const welcome = en ? (aiConfig.welcomeEn || `Hi there ♥\nHow can I help you today?`) : (aiConfig.welcomeAr || `أهلاً بك ♥\nكيف أقدر أساعدك اليوم؟`);
+            const subtitle = en ? 'Ready to find your perfect cup ☕' : 'جاهزة أساعدك تختار ☕';
+            const choices = en ? [['coffee','☕ I want coffee'],['cold','🧊 I want something cold'],['dessert','🍰 I want dessert'],['pick','✨ Surprise me']] : [['coffee','☕ أريد قهوة'],['cold','🧊 أريد شي بارد'],['dessert','🍰 أريد حلى'],['pick','✨ اختارلي شي']];
+            setText('aiChatName', assistantName);
+            setText('aiChatTitle', welcome);
+            setText('aiChatSubtitle', subtitle);
+            setText('aiVoiceName', assistantName);
+            setText('aiVoiceState', en ? '🎙 Listening...' : '🎙 جاري الاستماع...');
+            setText('aiVoiceMute', en ? 'Mute' : 'كتم');
+            setText('aiVoiceText', en ? 'Back to text' : 'العودة للنص');
+            setText('aiVoiceEnd', en ? 'End conversation' : 'إنهاء المحادثة');
+            const msgs = document.getElementById('aiChatMessages');
+            if (msgs && (!msgs.dataset.started || force)) {
+                msgs.dataset.started = '1';
+                msgs.innerHTML = `<div class="ai-welcome">${esc(welcome)}</div><div class="ai-quick-choices">${choices.map(([key,label]) => `<button type="button" data-ai-choice="${key}">${label}</button>`).join('')}</div>`;
+            } else if (msgs) {
+                const actions = msgs.querySelector('.ai-quick-choices');
+                if (actions) actions.innerHTML = choices.map(([key,label]) => `<button type="button" data-ai-choice="${key}">${label}</button>`).join('');
+            }
+        }
         window.openChatbot = function() {
             const panel = document.getElementById('aiChatDrawer');
             const button = document.getElementById('aiAssistantBtn');
@@ -4644,12 +4681,7 @@
             setModalOpen(panel, true); panel.setAttribute('aria-hidden', 'false');
             chatScrollY = window.scrollY; document.body.style.position = 'fixed'; document.body.style.top = `-${chatScrollY}px`; document.body.style.width = '100%';
             document.getElementById('aiChatBackdrop')?.classList.add('open');
-            const assistantName = currentLang === 'en' ? (aiConfig.assistantNameEn || 'Zaina') : (aiConfig.assistantNameAr || 'زينة');
-            const welcome = currentLang === 'en' ? (aiConfig.welcomeEn || `Hi! I’m ${assistantName} ☕ What are you craving today?`) : (aiConfig.welcomeAr || `هلا بيك، أني ${assistantName} ☕ شنو مشتهي اليوم؟`);
-            const name = document.getElementById('aiChatName'); if (name) name.textContent = `${assistantName} ☕`;
-            const subtitle = document.getElementById('aiChatSubtitle'); if (subtitle) subtitle.textContent = currentLang === 'en' ? 'Ready to help you choose ☕' : 'جاهزة أساعدك تختار ☕';
-            const msgs = document.getElementById('aiChatMessages');
-            if (msgs && !msgs.dataset.started) { msgs.dataset.started = '1'; msgs.innerHTML = `<div class="ai-welcome">${esc(welcome)}</div><div class="ai-quick-choices"><button type="button" data-ai-choice="coffee">☕ ${currentLang === 'en' ? 'I want coffee' : 'أريد قهوة'}</button><button type="button" data-ai-choice="cold">🧊 ${currentLang === 'en' ? 'Something cold' : 'أريد شي بارد'}</button><button type="button" data-ai-choice="dessert">🍰 ${currentLang === 'en' ? 'I want dessert' : 'أريد حلى'}</button><button type="button" data-ai-choice="pick">✨ ${currentLang === 'en' ? 'Pick for me' : 'اختاريلي شي'}</button></div>`; }
+            renderChatbotWelcome();
             if (button) button.setAttribute('aria-expanded', 'true');
             document.getElementById('aiChatInput')?.focus();
         };
@@ -4717,16 +4749,16 @@
 
             const msgs = document.getElementById("aiChatMessages");
             if (!msgs) return;
-            msgs.innerHTML += `<div style="align-self:flex-start;background:var(--primary);color:#fff;padding:8px 12px;border-radius:12px;max-width:80%;margin-bottom:8px;font-size:13px">${esc(text)}</div>`;
+            msgs.insertAdjacentHTML('beforeend', `<div class="ai-chat-message user">${esc(text)}</div>`);
             rememberChatTurn('user', text);
             updateChatPreferences(text);
             document.getElementById('aiChatDrawer')?.classList.add('has-conversation');
             const typingId = `aiTyping${Date.now()}`;
-            msgs.insertAdjacentHTML('beforeend', `<div id="${typingId}" style="align-self:flex-end;color:var(--text-muted);font-size:12px;margin-bottom:8px">… يكتب المساعد</div>`);
+            msgs.insertAdjacentHTML('beforeend', `<div id="${typingId}" class="ai-chat-typing">${currentLang === 'en' ? '… Rita is thinking' : '… ريتا تكتب'}</div>`);
             msgs.scrollTop = msgs.scrollHeight;
             
             const addReply = reply => {
-                msgs.innerHTML += `<div style="align-self:flex-end;background:var(--surface2);color:var(--text);padding:8px 12px;border-radius:12px;max-width:80%;margin-bottom:8px;font-size:13px;border:1px solid var(--border)">${esc(reply)}</div>`;
+                msgs.insertAdjacentHTML('beforeend', `<div class="ai-chat-message assistant">${esc(reply)}</div>`);
                 msgs.scrollTop = msgs.scrollHeight;
                 rememberChatTurn('assistant', reply);
             };
