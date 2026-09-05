@@ -2601,7 +2601,28 @@
         .club-login-note { padding:12px 14px; border-radius:13px; background:var(--surface2); border:1px solid var(--border); color:var(--text-muted); font-size:13px; line-height:1.8; }
         .club-link-form { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin-top:12px; }
         .club-link-form input { min-height:42px; padding:9px 11px; border:1px solid var(--border); border-radius:10px; background:var(--surface); color:var(--text); font:700 13px Cairo,Arial,sans-serif; }
-        @media (max-width:600px) { .ai-chat-hero { min-height:145px; padding:18px 16px; } .ai-chat-hero-copy { width:min(250px,76%); padding:14px; } .ai-chat-close { top:12px; right:12px; width:38px; height:38px; } .ai-chat-brand-logo { top:12px; left:12px; width:40px; height:40px; border-radius:12px; } .club-account-form,.club-link-form,.club-account-summary { grid-template-columns:1fr; } .club-promo-card { padding:15px; } .club-plans-grid { grid-template-columns:1fr; } }
+        @media (max-width:600px) {
+            .ai-chat-hero { min-height:clamp(276px,72vw,310px); height:clamp(276px,72vw,310px); padding:18px 16px; }
+            .ai-chat-hero-copy { width:clamp(148px,48vw,200px); padding:10px 12px; z-index:3; }
+            .ai-chat-hero-copy strong { font-size:clamp(16px,4.5vw,19px); line-height:1.35; }
+            .ai-chat-hero .ai-barista-character { inset:auto auto 0 -28px !important; right:auto !important; left:-28px !important; bottom:0 !important; width:clamp(170px,48vw,206px) !important; height:auto !important; max-height:calc(100% - 6px) !important; object-fit:contain !important; object-position:bottom left !important; z-index:2; }
+            [dir="ltr"] .ai-chat-hero .ai-barista-character { right:-28px; left:auto; object-position:bottom right; }
+            .ai-chat-close { top:12px; right:12px; width:38px; height:38px; z-index:4; }
+            .ai-chat-hero .ai-chat-brand-logo { inset:12px auto auto 12px !important; right:auto !important; bottom:auto !important; width:40px !important; height:40px !important; border-radius:12px; object-fit:cover !important; object-position:center !important; z-index:4; }
+            .club-account-form,.club-link-form,.club-account-summary { grid-template-columns:1fr; }
+            .club-promo-card { padding:15px; }
+            .club-plans-grid { grid-template-columns:1fr; }
+        }
+        @media (max-width:600px) {
+            .ai-chat-drawer.has-conversation .ai-chat-hero { min-height:188px; height:188px; }
+            .ai-chat-drawer.has-conversation .ai-chat-hero-copy { width:clamp(142px,45vw,184px); padding:9px 10px; }
+            .ai-chat-drawer.has-conversation .ai-chat-hero-copy strong { font-size:16px; }
+            .ai-chat-drawer.has-conversation .ai-chat-hero .ai-barista-character { width:clamp(135px,39vw,165px) !important; max-height:calc(100% - 5px) !important; }
+        }
+        @media (max-width:600px) and (max-height:560px) {
+            .ai-chat-hero { min-height:238px; height:238px; }
+            .ai-chat-hero .ai-barista-character { width:clamp(150px,44vw,180px); max-height:calc(100% - 6px); }
+        }
         @media (min-width:601px) { .meeting-room-card { grid-template-columns:auto minmax(0,1fr) auto; padding:20px 24px; } .meeting-room-card .primary-btn { grid-column:auto; justify-self:end; } }
         @media (prefers-reduced-motion:reduce) { .ai-chat-drawer { transition:none; } .ai-assistant-float { animation:none; } }
 
@@ -4644,6 +4665,49 @@
             const panel = document.getElementById('aiChatDrawer');
             if (panel?.classList.contains('open')) window.closeChatbot(); else window.openChatbot();
         };
+        const CHAT_HISTORY_LIMIT = 10;
+        const chatHistory = [];
+        const chatPreferences = { temperature:null, category:null, sweetness:null, strength:null };
+        function rememberChatTurn(role, text) {
+            const clean = String(text || '').trim();
+            if (!clean) return;
+            chatHistory.push({ role, text:clean });
+            if (chatHistory.length > CHAT_HISTORY_LIMIT) chatHistory.splice(0, chatHistory.length - CHAT_HISTORY_LIMIT);
+            console.log('[CHAT_HISTORY]', { count:chatHistory.length, roles:chatHistory.map(turn => turn.role) });
+        }
+        function updateChatPreferences(text) {
+            const value = String(text || '').toLowerCase();
+            if (/بارد|ثلج|آيس|ايس|cold|ice/.test(value)) chatPreferences.temperature = 'cold';
+            if (/حار|ساخن|hot|warm/.test(value)) chatPreferences.temperature = 'hot';
+            if (/قهوة|espresso|latte|coffee|كابتشينو|امريكانو|أمريكانو/.test(value)) chatPreferences.category = 'coffee';
+            if (/حلى|حلوى|dessert|cake|براوني|كوكيز/.test(value)) chatPreferences.category = 'dessert';
+            if (/بدون سكر|غير محلى|unsweetened|no sugar/.test(value)) chatPreferences.sweetness = 'no_sugar';
+            else if (/حلو|سكر|sweet/.test(value)) chatPreferences.sweetness = 'sweet';
+            if (/قوي|دبل|strong|double/.test(value)) chatPreferences.strength = 'strong';
+            else if (/خفيف|light|mild/.test(value)) chatPreferences.strength = 'light';
+            console.log('[CHAT_PREFERENCES]', { ...chatPreferences });
+        }
+        function buildChatContext() {
+            const menu = products
+                .filter(product => product && !product.hidden && !product.comingSoon)
+                .slice(0, 50)
+                .map(product => ({
+                    name: productName(product),
+                    category: productCategoryKey(product),
+                    description: productDescription(product),
+                    price: Number(product.price) || 0
+                }));
+            return {
+                chatbot: {
+                    enabled: aiConfig.enabled !== false,
+                    provider: aiConfig.provider || 'smart_rules',
+                    systemPrompt: aiConfig.systemPrompt || '',
+                    shopInfo: aiConfig.shopInfo || ''
+                },
+                preferences: { ...chatPreferences },
+                menu
+            };
+        }
         async function handleAIChatSubmit(e) {
             e.preventDefault();
             const inp = document.getElementById("aiChatInput");
@@ -4654,6 +4718,9 @@
             const msgs = document.getElementById("aiChatMessages");
             if (!msgs) return;
             msgs.innerHTML += `<div style="align-self:flex-start;background:var(--primary);color:#fff;padding:8px 12px;border-radius:12px;max-width:80%;margin-bottom:8px;font-size:13px">${esc(text)}</div>`;
+            rememberChatTurn('user', text);
+            updateChatPreferences(text);
+            document.getElementById('aiChatDrawer')?.classList.add('has-conversation');
             const typingId = `aiTyping${Date.now()}`;
             msgs.insertAdjacentHTML('beforeend', `<div id="${typingId}" style="align-self:flex-end;color:var(--text-muted);font-size:12px;margin-bottom:8px">… يكتب المساعد</div>`);
             msgs.scrollTop = msgs.scrollHeight;
@@ -4661,16 +4728,21 @@
             const addReply = reply => {
                 msgs.innerHTML += `<div style="align-self:flex-end;background:var(--surface2);color:var(--text);padding:8px 12px;border-radius:12px;max-width:80%;margin-bottom:8px;font-size:13px;border:1px solid var(--border)">${esc(reply)}</div>`;
                 msgs.scrollTop = msgs.scrollHeight;
+                rememberChatTurn('assistant', reply);
             };
             try {
-                console.log('[CHAT_LOCATION_ORIGIN]', location.origin);
-                console.log('[CHAT_ENDPOINT]', AI_CHAT_ENDPOINT);
+                const language = currentLang === 'en' ? 'en' : 'ar';
+                const historyForWorker = chatHistory.slice(0, -1).slice(-CHAT_HISTORY_LIMIT);
+                console.log('[CHAT_LANGUAGE]', language);
+                console.log('[CHAT_HISTORY]', { count:historyForWorker.length, roles:historyForWorker.map(turn => turn.role) });
                 const response = await fetch(AI_CHAT_ENDPOINT, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         message: text,
-                        language: currentLang === 'en' ? 'en' : 'ar'
+                        language,
+                        history: historyForWorker,
+                        context: buildChatContext()
                     })
                 });
                 const result = await response.json().catch(() => ({}));
@@ -4692,8 +4764,27 @@
             }
         }
 
-        let recognition = null, voiceModeActive = false, voiceMuted = false, recognitionLocale = '', recognitionFallbackUsed = false;
+        let recognition = null, voiceModeActive = false, voiceMuted = false, recognitionLocale = '', recognitionFallbackUsed = false, cachedSpeechVoices = [];
         function setVoiceState(text) { const state = document.getElementById('aiVoiceState'); if (state) state.textContent = text; }
+        function refreshSpeechVoices() {
+            cachedSpeechVoices = 'speechSynthesis' in window ? speechSynthesis.getVoices() : [];
+            console.log('[VOICE_LIST_AVAILABLE]', { total:cachedSpeechVoices.length, arabic:cachedSpeechVoices.filter(voice => /^ar(?:-|$)/i.test(voice.lang)).map(voice => voice.lang) });
+            return cachedSpeechVoices;
+        }
+        function selectArabicVoice() {
+            const voices = cachedSpeechVoices.length ? cachedSpeechVoices : refreshSpeechVoices();
+            return voices.find(voice => String(voice.lang).toLowerCase() === 'ar-iq')
+                || voices.find(voice => String(voice.lang).toLowerCase() === 'ar-sa')
+                || voices.find(voice => String(voice.lang).toLowerCase().startsWith('ar-'));
+        }
+        function selectEnglishVoice() {
+            const voices = cachedSpeechVoices.length ? cachedSpeechVoices : refreshSpeechVoices();
+            return voices.find(voice => String(voice.lang).toLowerCase().startsWith('en-'));
+        }
+        if ('speechSynthesis' in window) {
+            refreshSpeechVoices();
+            speechSynthesis.onvoiceschanged = refreshSpeechVoices;
+        }
         function startVoiceRecognition() {
             const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
             if (!SpeechRecognition) { alert('تعذر الوصول للمايكروفون. تأكد من السماح باستخدامه من إعدادات المتصفح.'); return; }
@@ -4701,30 +4792,40 @@
             recognition = new SpeechRecognition();
             recognitionLocale = currentLang === 'en' ? 'en-US' : (recognitionFallbackUsed ? 'ar-SA' : 'ar-IQ');
             recognition.lang = recognitionLocale; recognition.interimResults = false; recognition.maxAlternatives = 1;
-            recognition.onstart = () => setVoiceState(currentLang === 'en' ? 'Listening…' : 'أسمعك...');
+            console.log('[SPEECH_LANG]', recognitionLocale);
+            recognition.onstart = () => { console.log('[VOICE_MODE_STATE]', 'listening'); setVoiceState(currentLang === 'en' ? 'Listening…' : 'أسمعك...'); };
             recognition.onresult = event => { const input = document.getElementById('aiChatInput'); if (input) { input.value = event.results[0][0].transcript; document.getElementById('aiChatForm')?.requestSubmit(); } setVoiceState(currentLang === 'en' ? 'Thinking…' : 'جاري التفكير...'); };
             recognition.onerror = event => {
                 if (currentLang !== 'en' && recognitionLocale === 'ar-IQ' && !recognitionFallbackUsed && event.error !== 'not-allowed') { recognitionFallbackUsed = true; startVoiceRecognition(); return; }
                 setVoiceState(currentLang === 'en' ? 'Microphone unavailable' : 'تعذر الوصول للمايكروفون.');
                 voiceModeActive = false;
             };
-            recognition.onend = () => { if (voiceModeActive && !voiceMuted && !speechSynthesis.speaking) setTimeout(startVoiceRecognition, 350); };
+            recognition.onend = () => { if (voiceModeActive && !voiceMuted && !window.speechSynthesis?.speaking) setTimeout(startVoiceRecognition, 350); };
             recognition.start();
         }
-        function chooseArabicVoice() { const voices = speechSynthesis.getVoices(); return voices.find(voice => voice.lang.toLowerCase() === 'ar-iq') || voices.find(voice => voice.lang.toLowerCase() === 'ar-sa') || voices.find(voice => voice.lang.toLowerCase().startsWith('ar')); }
         function speakChatReply(reply) {
             if (!('speechSynthesis' in window) || typeof SpeechSynthesisUtterance === 'undefined') return;
             recognition?.stop();
             setVoiceState(currentLang === 'en' ? 'Assistant is speaking…' : 'الباريستا تتحدث...');
+            const isArabic = currentLang !== 'en';
+            const voice = isArabic ? selectArabicVoice() : selectEnglishVoice();
+            if (isArabic && !voice) {
+                console.warn('[VOICE_SELECTED]', { language:'ar', available:false });
+                setVoiceState('لا يتوفر صوت عربي على هذا الجهاز.');
+                if (voiceModeActive && !voiceMuted) setTimeout(startVoiceRecognition, 350);
+                return;
+            }
             const utterance = new SpeechSynthesisUtterance(reply);
-            utterance.lang = currentLang === 'en' ? 'en-US' : 'ar-IQ';
-            const voice = currentLang === 'en' ? speechSynthesis.getVoices().find(item => item.lang.toLowerCase().startsWith('en')) : chooseArabicVoice();
+            utterance.lang = isArabic ? 'ar-IQ' : 'en-US';
             if (voice) utterance.voice = voice;
+            utterance.rate = isArabic ? 0.95 : 1;
+            utterance.pitch = 1;
+            console.log('[VOICE_SELECTED]', { language:utterance.lang, selected:voice?.lang || null });
             utterance.onend = () => { if (voiceModeActive && !voiceMuted) { setVoiceState(currentLang === 'en' ? 'Listening…' : 'أسمعك...'); startVoiceRecognition(); } };
             speechSynthesis.cancel(); speechSynthesis.speak(utterance);
         }
-        function endVoiceMode() { voiceModeActive = false; voiceMuted = false; recognitionFallbackUsed = false; recognition?.stop(); speechSynthesis.cancel(); document.getElementById('aiVoiceMode')?.classList.remove('open'); }
-        function returnToTextMode() { voiceModeActive = false; voiceMuted = false; recognitionFallbackUsed = false; recognition?.stop(); speechSynthesis.cancel(); document.getElementById('aiVoiceMode')?.classList.remove('open'); document.getElementById('aiChatInput')?.focus(); }
+        function endVoiceMode() { voiceModeActive = false; voiceMuted = false; recognitionFallbackUsed = false; console.log('[VOICE_MODE_STATE]', 'ended'); recognition?.stop(); speechSynthesis.cancel(); document.getElementById('aiVoiceMode')?.classList.remove('open'); }
+        function returnToTextMode() { voiceModeActive = false; voiceMuted = false; recognitionFallbackUsed = false; console.log('[VOICE_MODE_STATE]', 'text'); recognition?.stop(); speechSynthesis.cancel(); document.getElementById('aiVoiceMode')?.classList.remove('open'); document.getElementById('aiChatInput')?.focus(); }
 
         // ── SEARCH & THEME ─────────────────────────────────────
         function performSearch(q) {
