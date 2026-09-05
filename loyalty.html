@@ -1643,6 +1643,12 @@ async function searchClubCust() {
     const [customersSnap,subscriptionsSnap]=await Promise.all([db.ref('subscription_customers').once('value'),db.ref('subscriptions').once('value')]);
     const customers=[];customersSnap.forEach(c=>customers.push({id:c.key,...(c.val()||{})}));
     const subscriptions=[];subscriptionsSnap.forEach(s=>subscriptions.push({subscriptionId:s.key,...(s.val()||{})}));
+    if(!subscriptions.length){
+      const linkedIds=[...new Set(customers.map(c=>c.activeSubscriptionId).filter(Boolean))];
+      const linkedSubs=await Promise.all(linkedIds.map(async id=>{try{const snap=await db.ref('subscriptions/'+id).once('value');return snap.exists()?{subscriptionId:id,...(snap.val()||{})}:null;}catch{return null;}}));
+      subscriptions.push(...linkedSubs.filter(Boolean));
+      console.info('[CLUB_SEARCH_SUBSCRIPTION_FALLBACK]',{count:subscriptions.length});
+    }
     let loyaltyById={};
     try{const loyaltySnap=await db.ref('loyalty_customers').once('value');loyaltySnap.forEach(c=>loyaltyById[c.key]={id:c.key,...(c.val()||{})});}catch(error){console.info('[CLUB_SEARCH_LOYALTY_LOOKUP_SKIPPED]',{code:error?.code||'denied'});}
     const matches=[];
