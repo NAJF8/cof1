@@ -4261,6 +4261,7 @@
             const label = btn?.querySelector('.google-login-label');
             const message = document.getElementById('loyaltyLoginError');
             if (message) message.textContent = '';
+            console.info('[LOYALTY_PIN_LOGIN_START]', {hasMembership:Boolean(membership), hasPin:Boolean(pin)});
             if (btn) btn.disabled = true;
             if (label) label.textContent = currentLang === 'en' ? 'Signing in…' : 'جاري تسجيل الدخول…';
             try {
@@ -4344,8 +4345,9 @@
                 await auth.signInWithCustomToken(result.data.token);
                 document.getElementById('loyaltyLoginModal')?.classList.remove('open');
                 event.target.reset();
+                console.info('[LOYALTY_PIN_LOGIN_RESULT]', {success:true});
             } catch (error) {
-                console.error('Membership login failed', error);
+                console.info('[LOYALTY_PIN_LOGIN_RESULT]', {success:false, code:error?.code || 'unknown'});
                 if (message) message.textContent = error?.code === 'functions/unauthenticated' || error?.code === 'functions/invalid-argument' ? 'رقم العضوية أو رمز PIN غير صحيح.' : loyaltyErrorMessage(error);
             }
         }
@@ -4542,7 +4544,7 @@
             if(!user){content.innerHTML=`<div class="club-login-note">للدخول إلى حسابك أو إنشاء حساب جديد، استخدم Google. لا نعرض بيانات اشتراكك إلا للحساب المرتبط به.</div><div class="club-account-actions"><button class="google-loyalty-btn" type="button" onclick="signInForClubAccount()">المتابعة بواسطة Google</button><button class="primary-btn" type="button" onclick="openClubExperience()">إنشاء حساب وطلب اشتراك</button></div>`;return;}
             if(!clubCustomer){content.innerHTML=`<div class="club-login-note">تم تسجيل دخولك باسم <b>${esc(user.displayName||user.email||'العميل')}</b>. إن كنت مشتركاً سابقاً، ارسل طلب ربط حسابك باستخدام رقم CLUB وPIN. أمّا إن كنت جديداً فابدأ طلب اشتراك جديد.</div><div class="club-link-form"><input id="clubClaimNumber" placeholder="رقم CLUB-101-..." autocomplete="off"><input id="clubClaimPin" type="password" inputmode="numeric" maxlength="8" placeholder="رمز PIN"></div><div class="club-account-actions"><button class="primary-btn" type="button" onclick="submitClubAccountClaim()">طلب ربط اشتراك سابق</button><button class="primary-btn" type="button" onclick="openClubExperience()">طلب اشتراك جديد</button></div>`;return;}
             const sub=await getClubSubscription(),active=clubIsActive(sub),plan=active?clubPlanName({id:sub.planId,...(clubPlans[sub.planId]||{})}):'لا توجد خطة فعّالة';
-            content.innerHTML=`<div class="club-login-note">أهلاً ${esc(clubCustomer.name||user.displayName||'بك')}، هذا ملخص اشتراكك في 101 CLUB.</div><div class="club-account-summary"><div class="club-account-metric"><span>الخطة</span><strong>${esc(plan)}</strong></div><div class="club-account-metric"><span>المشروبات المتبقية</span><strong>${active?`${Number(sub.remainingUses)} / ${Number(sub.totalUses)}`:'—'}</strong></div><div class="club-account-metric"><span>تاريخ بداية الاشتراك</span><strong>${active?clubDate(sub.startedAt):'—'}</strong></div><div class="club-account-metric"><span>تاريخ الانتهاء</span><strong>${active?clubDate(sub.expiresAt):'—'}</strong></div></div><div class="club-account-actions"><button class="primary-btn" type="button" onclick="openClubExperience()">تجديد / طلب خطة</button><button class="btn-card-action" type="button" onclick="signOutClubAccount()">تسجيل الخروج</button></div>`;
+            content.innerHTML=`<div class="club-login-note">أهلاً ${esc(clubCustomer.name||user.displayName||'بك')}، هذا ملخص اشتراكك في 101 CLUB.</div><div class="club-account-summary"><div class="club-account-metric"><span>رقم CLUB</span><strong>${esc(clubCustomer.clubNumber||sub?.clubNumber||'—')}</strong></div><div class="club-account-metric"><span>الخطة</span><strong>${esc(plan)}</strong></div><div class="club-account-metric"><span>المشروبات المتبقية</span><strong>${active?`${Number(sub.remainingUses)} / ${Number(sub.totalUses)}`:'—'}</strong></div><div class="club-account-metric"><span>تاريخ بداية الاشتراك</span><strong>${active?clubDate(sub.startedAt):'—'}</strong></div><div class="club-account-metric"><span>تاريخ الانتهاء</span><strong>${active?clubDate(sub.expiresAt):'—'}</strong></div></div><div class="club-account-actions"><button class="primary-btn" type="button" onclick="openClubExperience()">تجديد / طلب خطة</button><button class="btn-card-action" type="button" onclick="signOutClubAccount()">تسجيل الخروج</button></div>`;
         }
         window.openClubAccount=function(){renderClubAccountModal();setModalOpen(document.getElementById('clubAccountModal'),true);};
         window.closeClubAccount=function(){setModalOpen(document.getElementById('clubAccountModal'),false);};

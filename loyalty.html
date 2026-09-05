@@ -140,6 +140,7 @@ body { font-family: 'Cairo', sans-serif; background: var(--bg-gradient); color: 
           <div style="display:flex;align-items:center;gap:8px;">
             <span class="prof-card" id="clubCustNumberDisplay">--</span>
           </div>
+          <div id="clubLoyaltyMembershipDisplay" style="margin-top:5px;font-size:12px;color:var(--text-muted);">عضوية الولاء: —</div>
         </div>
       </div>
       <div class="hearts-box">
@@ -151,6 +152,11 @@ body { font-family: 'Cairo', sans-serif; background: var(--bg-gradient); color: 
           <span style="font-size:12px;color:var(--text-muted)">ينتهي في:</span><br>
           <span id="clubExpiresDisplay" style="font-weight:700;color:var(--text)">--</span>
         </div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:12px;font-size:12px;">
+        <div><span style="color:var(--text-muted);display:block;">الهاتف</span><b id="clubPhoneDisplay">—</b></div>
+        <div><span style="color:var(--text-muted);display:block;">الخطة</span><b id="clubPlanDisplay">—</b></div>
+        <div><span style="color:var(--text-muted);display:block;">الحالة</span><b id="clubStatusDisplay">—</b></div>
       </div>
       <div id="clubRedeemAction" style="margin-top:20px; text-align:center;">
         <input type="password" id="clubPinInput" placeholder="أدخل PIN المشترك" style="background:var(--surface2); border:1px solid var(--border); color:var(--text); padding:10px; border-radius:10px; font-family:Cairo; font-weight:700; text-align:center; letter-spacing:4px; margin-bottom:10px; width:100%; max-width:200px;">
@@ -1606,54 +1612,60 @@ async function redeemGift(){const gift=giftRedeemMatch;if(!gift||gift.giftStatus
 <script>
 /* 101 CLUB LOGIC */
 let currentClubCustomer = null;
+function normalizeIraqiPhone(value) {
+  const raw = String(value || '').replace(/\D/g, '');
+  if (!raw) return '';
+  if (raw.startsWith('00964')) return raw.slice(2);
+  if (raw.startsWith('964')) return raw;
+  if (raw.startsWith('0')) return '964' + raw.slice(1);
+  if (raw.startsWith('7')) return '964' + raw;
+  return raw;
+}
+const clubPhoneMatches=(a,b)=>Boolean(normalizeIraqiPhone(a)&&normalizeIraqiPhone(a)===normalizeIraqiPhone(b));
+function clubSubscriptionState(sub){
+  if(!sub)return {label:'لا يوجد اشتراك',active:false};
+  if(sub.status!=='active')return {label:'الاشتراك غير فعال',active:false};
+  if(Number(sub.expiresAt)<=Date.now())return {label:'الاشتراك منتهي',active:false};
+  if(Number(sub.remainingUses)<=0)return {label:'الرصيد منتهي',active:false};
+  return {label:'فعال',active:true};
+}
 async function searchClubCust() {
   const q = document.getElementById('clubSearchQ').value.trim();
+  const normalizedClubNumber=q.toUpperCase(), normalizedPhone=normalizeIraqiPhone(q);
   const msg = document.getElementById('clubSearchMsg');
   msg.textContent = '';
   document.getElementById('clubProfile').style.display = 'none';
   if(!q) return;
 
   msg.textContent = 'جارٍ البحث...';
-  let found = null;
-  const snap = await db.ref('subscription_customers').once('value');
-  snap.forEach(c => {
-    const cust = c.val();
-    if (cust.clubNumber === q || cust.phone === q || cust.name === q) {
-      found = { uid: c.key, ...cust };
+  console.info('[CLUB_SEARCH_QUERY]',{queryType:normalizedPhone?'phone':normalizedClubNumber.startsWith('CLUB-')?'club':'name'});
+  try{
+    const [customersSnap,subscriptionsSnap]=await Promise.all([db.ref('subscription_customers').once('value'),db.ref('subscriptions').once('value')]);
+    const customers=[];customersSnap.forEach(c=>customers.push({id:c.key,...(c.val()||{})}));
+    const subscriptions=[];subscriptionsSnap.forEach(s=>subscriptions.push({subscriptionId:s.key,...(s.val()||{})}));
+    let loyaltyById={};
+    try{const loyaltySnap=await db.ref('loyalty_customers').once('value');loyaltySnap.forEach(c=>loyaltyById[c.key]={id:c.key,...(c.val()||{})});}catch(error){console.info('[CLUB_SEARCH_LOYALTY_LOOKUP_SKIPPED]',{code:error?.code||'denied'});}
+    const matches=[];
+    for(const sub of subscriptions){
+      const linked=customers.find(c=>c.activeSubscriptionId===sub.subscriptionId||c.id===sub.customerId||(sub.clubNumber&&c.clubNumber===sub.clubNumber)||(sub.uid&&c.uid===sub.uid));
+      const loyalty=(sub.membershipNumber&&loyaltyById[sub.membershipNumber])||(linked?.membershipNumber&&loyaltyById[linked.membershipNumber])||Object.values(loyaltyById).find(c=>(sub.uid&&c.uid===sub.uid)||(linked?.uid&&c.uid===linked.uid));
+      const record={...(linked||{}),...(loyalty||{}),...sub,id:linked?.id||sub.customerId||sub.clubNumber||sub.subscriptionId,subscriptionId:sub.subscriptionId,loyaltyMembership:loyalty?.id||linked?.membershipNumber||sub.membershipNumber||''};
+      const name=String(record.name||record.customerName||'').trim().toLowerCase(),club=String(record.clubNumber||'').toUpperCase();
+      if(club===normalizedClubNumber||(normalizedPhone&&clubPhoneMatches(record.phone,q))||(name&&name.includes(q.toLowerCase()))||String(record.loyaltyMembership).toLowerCase()===q.toLowerCase())matches.push(record);
     }
-  });
-
-  if(!found) {
-    msg.textContent = '❌ لم يتم العثور على مشترك 101 CLUB بهذا الرقم أو الاسم.';
-    return;
-  }
-
-  currentClubCustomer = found;
-  msg.textContent = '';
-  
-  document.getElementById('clubCustNameDisplay').textContent = found.name || '—';
-  document.getElementById('clubCustNumberDisplay').textContent = found.clubNumber || '—';
-  document.getElementById('clubPinInput').value = '';
-  
-  const subId = found.activeSubscriptionId;
-  const usesDisplay = document.getElementById('clubRemainingUsesDisplay');
-  const expiresDisplay = document.getElementById('clubExpiresDisplay');
-  
-  if(!subId) {
-    usesDisplay.textContent = 'لا يوجد';
-    expiresDisplay.textContent = '—';
-  } else {
-    const subSnap = await db.ref('subscriptions/' + subId).once('value');
-    const sub = subSnap.val();
-    if(!sub || sub.status !== 'active') {
-      usesDisplay.textContent = 'غير فعال';
-      expiresDisplay.textContent = '—';
-    } else {
-      usesDisplay.textContent = `${sub.remainingUses} / ${sub.totalUses}`;
-      expiresDisplay.textContent = new Date(Number(sub.expiresAt)).toLocaleDateString('ar-IQ');
-    }
-  }
-  document.getElementById('clubProfile').style.display = 'block';
+    console.info('[CLUB_SEARCH_MATCHES]',{count:matches.length});
+    const found=matches.sort((a,b)=>Number(clubSubscriptionState(b).active)-Number(clubSubscriptionState(a).active))[0];
+    if(!found){msg.textContent='❌ لم يتم العثور على مشترك 101 CLUB بهذا الرقم أو الاسم.';return;}
+    console.info('[CLUB_SEARCH_SUBSCRIPTION_ID]',{subscriptionId:found.subscriptionId});currentClubCustomer=found;msg.textContent='';
+    document.getElementById('clubCustNameDisplay').textContent=found.name||found.customerName||'—';
+    document.getElementById('clubCustNumberDisplay').textContent=found.clubNumber||'—';
+    document.getElementById('clubLoyaltyMembershipDisplay').textContent='عضوية الولاء: '+(found.loyaltyMembership||'—');
+    document.getElementById('clubPhoneDisplay').textContent=found.phone||'—';document.getElementById('clubPinInput').value='';
+    const sub=(await db.ref('subscriptions/'+found.subscriptionId).once('value')).val(),state=clubSubscriptionState(sub);
+    document.getElementById('clubPlanDisplay').textContent=sub?.planName||sub?.planId||'—';document.getElementById('clubStatusDisplay').textContent=state.label;
+    document.getElementById('clubRemainingUsesDisplay').textContent=sub?`${Number(sub.remainingUses)||0} / ${Number(sub.totalUses)||0}`:'لا يوجد';
+    document.getElementById('clubExpiresDisplay').textContent=sub?.expiresAt?new Date(Number(sub.expiresAt)).toLocaleDateString('ar-IQ'):'—';document.getElementById('clubProfile').style.display='block';
+  }catch(error){console.error('[CLUB_SEARCH_FAILED]',{code:error?.code||'unknown'});msg.textContent='❌ تعذر البحث عن مشترك 101 CLUB.';}
 }
 
 async function redeemClubDrink() {
@@ -1664,33 +1676,30 @@ async function redeemClubDrink() {
     return alert('❌ الـ PIN غير صحيح.');
   }
   
-  const subId = currentClubCustomer.activeSubscriptionId;
+  const subId = currentClubCustomer.subscriptionId;
   if(!subId) return alert('❌ هذا العميل ليس لديه اشتراك.');
   
   try {
-    const result = await db.ref('subscriptions/' + subId).transaction(current => {
-      if(!current) return;
-      if(current.status !== 'active') return;
-      if(Number(current.expiresAt) <= Date.now()) return;
-      if(current.remainingUses <= 0) return;
-      current.remainingUses -= 1;
-      if(current.remainingUses === 0) current.status = 'completed';
-      return current;
+    console.info('[CLUB_CONSUME_START]',{subscriptionId:subId});
+    const before=(await db.ref('subscriptions/'+subId).once('value')).val(),state=clubSubscriptionState(before);
+    if(!state.active)return alert(state.label==='الرصيد منتهي'?'الرصيد منتهي.':state.label==='الاشتراك منتهي'?'الاشتراك منتهي.':'الاشتراك غير فعال.');
+    console.info('[CLUB_CONSUME_TRANSACTION]',{path:'subscriptions/'+subId+'/remainingUses',currentRemaining:Number(before.remainingUses)});
+    const result = await db.ref('subscriptions/' + subId + '/remainingUses').transaction(current => {
+      if(current==null||Number(current)<=0)return;
+      return Number(current)-1;
     });
-    
-    if(!result.committed) {
-      throw new Error('فشل الاستهلاك. قد يكون الرصيد منتهياً أو تم استخدامه.');
-    }
-    
-    const sub = result.snapshot.val();
+    console.info('[CLUB_CONSUME_RESULT]',{subscriptionId:subId,committed:result.committed});
+    if(!result.committed)return alert('الرصيد منتهي أو تم استخدامه من جهاز آخر.');
+    const remainingAfter=Number(result.snapshot.val()),sub={...before,remainingUses:remainingAfter};
     
     await db.ref('subscription_usage').push({
       subscriptionId: subId,
+      clubNumber: currentClubCustomer.clubNumber || '',
       uid: currentClubCustomer.uid,
       usedAt: firebase.database.ServerValue.TIMESTAMP,
       cashierUid: auth.currentUser.uid,
       cashierName: currentCashier?.name || 'كاشير',
-      remainingAfter: sub.remainingUses
+      remainingAfter
     });
     
     alert('☕ تم استهلاك المشروب بنجاح! الرصيد المتبقي: ' + sub.remainingUses);
