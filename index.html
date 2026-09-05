@@ -2545,7 +2545,7 @@
             cursor: pointer;
         }
         .ai-welcome { max-width:92%; padding:12px 14px; border-radius:18px; background:#fffaf0; color:#26472f; font-size:14px; line-height:1.7; box-shadow:0 5px 14px rgba(28,61,37,.08); }
-        .ai-quick-choices { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; padding:2px 0 4px; }
+        .ai-quick-choices { display:grid !important; grid-template-columns:repeat(2,minmax(0,1fr)) !important; gap:8px; padding:2px 0 4px; }
         .ai-quick-choices button { min-width:0; min-height:42px; padding:7px 9px; border:1px solid rgba(49,93,58,.22); border-radius:999px; color:#fff; background:#315d3a; font:700 12px Cairo,Arial,sans-serif; cursor:pointer; }
         .ai-quick-choices button:nth-child(4) { background:#a9805f; }
         .ai-quick-choices button:hover { filter:brightness(1.08); }
@@ -2556,8 +2556,8 @@
         .ai-chat-drawer { background:#10321f; }
         .ai-chat-hero { min-height:clamp(230px,31vh,310px); padding:24px 26px; background:radial-gradient(circle at 72% 18%,#315d3a 0,#0d2618 62%); }
         .ai-chat-hero-copy { width:min(250px,61%); z-index:3; }
-        .ai-barista-character { position:absolute; z-index:2; right:-8px; bottom:-4px; width:clamp(180px,48%,270px); height:clamp(220px,38vh,340px); object-fit:contain; object-position:bottom center; pointer-events:none; filter:drop-shadow(0 18px 20px rgba(0,0,0,.3)); }
-        [dir="ltr"] .ai-barista-character { right:auto; left:-8px; }
+        .ai-barista-character { position:absolute; z-index:2; left:-8px; right:auto; bottom:-4px; width:clamp(180px,48%,270px); height:clamp(220px,38vh,340px); object-fit:contain; object-position:bottom center; pointer-events:none; filter:drop-shadow(0 18px 20px rgba(0,0,0,.3)); }
+        [dir="ltr"] .ai-barista-character { right:-8px; left:auto; }
         .ai-chat-status { display:flex; align-items:center; gap:6px; margin-top:7px; font-size:12px; color:#54705a; }
         .ai-chat-status::before { content:''; width:8px; height:8px; border-radius:50%; background:#4f9b62; box-shadow:0 0 0 4px rgba(79,155,98,.15); }
         .ai-chat-input-bar { align-items:center; padding:11px 14px max(11px,env(safe-area-inset-bottom)); }
