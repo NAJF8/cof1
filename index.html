@@ -2546,6 +2546,26 @@
         .ai-quick-choices { display:flex; flex-wrap:wrap; gap:7px; padding:2px 0 4px; }
         .ai-quick-choices button { min-height:34px; padding:6px 10px; border:1px solid var(--border); border-radius:999px; color:var(--text); background:var(--surface); font:700 12px Cairo,Arial,sans-serif; }
         .ai-quick-choices button:hover { background:var(--surface2); border-color:var(--accent); }
+        .ai-chat-drawer { background:#10321f; }
+        .ai-chat-hero { min-height:clamp(230px,31vh,310px); padding:24px 26px; background:radial-gradient(circle at 72% 18%,#315d3a 0,#0d2618 62%); }
+        .ai-chat-hero-copy { width:min(250px,61%); z-index:3; }
+        .ai-barista-character { position:absolute; z-index:2; right:-8px; bottom:-4px; width:clamp(180px,48%,270px); height:clamp(220px,38vh,340px); object-fit:contain; object-position:bottom center; pointer-events:none; filter:drop-shadow(0 18px 20px rgba(0,0,0,.3)); }
+        [dir="ltr"] .ai-barista-character { right:auto; left:-8px; }
+        .ai-chat-status { display:flex; align-items:center; gap:6px; margin-top:7px; font-size:12px; color:#54705a; }
+        .ai-chat-status::before { content:''; width:8px; height:8px; border-radius:50%; background:#4f9b62; box-shadow:0 0 0 4px rgba(79,155,98,.15); }
+        .ai-chat-input-bar { align-items:center; padding:11px 14px max(11px,env(safe-area-inset-bottom)); }
+        .ai-chat-input-bar input { min-height:46px; border-radius:999px; font-size:16px; }
+        .ai-chat-input-bar button { min-width:46px; min-height:46px; border-radius:50%; padding:0; display:grid; place-items:center; }
+        .ai-mic-btn { background:#173f29 !important; }
+        .ai-voice-mode-btn { border-radius:999px !important; width:auto !important; padding:0 12px !important; font-size:12px; }
+        .ai-voice-mode { position:absolute; inset:0; z-index:10; display:none; place-items:center; padding:30px; color:#fff; text-align:center; background:radial-gradient(circle at 50% 20%,#315d3a,#0b2116 70%); }
+        .ai-voice-mode.open { display:grid; }
+        .ai-voice-mode .ai-barista-character { position:relative; right:auto; bottom:auto; width:min(72vw,320px); height:clamp(260px,45vh,430px); }
+        .ai-voice-card { display:grid; gap:11px; justify-items:center; }.ai-voice-pulse { width:74px; height:74px; border-radius:50%; border:1px solid rgba(247,224,192,.65); background:#173f29; animation:aiVoicePulse 1.6s infinite; }
+        .ai-voice-actions { display:flex; gap:10px; }.ai-voice-actions button { min-height:42px; border-radius:999px; padding:0 15px; border:1px solid rgba(247,224,192,.4); background:#173f29; color:#fff; font:700 13px Cairo,Arial,sans-serif; }
+        @keyframes aiVoicePulse { 70% { box-shadow:0 0 0 16px rgba(111,192,128,0); } 100% { box-shadow:0 0 0 0 rgba(111,192,128,0); } }
+        @media (max-width:600px) { .ai-chat-hero { min-height:clamp(260px,34dvh,340px); } .ai-barista-character { width:clamp(190px,55vw,290px); height:clamp(240px,36dvh,340px); } .ai-chat-hero-copy { width:min(250px,62%); } }
+        @media (prefers-reduced-motion:reduce) { .ai-voice-pulse { animation:none; } }
         .meeting-room-card { display:grid; grid-template-columns:auto minmax(0,1fr); gap:14px; align-items:center; padding:18px; background:linear-gradient(135deg,#26311c,#536849); color:#FDFBF7; border-radius:20px; box-shadow:var(--shadow-md); overflow:hidden; position:relative; }
         .meeting-room-card::after { content:'101'; position:absolute; left:18px; bottom:-24px; font:900 90px/1 Cairo,Arial,sans-serif; letter-spacing:-8px; color:rgba(247,224,192,.08); pointer-events:none; }
         .meeting-room-icon { width:56px; height:56px; display:grid; place-items:center; border-radius:16px; background:#F7E0C0; overflow:hidden; position:relative; z-index:1; }
@@ -2963,13 +2983,12 @@
 
     <div class="ai-chat-backdrop" id="aiChatBackdrop" aria-hidden="true"></div>
     <section class="ai-chat-drawer" id="aiChatDrawer" role="dialog" aria-modal="true" aria-label="مساعد 101 الذكي" aria-hidden="true">
-        <div class="ai-chat-hero"><img class="ai-chat-brand-logo" src="logo.jpg" alt="شعار 101 COFFEE"><div class="ai-chat-hero-copy"><span id="aiChatName">زينة</span><strong id="aiChatTitle">أهلاً بك ♥<br>كيف أگدر أساعدك اليوم؟</strong><span id="aiChatSubtitle">جاهزة أساعدك تختار ☕</span></div><button id="aiChatCloseBtn" class="ai-chat-close" type="button" aria-label="إغلاق المساعد">✕</button></div>
+        <div class="ai-chat-hero"><img class="ai-chat-brand-logo" src="logo.jpg" alt="شعار 101 COFFEE"><img class="ai-barista-character" src="chatbot-panel-v2.png" alt="باريستا 101" onerror="this.src='chatbot ai .PNG'"><div class="ai-chat-hero-copy"><span id="aiChatName">المساعد الذكي</span><strong id="aiChatTitle">أهلاً بك ♥<br>كيف أگدر أساعدك اليوم؟</strong><span class="ai-chat-status" id="aiChatSubtitle">جاهزة أساعدك تختار ☕</span></div><button id="aiChatCloseBtn" class="ai-chat-close" type="button" aria-label="إغلاق المساعد">✕</button></div>
         <div class="ai-chat-messages" id="aiChatMessages"></div>
         <form class="ai-chat-input-bar" id="aiChatForm">
-            <input type="text" id="aiChatInput" placeholder="اكتب ذوقك أو ما تشتهيه..." data-i18n-placeholder="ai_input_placeholder" autocomplete="off">
-            <button id="aiChatSubmit" type="submit">إرسال</button>
-            <img class="ai-chat-barista-inline" src="chatbot-panel-v2.png" alt="زينة، باريستا 101" onerror="this.src='chatbot ai .PNG'">
+            <button class="ai-mic-btn" id="aiChatMic" type="button" aria-label="التحدث إلى المساعد">🎙</button><input type="text" id="aiChatInput" placeholder="اكتب سؤالك أو شنو تشتهي..." data-i18n-placeholder="ai_input_placeholder" autocomplete="off"><button id="aiChatSubmit" type="submit" aria-label="إرسال">➤</button><button class="ai-voice-mode-btn" id="aiVoiceModeBtn" type="button" aria-label="محادثة صوتية">محادثة صوتية</button>
         </form>
+        <section class="ai-voice-mode" id="aiVoiceMode" aria-label="محادثة صوتية"><div class="ai-voice-card"><img class="ai-barista-character" src="chatbot-panel-v2.png" alt="باريستا 101"><strong id="aiVoiceName">المساعد الذكي</strong><span id="aiVoiceState">أسمعك...</span><div class="ai-voice-pulse" aria-hidden="true"></div><div class="ai-voice-actions"><button id="aiVoiceMute" type="button" aria-label="كتم الميكروفون">كتم</button><button id="aiVoiceEnd" type="button" aria-label="إنهاء المحادثة">إنهاء المحادثة</button></div></div></section>
     </section>
 
     <!-- ═══════════════════════ ORDER RATING MODAL ═══════════════════════ -->
@@ -3118,7 +3137,7 @@
             measurementId: "G-GS7B79LHCE"
         };
         // Update this one value after the first Worker deployment. Keep the API key in Cloudflare only.
-        const AI_CHAT_ENDPOINT = 'https://REPLACE_WITH_YOUR_WORKER.workers.dev/api/chat';
+        const AI_CHAT_ENDPOINT = 'https://coffee-101-ai-chat.coffee101.workers.dev/api/chat';
         let db = null, auth = null, cloudFunctions = null;
         try {
             if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
@@ -4593,18 +4612,20 @@
         }
 
         // ── FLOATING AI BARISTA ────────────────────────────────
+        let chatScrollY = 0;
         window.openChatbot = function() {
             const panel = document.getElementById('aiChatDrawer');
             const button = document.getElementById('aiAssistantBtn');
             if (!panel) return console.error('Chatbot panel is missing from the DOM.');
             setModalOpen(panel, true); panel.setAttribute('aria-hidden', 'false');
+            chatScrollY = window.scrollY; document.body.style.position = 'fixed'; document.body.style.top = `-${chatScrollY}px`; document.body.style.width = '100%';
             document.getElementById('aiChatBackdrop')?.classList.add('open');
             const assistantName = currentLang === 'en' ? (aiConfig.assistantNameEn || 'Zaina') : (aiConfig.assistantNameAr || 'زينة');
             const welcome = currentLang === 'en' ? (aiConfig.welcomeEn || `Hi! I’m ${assistantName} ☕ What are you craving today?`) : (aiConfig.welcomeAr || `هلا بيك، أني ${assistantName} ☕ شنو مشتهي اليوم؟`);
             const name = document.getElementById('aiChatName'); if (name) name.textContent = `${assistantName} ☕`;
             const subtitle = document.getElementById('aiChatSubtitle'); if (subtitle) subtitle.textContent = currentLang === 'en' ? 'Ready to help you choose ☕' : 'جاهزة أساعدك تختار ☕';
             const msgs = document.getElementById('aiChatMessages');
-            if (msgs && !msgs.dataset.started) { msgs.dataset.started = '1'; msgs.innerHTML = `<div class="ai-welcome">${esc(welcome)}</div><div class="ai-quick-choices"><button type="button" data-ai-choice="coffee">☕ ${currentLang === 'en' ? 'I want coffee' : 'أريد قهوة'}</button><button type="button" data-ai-choice="cold">🧊 ${currentLang === 'en' ? 'Something cold' : 'أريد شي بارد'}</button><button type="button" data-ai-choice="pick">✨ ${currentLang === 'en' ? 'Pick for me' : 'اختاريلي شي'}</button></div>`; }
+            if (msgs && !msgs.dataset.started) { msgs.dataset.started = '1'; msgs.innerHTML = `<div class="ai-welcome">${esc(welcome)}</div><div class="ai-quick-choices"><button type="button" data-ai-choice="coffee">☕ ${currentLang === 'en' ? 'I want coffee' : 'أريد قهوة'}</button><button type="button" data-ai-choice="cold">🧊 ${currentLang === 'en' ? 'Something cold' : 'أريد شي بارد'}</button><button type="button" data-ai-choice="dessert">🍰 ${currentLang === 'en' ? 'I want dessert' : 'أريد حلى'}</button><button type="button" data-ai-choice="pick">✨ ${currentLang === 'en' ? 'Pick for me' : 'اختاريلي شي'}</button></div>`; }
             if (button) button.setAttribute('aria-expanded', 'true');
             document.getElementById('aiChatInput')?.focus();
         };
@@ -4612,6 +4633,7 @@
             const panel = document.getElementById('aiChatDrawer');
             const button = document.getElementById('aiAssistantBtn');
             setModalOpen(panel, false); panel?.setAttribute('aria-hidden', 'true');
+            endVoiceMode(); document.body.style.position = ''; document.body.style.top = ''; document.body.style.width = ''; window.scrollTo(0, chatScrollY);
             document.getElementById('aiChatBackdrop')?.classList.remove('open');
             if (button) button.setAttribute('aria-expanded', 'false');
         };
@@ -4639,6 +4661,8 @@
             };
             try {
                 if (!AI_CHAT_ENDPOINT || AI_CHAT_ENDPOINT.includes('REPLACE_WITH_YOUR_WORKER')) throw new Error('AI endpoint is not configured');
+                console.log('[CHAT_LOCATION_ORIGIN]', location.origin);
+                console.log('[CHAT_ENDPOINT]', AI_CHAT_ENDPOINT);
                 const menu = products
                     .filter(product => product && !product.hidden && !product.comingSoon)
                     .slice(0, 50)
@@ -4666,20 +4690,39 @@
                     })
                 });
                 const result = await response.json().catch(() => ({}));
+                console.log('[CHAT_STATUS]', response.status);
+                console.log('[CHAT_RESPONSE]', result);
                 if (!response.ok || result.ok !== true) {
                     const error = new Error(result.error || 'AI service is unavailable');
                     error.code = result.error;
                     throw error;
                 }
-                addReply(result.reply || (currentLang === 'en' ? 'I could not answer right now.' : 'لم أتمكن من الإجابة الآن.'));
+                const reply = result.reply || (currentLang === 'en' ? 'I could not answer right now.' : 'لم أتمكن من الإجابة الآن.');
+                addReply(reply); if (voiceModeActive) speakChatReply(reply);
             } catch (error) {
-                console.error('AI chat request failed', error);
+                console.error('[CHAT_WORKER_FAILED]', error);
                 const disabled = error?.code === 'AI_DISABLED';
                 addReply(currentLang === 'en' ? (disabled ? 'The assistant is currently disabled.' : 'The assistant is temporarily unavailable. Please try again.') : (disabled ? 'المساعد الذكي متوقف حاليًا.' : 'المساعد غير متاح حالياً، حاول مرة أخرى.'));
             } finally {
                 document.getElementById(typingId)?.remove();
             }
         }
+
+        let recognition = null, voiceModeActive = false, voiceMuted = false;
+        function setVoiceState(text) { const state = document.getElementById('aiVoiceState'); if (state) state.textContent = text; }
+        function startVoiceRecognition() {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (!SpeechRecognition) { alert('تعذر الوصول للمايكروفون. تأكد من السماح باستخدامه من إعدادات المتصفح.'); return; }
+            if (recognition) recognition.stop();
+            recognition = new SpeechRecognition(); recognition.lang = currentLang === 'en' ? 'en-US' : 'ar-IQ'; recognition.interimResults = false; recognition.maxAlternatives = 1;
+            recognition.onstart = () => setVoiceState(currentLang === 'en' ? 'Listening…' : 'أسمعك...');
+            recognition.onresult = event => { const input = document.getElementById('aiChatInput'); if (input) { input.value = event.results[0][0].transcript; document.getElementById('aiChatForm')?.requestSubmit(); } setVoiceState(currentLang === 'en' ? 'Thinking…' : 'جاري التفكير...'); };
+            recognition.onerror = () => { setVoiceState(currentLang === 'en' ? 'Microphone unavailable' : 'تعذر الوصول للمايكروفون.'); voiceModeActive = false; };
+            recognition.onend = () => { if (voiceModeActive && !voiceMuted && !speechSynthesis.speaking) setTimeout(startVoiceRecognition, 350); };
+            recognition.start();
+        }
+        function speakChatReply(reply) { if (!('speechSynthesis' in window)) return; recognition?.stop(); setVoiceState(currentLang === 'en' ? 'Assistant is speaking…' : 'المساعد يتحدث...'); const utterance = new SpeechSynthesisUtterance(reply); utterance.lang = currentLang === 'en' ? 'en-US' : 'ar-IQ'; utterance.onend = () => { if (voiceModeActive && !voiceMuted) startVoiceRecognition(); }; speechSynthesis.cancel(); speechSynthesis.speak(utterance); }
+        function endVoiceMode() { voiceModeActive = false; recognition?.stop(); speechSynthesis.cancel(); document.getElementById('aiVoiceMode')?.classList.remove('open'); }
 
         // ── SEARCH & THEME ─────────────────────────────────────
         function performSearch(q) {
@@ -4799,9 +4842,13 @@
             document.getElementById('aiChatCloseBtn')?.addEventListener('click', window.closeChatbot);
             document.getElementById('aiChatBackdrop')?.addEventListener('click', window.closeChatbot);
             document.getElementById('aiChatForm')?.addEventListener('submit', handleAIChatSubmit);
+            document.getElementById('aiChatMic')?.addEventListener('click', startVoiceRecognition);
+            document.getElementById('aiVoiceModeBtn')?.addEventListener('click', () => { voiceModeActive = true; voiceMuted = false; document.getElementById('aiVoiceMode')?.classList.add('open'); document.getElementById('aiVoiceName').textContent = document.getElementById('aiChatName')?.textContent || 'المساعد الذكي'; startVoiceRecognition(); });
+            document.getElementById('aiVoiceMute')?.addEventListener('click', event => { voiceMuted = !voiceMuted; event.currentTarget.textContent = voiceMuted ? 'إلغاء الكتم' : 'كتم'; if (voiceMuted) recognition?.stop(); else startVoiceRecognition(); });
+            document.getElementById('aiVoiceEnd')?.addEventListener('click', endVoiceMode);
             document.getElementById('aiChatMessages')?.addEventListener('click', event => {
                 const choice = event.target.closest('[data-ai-choice]'); if (!choice) return;
-                const prompts = { coffee: currentLang === 'en' ? 'I want coffee' : 'أريد قهوة', cold: currentLang === 'en' ? 'I want something cold' : 'أريد شي بارد', pick: currentLang === 'en' ? 'Pick something for me' : 'اختاريلي شي' };
+                const prompts = { coffee: currentLang === 'en' ? 'I want coffee' : 'أريد قهوة', cold: currentLang === 'en' ? 'I want something cold' : 'أريد شي بارد', dessert: currentLang === 'en' ? 'I want dessert' : 'أريد حلى', pick: currentLang === 'en' ? 'Pick something for me' : 'اختاريلي شي' };
                 const input = document.getElementById('aiChatInput'); if (input) { input.value = prompts[choice.dataset.aiChoice] || ''; document.getElementById('aiChatForm')?.requestSubmit(); }
             });
             document.getElementById('meetingRoomModal')?.addEventListener('click', event => { if (event.target.id === 'meetingRoomModal') closeMeetingRoomBooking(); });
