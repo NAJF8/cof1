@@ -4750,12 +4750,45 @@
                 menu
             };
         }
+        let aiChatRequestInFlight = false;
+        function getChatCartSnapshot() {
+            const itemCount = cart.reduce((sum, item) => sum + Math.max(0, Number(item.qty ?? item.quantity) || 0), 0);
+            const total = cart.reduce((sum, item) => { const product = findProduct(item.id ?? item.productId); return sum + (Number(product?.price ?? item.price) || 0) * (Math.max(0, Number(item.qty ?? item.quantity) || 0)); }, 0);
+            return { count: cart.length, itemCount, total, items: cart.map(item => ({ productId: String(item.id ?? item.productId ?? ''), name: String(item.name || productName(findProduct(item.id ?? item.productId)) || ''), quantity: Math.max(0, Number(item.qty ?? item.quantity) || 0) })) };
+        }
+        function executeChatCartAction(action) {
+            const type = String(action?.type || ''), productId = String(action?.productId ?? ''), requested = Math.max(1, Math.min(20, Math.floor(Number(action?.quantity) || 1)));
+            console.info('[CHAT_ACTION_EXECUTE_START]', { type, productId: productId || null, quantity: requested });
+            if (type === 'cart_clear') { clearCart(); return { ok: true, type }; }
+            if (type === 'cart_get' || type === 'cart_total') return { ok: true, type, snapshot: getChatCartSnapshot() };
+            if (!['cart_add', 'cart_remove', 'cart_increase', 'cart_decrease'].includes(type)) return { ok: false, reason: 'ACTION_NOT_ALLOWED' };
+            const product = findProduct(productId); console.info('[CHAT_CART_ACTION_PRODUCT_ID]', productId); console.info('[CHAT_CART_PRODUCT_FOUND]', Boolean(product));
+            if (!product || product.hidden || product.comingSoon || product.available === false || product.active === false) return { ok: false, reason: 'PRODUCT_NOT_AVAILABLE' };
+            const before = cartQtyOf(productId);
+            if (type === 'cart_add') addToCart(productId, requested); else if (type === 'cart_remove') removeCart(productId); else for (let i = 0; i < requested; i++) chCart(productId, type === 'cart_increase' ? 1 : -1);
+            const after = cartQtyOf(productId), expected = type === 'cart_remove' ? 0 : before + (type === 'cart_decrease' ? -requested : requested), snapshot = getChatCartSnapshot(), verified = after === Math.max(0, expected);
+            console.info('[CHAT_CART_AFTER_ACTION]', { count: snapshot.count, itemCount: snapshot.itemCount, total: snapshot.total, productId, before, after, expected, verified });
+            return { ok: verified, type, product, requested, snapshot };
+        }
+        function chatActionMessage(result) {
+            if (!result.ok) return currentLang === 'en' ? 'I could not update your cart. Please try again.' : 'ما كدرت أحدّث السلة، حاول مرة ثانية.';
+            const name = result.product ? productName(result.product) : '';
+            if (result.type === 'cart_add' || result.type === 'cart_increase') return currentLang === 'en' ? `Done ☕ Added ${result.requested} ${name}.` : `تم ☕ ضفتلك ${result.requested > 1 ? result.requested + ' ' : ''}${name} للسلة.`;
+            if (result.type === 'cart_decrease') return currentLang === 'en' ? `Done ☕ Reduced ${name} by ${result.requested}.` : `تم ☕ نقصتلك ${name} من السلة.`;
+            if (result.type === 'cart_remove') return currentLang === 'en' ? `Done ☕ Removed ${name}.` : `تم ☕ شلت ${name} من السلة.`;
+            if (result.type === 'cart_clear') return currentLang === 'en' ? 'Done ☕ Your cart is empty.' : 'تم ☕ فرغت السلة.';
+            if (result.type === 'cart_total') return currentLang === 'en' ? `Your total is ${money(result.snapshot.total)}.` : `حسابك الحالي ${money(result.snapshot.total)}.`;
+            if (result.type === 'cart_get') return result.snapshot.itemCount ? result.snapshot.items.map(item => `☕ ${item.name} × ${item.quantity}`).join('\n') : (currentLang === 'en' ? 'Your cart is empty.' : 'السلة فارغة ☕');
+            return '';
+        }
         async function handleAIChatSubmit(e) {
             e.preventDefault();
+            if (aiChatRequestInFlight) return;
             const inp = document.getElementById("aiChatInput");
             const text = inp.value.trim();
             if (!text) return;
             inp.value = "";
+            aiChatRequestInFlight = true;
 
             const msgs = document.getElementById("aiChatMessages");
             if (!msgs) return;
@@ -4785,24 +4818,28 @@
                         message: text,
                         language,
                         history: historyForWorker,
-                        context: buildChatContext()
+                        history: historyForWorker,
+                        context: { ...buildChatContext(), cartItems: getChatCartSnapshot().items }
                     })
                 });
                 const result = await response.json().catch(() => ({}));
                 console.log('[CHAT_STATUS]', response.status);
                 console.log('[CHAT_RESPONSE]', result);
+                console.info('[CHAT_RAW_RESPONSE]', result); console.info('[CHAT_REPLY]', result.reply); console.info('[CHAT_ACTIONS]', result.actions);
                 if (!response.ok || result.ok !== true) {
                     const error = new Error(result.error || 'AI service is unavailable');
                     error.code = result.error;
                     throw error;
                 }
-                const reply = result.reply || (currentLang === 'en' ? 'I could not answer right now.' : 'لم أتمكن من الإجابة الآن.');
+                const actions = Array.isArray(result.actions) ? result.actions : [];
+                const reply = actions.length ? actions.map(executeChatCartAction).map(chatActionMessage).join('\n') : (result.reply || (currentLang === 'en' ? 'I could not answer right now.' : 'لم أتمكن من الإجابة الآن.'));
                 addReply(reply); if (voiceModeActive) speakChatReply(reply);
             } catch (error) {
                 console.error('[CHAT_WORKER_FAILED]', error);
                 const disabled = error?.code === 'AI_DISABLED';
                 addReply(currentLang === 'en' ? (disabled ? 'The assistant is currently disabled.' : 'The assistant is temporarily unavailable. Please try again.') : (disabled ? 'المساعد الذكي متوقف حاليًا.' : 'المساعد غير متاح حالياً، حاول مرة أخرى.'));
             } finally {
+                aiChatRequestInFlight = false;
                 document.getElementById(typingId)?.remove();
             }
         }
