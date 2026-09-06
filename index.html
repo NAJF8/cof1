@@ -4776,7 +4776,7 @@
             const matches = pendingProductSelection.filter(item => normalizeProductReference(item.name).includes(value));
             return matches.length === 1 ? matches[0] : null;
         }
-        function isCartAddIntent(text) { return /(?:ضيف|اضيف|أضيف|حطي|نزل|add|put)\b/i.test(String(text || '')) && /(?:سلة|للسلة|cart|basket|لاتيه|لاتية|قهوة|coffee|latte|موكا|mocha)/i.test(String(text || '')); }
+        function isCartAddIntent(text) { return /(?:ضيف|اضيف|أضيف|حطي|نزل|add|put)/i.test(String(text || '')) && /(?:سلة|للسلة|cart|basket|لاتيه|لاتية|قهوة|coffee|latte|موكا|mocha)/i.test(String(text || '')); }
         function localCartIntent(text, addReply) {
             const choice = resolvePendingProductChoice(text);
             if (choice) { pendingProductSelection = []; const result = executeChatCartAction({ type: 'cart_add', productId: choice.productId, quantity: 1 }); addReply(chatActionMessage(result)); return true; }
