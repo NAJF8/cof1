@@ -778,6 +778,11 @@ body,.top-bar,.card,.stat-card,.main-content,.sidebar,.auth-card,.table-wrap,tab
       <div class="card">
         <h3>شخصية المساعد وسياق المقهى</h3>
         <div class="form-group">
+          <label for="aiAssistantName">اسم المساعد:</label>
+          <input id="aiAssistantName" placeholder="اسم المساعد" autocomplete="off">
+          <div class="muted" style="margin-top:6px">المساعد الحالي: <strong id="aiAssistantNamePreview">—</strong></div>
+        </div>
+        <div class="form-group">
           <label>رسالة الترحيب بالعربية:</label>
           <input id="aiWelcomeAr" value="أهلاً بيك في 101 COFFEE ☕! شلون أقدر أساعدك باختيار طلبك اليوم؟">
         </div>
@@ -993,7 +998,8 @@ let rewardsDB=[], bookingsDB=[], adminsData={}, pendingAdmins={}, ordersDB=[], l
 let backgroundSettings = { type: 'none', imageUrl: '', videoUrl: '', fallbackImageUrl: '', enabled: true };
 let songsDB = [], songCategoriesDB = [];
 let subscriptionPlans = {}, subscriptionRequests = [], clubRequestSnapshotCount = 0, clubCustomers = [], clubSubscriptions = [], clubCustomerIndex = new Map(), clubRequestIndex = new Map(), clubActiveSnapshotCount = 0, clubAccountClaims = [], clubSettings = {}, pendingClubPaymentRequest = null;
-let aiConfig = { enabled: true, provider: 'smart_rules', model: 'gemini-1.5-flash', apiKey: '', welcomeAr: 'أهلاً بيك في 101 COFFEE ☕! شلون أقدر أساعدك باختيار طلبك اليوم؟', welcomeEn: 'Welcome to 101 COFFEE ☕! How can I help you choose your drink or dessert today?', systemPrompt: 'أنت باريستا ذكي وودود في مقهى 101 COFFEE...', shopInfo: 'موقعنا: النجف الأشرف' };
+const DEFAULT_ASSISTANT_NAME = 'زينة';
+let aiConfig = { enabled: true, provider: 'smart_rules', model: 'gemini-1.5-flash', apiKey: '', assistantName: DEFAULT_ASSISTANT_NAME, welcomeAr: 'أهلاً بيك في 101 COFFEE ☕! شلون أقدر أساعدك باختيار طلبك اليوم؟', welcomeEn: 'Welcome to 101 COFFEE ☕! How can I help you choose your drink or dessert today?', systemPrompt: 'أنت باريستا ذكي وودود في مقهى 101 COFFEE...', shopInfo: 'موقعنا: النجف الأشرف' };
 let orderRatingsDB = [];
 let candleSettings = { enabled: true, startTime: '16:00', endTime: '18:00', capacity: 10, price: 0 };
 let roomSettings={name:'غرفة الاجتماعات',desc:'',image:'',status:'open',maxPerDay:16};
@@ -2359,6 +2365,9 @@ function renderAIChatbotUI() {
   const pr = document.getElementById('aiProvider'); if (pr && aiConfig.provider) pr.value = aiConfig.provider;
   const mo = document.getElementById('aiModel'); if (mo && aiConfig.model) mo.value = aiConfig.model;
   const ak = document.getElementById('aiApiKey'); if (ak) ak.value = 'يُضبط في Cloudflare Worker Secret فقط';
+  const assistantName = String(aiConfig.assistantName || DEFAULT_ASSISTANT_NAME).trim() || DEFAULT_ASSISTANT_NAME;
+  const an = document.getElementById('aiAssistantName'); if (an) an.value = assistantName;
+  const preview = document.getElementById('aiAssistantNamePreview'); if (preview) preview.textContent = assistantName;
   const wa = document.getElementById('aiWelcomeAr'); if (wa && aiConfig.welcomeAr) wa.value = aiConfig.welcomeAr;
   const we = document.getElementById('aiWelcomeEn'); if (we && aiConfig.welcomeEn) we.value = aiConfig.welcomeEn;
   const sp = document.getElementById('aiSystemPrompt'); if (sp && aiConfig.systemPrompt) sp.value = aiConfig.systemPrompt;
@@ -2374,11 +2383,13 @@ function saveAIChatbotSettings() {
   const welcomeEn = document.getElementById('aiWelcomeEn')?.value?.trim() || '';
   const systemPrompt = document.getElementById('aiSystemPrompt')?.value?.trim() || '';
   const shopInfo = document.getElementById('aiShopInfo')?.value?.trim() || '';
+  const assistantName = document.getElementById('aiAssistantName')?.value?.trim() || DEFAULT_ASSISTANT_NAME;
   
   const data = {
     enabled,
     provider,
     model,
+    assistantName,
     welcomeAr,
     welcomeEn,
     systemPrompt,
@@ -2387,8 +2398,13 @@ function saveAIChatbotSettings() {
   };
   
   // This is customer-readable context sent to the Worker. It must never contain API keys or other secrets.
-  const publicData = { enabled, provider, model, welcomeAr, welcomeEn, systemPrompt, shopInfo };
-  db.ref().update({ ai_config:data, ai_public:publicData }).then(() => {
+  const publicData = { enabled, provider, model, assistantName, welcomeAr, welcomeEn, systemPrompt, shopInfo };
+  db.ref().update({ ai_config:data, ai_public:publicData }).then(async () => {
+    const readBack = await db.ref('ai_public').once('value');
+    const savedName = String(readBack.val()?.assistantName || '').trim();
+    if (savedName !== assistantName) throw new Error('تعذر التحقق من اسم المساعد بعد الحفظ.');
+    aiConfig = { ...aiConfig, ...data };
+    renderAIChatbotUI();
     showNotif('تم حفظ إعدادات الـ AI Chatbot بنجاح!');
   }).catch(e => showNotif('خطأ: ' + e.message, 'error'));
 }

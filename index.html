@@ -3025,7 +3025,7 @@
         <form class="ai-chat-input-bar" id="aiChatForm">
             <button class="ai-mic-btn" id="aiChatMic" type="button" aria-label="التحدث إلى المساعد">🎙</button><input type="text" id="aiChatInput" placeholder="اكتب ذوقك أو ما تشتهيه..." data-i18n-placeholder="ai_input_placeholder" autocomplete="off"><button id="aiChatSubmit" type="submit" aria-label="إرسال">➤</button><button class="ai-voice-mode-btn" id="aiVoiceModeBtn" type="button" aria-label="محادثة صوتية">محادثة صوتية</button>
         </form>
-        <section class="ai-voice-mode" id="aiVoiceMode" aria-label="محادثة صوتية"><div class="ai-voice-card"><img class="ai-barista-character" src="chatbot-panel-v2.png" alt="باريستا 101"><strong id="aiVoiceName">ريتا</strong><span id="aiVoiceState">🎙 جاري الاستماع...</span><div class="ai-voice-pulse" aria-hidden="true"></div><div class="ai-voice-actions"><button id="aiVoiceMute" type="button" aria-label="كتم الميكروفون">كتم</button><button id="aiVoiceText" type="button" aria-label="العودة للمحادثة النصية">العودة للنص</button><button id="aiVoiceEnd" type="button" aria-label="إنهاء المحادثة">إنهاء المحادثة</button></div></div></section>
+        <section class="ai-voice-mode" id="aiVoiceMode" aria-label="محادثة صوتية"><div class="ai-voice-card"><img class="ai-barista-character" src="chatbot-panel-v2.png" alt="باريستا 101"><strong id="aiVoiceName">المساعد الذكي</strong><span id="aiVoiceState">🎙 جاري الاستماع...</span><div class="ai-voice-pulse" aria-hidden="true"></div><div class="ai-voice-actions"><button id="aiVoiceMute" type="button" aria-label="كتم الميكروفون">كتم</button><button id="aiVoiceText" type="button" aria-label="العودة للمحادثة النصية">العودة للنص</button><button id="aiVoiceEnd" type="button" aria-label="إنهاء المحادثة">إنهاء المحادثة</button></div></div></section>
     </section>
 
     <!-- ═══════════════════════ ORDER RATING MODAL ═══════════════════════ -->
@@ -3409,7 +3409,8 @@
             eventBookingsDB = [],
             backgroundSettings = { enabled: false, type: 'none', imageUrl: '', videoUrl: '', fallbackImageUrl: '' },
             candleSettings = { enabled: true, startTime: '16:00', endTime: '18:00', capacity: 10, price: 0 },
-            aiConfig = { enabled: true, provider: 'smart_rules', model: 'gemini-1.5-flash', welcomeAr: 'أهلاً بك في 101 COFFEE! ☕ أنا باريستا 101 الذكي، كيف تحب تشرب قهوتك اليوم؟', welcomeEn: 'Welcome to 101 COFFEE! ☕ I am Barista 101, how would you like your coffee today?' },
+            DEFAULT_ASSISTANT_NAME = 'زينة',
+            aiConfig = { enabled: true, provider: 'smart_rules', model: 'gemini-1.5-flash', assistantName: DEFAULT_ASSISTANT_NAME, welcomeAr: 'أهلاً بك في 101 COFFEE! ☕ كيف تحب تشرب قهوتك اليوم؟', welcomeEn: 'Welcome to 101 COFFEE! ☕ How would you like your coffee today?' },
             settings = {
                 shopName: "101 COFFEE",
                 whatsapp: "9647800000000",
@@ -4655,7 +4656,7 @@
         let chatScrollY = 0;
         function renderChatbotWelcome(force = false) {
             const en = currentLang === 'en';
-            const assistantName = en ? (aiConfig.assistantNameEn || 'Rita') : (aiConfig.assistantNameAr || 'ريتا');
+            const assistantName = String(aiConfig.assistantName || DEFAULT_ASSISTANT_NAME).trim() || DEFAULT_ASSISTANT_NAME;
             const welcome = en ? (aiConfig.welcomeEn || `Hi there ♥\nHow can I help you today?`) : (aiConfig.welcomeAr || `أهلاً بك ♥\nكيف أقدر أساعدك اليوم؟`);
             const subtitle = en ? 'Ready to find your perfect cup ☕' : 'جاهزة أساعدك تختار ☕';
             const choices = en ? [['coffee','☕ I want coffee'],['cold','🧊 I want something cold'],['dessert','🍰 I want dessert'],['pick','✨ Surprise me']] : [['coffee','☕ أريد قهوة'],['cold','🧊 أريد شي بارد'],['dessert','🍰 أريد حلى'],['pick','✨ اختارلي شي']];
@@ -4663,6 +4664,9 @@
             setText('aiChatTitle', welcome);
             setText('aiChatSubtitle', subtitle);
             setText('aiChatSubmit', en ? 'Send' : 'إرسال');
+            document.getElementById('aiChatSubmit')?.setAttribute('aria-label', en ? 'Send' : 'إرسال');
+            document.getElementById('aiChatMic')?.setAttribute('aria-label', en ? `Talk to ${assistantName}` : `التحدث إلى ${assistantName}`);
+            document.getElementById('aiVoiceModeBtn')?.setAttribute('aria-label', en ? 'Voice conversation' : 'محادثة صوتية');
             setText('aiVoiceName', assistantName);
             setText('aiVoiceState', en ? '🎙 Listening...' : '🎙 جاري الاستماع...');
             setText('aiVoiceMute', en ? 'Mute' : 'كتم');
@@ -4673,7 +4677,7 @@
                 msgs.dataset.started = '1';
                 msgs.innerHTML = `<div class="ai-welcome">${esc(welcome)}</div><div class="ai-quick-choices">${choices.map(([key,label]) => `<button type="button" data-ai-choice="${key}">${label}</button>`).join('')}</div>`;
             } else if (msgs) {
-                const welcomeEl = msgs.querySelector('.ai-welcome');
+                const welcomeEl = msgs.querySelector('.ai-welcome') || msgs.firstElementChild;
                 if (welcomeEl) welcomeEl.textContent = welcome;
                 const actions = msgs.querySelector('.ai-quick-choices');
                 if (actions) actions.innerHTML = choices.map(([key,label]) => `<button type="button" data-ai-choice="${key}">${label}</button>`).join('');
@@ -4738,6 +4742,7 @@
                 chatbot: {
                     enabled: aiConfig.enabled !== false,
                     provider: aiConfig.provider || 'smart_rules',
+                    assistantName: String(aiConfig.assistantName || DEFAULT_ASSISTANT_NAME).trim() || DEFAULT_ASSISTANT_NAME,
                     systemPrompt: aiConfig.systemPrompt || '',
                     shopInfo: aiConfig.shopInfo || ''
                 },
@@ -4759,7 +4764,8 @@
             updateChatPreferences(text);
             document.getElementById('aiChatDrawer')?.classList.add('has-conversation');
             const typingId = `aiTyping${Date.now()}`;
-            msgs.insertAdjacentHTML('beforeend', `<div id="${typingId}" class="ai-chat-typing">${currentLang === 'en' ? '… Rita is thinking' : '… ريتا تكتب'}</div>`);
+            const assistantName = String(aiConfig.assistantName || DEFAULT_ASSISTANT_NAME).trim() || DEFAULT_ASSISTANT_NAME;
+            msgs.insertAdjacentHTML('beforeend', `<div id="${typingId}" class="ai-chat-typing">${currentLang === 'en' ? `… ${esc(assistantName)} is thinking` : `… ${esc(assistantName)} تكتب`}</div>`);
             msgs.scrollTop = msgs.scrollHeight;
             
             const addReply = reply => {
@@ -4843,7 +4849,8 @@
         function speakChatReply(reply) {
             if (!('speechSynthesis' in window) || typeof SpeechSynthesisUtterance === 'undefined') return;
             recognition?.stop();
-            setVoiceState(currentLang === 'en' ? 'Assistant is speaking…' : 'الباريستا تتحدث...');
+            const assistantName = String(aiConfig.assistantName || DEFAULT_ASSISTANT_NAME).trim() || DEFAULT_ASSISTANT_NAME;
+            setVoiceState(currentLang === 'en' ? `${assistantName} is speaking…` : `${assistantName} تتحدث...`);
             const isArabic = currentLang !== 'en';
             const voice = isArabic ? selectArabicVoice() : selectEnglishVoice();
             if (isArabic && !voice) {
@@ -4983,7 +4990,7 @@
             document.getElementById('aiChatBackdrop')?.addEventListener('click', window.closeChatbot);
             document.getElementById('aiChatForm')?.addEventListener('submit', handleAIChatSubmit);
             document.getElementById('aiChatMic')?.addEventListener('click', () => { recognitionFallbackUsed = false; startVoiceRecognition(); });
-            document.getElementById('aiVoiceModeBtn')?.addEventListener('click', () => { voiceModeActive = true; voiceMuted = false; recognitionFallbackUsed = false; document.getElementById('aiVoiceMode')?.classList.add('open'); document.getElementById('aiVoiceName').textContent = document.getElementById('aiChatName')?.textContent || 'المساعد الذكي'; startVoiceRecognition(); });
+            document.getElementById('aiVoiceModeBtn')?.addEventListener('click', () => { voiceModeActive = true; voiceMuted = false; recognitionFallbackUsed = false; document.getElementById('aiVoiceMode')?.classList.add('open'); document.getElementById('aiVoiceName').textContent = String(aiConfig.assistantName || DEFAULT_ASSISTANT_NAME).trim() || DEFAULT_ASSISTANT_NAME; startVoiceRecognition(); });
             document.getElementById('aiVoiceMute')?.addEventListener('click', event => { voiceMuted = !voiceMuted; event.currentTarget.textContent = voiceMuted ? 'إلغاء الكتم' : 'كتم'; if (voiceMuted) recognition?.stop(); else startVoiceRecognition(); });
             document.getElementById('aiVoiceText')?.addEventListener('click', returnToTextMode);
             document.getElementById('aiVoiceEnd')?.addEventListener('click', endVoiceMode);
@@ -5046,8 +5053,7 @@
 
             db.ref('ai_public').on('value', snap => {
                 aiConfig = { ...aiConfig, ...(snap.val() || {}) };
-                const name = currentLang === 'en' ? (aiConfig.assistantNameEn || 'Zaina') : (aiConfig.assistantNameAr || 'زينة');
-                const nameEl = document.getElementById('aiChatName'); if (nameEl) nameEl.textContent = `${name} ☕`;
+                renderChatbotWelcome();
             });
 
             db.ref('subscription_plans').on('value', snap => {
