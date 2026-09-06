@@ -2944,10 +2944,11 @@
                 <p style="font-size:13px;color:#EAE0CD;margin:0 0 14px;max-width:520px;">اختَر مشروباً أو حلى أو مبلغاً مفتوحاً، وخلي لحظتك الحلوة توصل بطريقتنا.</p>
                 <button class="primary-btn gift-open-btn" type="button" onclick="openGiftExperience()">اختيار هدية الآن 🎁</button>
             </article>
-            <article class="club-promo-card">
-                <img src="logo.jpg" alt="101 COFFEE" class="club-promo-logo"><div><h2>101 CLUB ☕</h2><p>اشتراكك الشهري مع 101</p></div><button class="primary-btn" type="button" onclick="openClubAccount()">دخول / إنشاء حساب</button>
+            <article class="club-promo-card" id="mainClubCard" aria-live="polite">
+                <img src="logo.jpg" alt="101 COFFEE" class="club-promo-logo">
+                <div id="mainClubCardContent"><h2>101 CLUB 🌟</h2><p>الاشتراك الشهري مع 101</p></div>
+                <div id="mainClubCardAction" style="grid-column: 1 / -1; width: 100%;"><button class="primary-btn" type="button" onclick="openClubAccount()">دخول / إنشاء حساب</button></div>
             </article>
-            <div class="club-member-status" id="clubMemberStatus" aria-live="polite"><b>حساب 101 CLUB</b><span>سجّل الدخول لتشاهد خطتك، تاريخ بداية الاشتراك وتاريخ الانتهاء.</span></div>
         </section>
 
         <!-- ═══════════════════════ BOOKING (MEETING ROOM) ═══════════════════ -->
@@ -4562,10 +4563,69 @@
             try{return (await db.ref(`subscriptions/${id}`).once('value')).val()||null;}catch{return null;}
         }
         async function renderClubAccount(){
-            const box=document.getElementById('clubMemberStatus');if(!box)return;
-            if(!clubCustomer){box.innerHTML='<b>حساب 101 CLUB</b><span>لديك اشتراك؟ سجّل الدخول لعرض التفاصيل. جديد لدينا؟ أنشئ حساباً ثم اختر خطتك.</span><div class="club-account-actions"><button class="primary-btn" type="button" onclick="openClubAccount()">دخول / إنشاء حساب</button></div>';return;}
-            const sub=await getClubSubscription(),active=clubIsActive(sub),plan=active?clubPlanName({id:sub.planId,...(clubPlans[sub.planId]||{})}):'لا توجد خطة فعّالة';
-            box.innerHTML=`<b>☕ ${esc(plan)}</b><span>${active?`${Number(sub.remainingUses)} من ${Number(sub.totalUses)} مشروب متبقي · ينتهي ${clubDate(sub.expiresAt)}`:'لا يوجد اشتراك فعّال حالياً.'}</span><div class="club-account-actions"><button class="primary-btn" type="button" onclick="openClubAccount()">عرض حسابي</button></div>`;
+            const card = document.getElementById('mainClubCard');
+            if(!card) return;
+            const content = document.getElementById('mainClubCardContent');
+            const action = document.getElementById('mainClubCardAction');
+            if(!content || !action) return;
+
+            const user = auth?.currentUser;
+
+            if(!user) {
+                content.innerHTML = `<h2>101 CLUB 🌟</h2><p>الاشتراك الشهري مع 101</p>`;
+                action.innerHTML = `<button class="primary-btn" type="button" onclick="openClubAccount()" style="width:100%; justify-content:center; text-align:center;">دخول / إنشاء حساب</button>`;
+                const existingDetails = card.querySelector('.club-account-details-row');
+                if (existingDetails) existingDetails.remove();
+                return;
+            }
+
+            if(!clubCustomer) {
+                content.innerHTML = `<h2>101 CLUB 🌟</h2><p style="color:#F7E0C0;font-weight:700;">مرحباً ${esc(user.displayName||user.email||'')}</p><p>لا يوجد اشتراك فعال</p>`;
+                action.innerHTML = `<div style="display:flex;gap:8px;flex-direction:column;width:100%;"><button class="primary-btn" type="button" onclick="openClubExperience()" style="justify-content:center; text-align:center;">اشترك الآن</button><button class="primary-btn" style="padding:0 12px;background:transparent;border:1px solid rgba(247,224,192,0.4);color:#F7E0C0;justify-content:center; text-align:center;" type="button" onclick="logoutGoogle()">تسجيل الخروج</button></div>`;
+                const existingDetails = card.querySelector('.club-account-details-row');
+                if (existingDetails) existingDetails.remove();
+                return;
+            }
+
+            const sub = await getClubSubscription();
+            const active = clubIsActive(sub);
+            const plan = active ? clubPlanName({id:sub.planId,...(clubPlans[sub.planId]||{})}) : 'لا يوجد اشتراك فعال';
+            
+            content.innerHTML = `<h2>101 CLUB 🌟</h2><p style="color:#F7E0C0;font-weight:700;margin-bottom:2px;">${esc(clubCustomer.name||user.displayName||'')}</p><p>حسابك في 101 CLUB</p>`;
+            action.innerHTML = `<button class="primary-btn" style="width:100%;padding:0 12px;background:transparent;border:1px solid rgba(247,224,192,0.4);color:#F7E0C0;justify-content:center; text-align:center;" type="button" onclick="logoutGoogle()">تسجيل الخروج</button>`;
+            
+            let detailsHtml = `<div class="club-account-summary" style="margin-top:12px;background:rgba(0,0,0,0.2);padding:12px;border-radius:12px;display:flex;flex-direction:column;gap:8px;width:100%;box-sizing:border-box;">`;
+            
+            if (clubCustomer.clubNumber || sub?.clubNumber) {
+                detailsHtml += `<div style="display:flex;justify-content:space-between;font-size:13px;align-items:center;flex-wrap:wrap;gap:6px;"><span style="color:#C4D1BD">رقم CLUB</span><strong style="color:#FDFBF7">${esc(clubCustomer.clubNumber||sub?.clubNumber)}</strong></div>`;
+            }
+            if (loyaltyCustomer?.membership) {
+                detailsHtml += `<div style="display:flex;justify-content:space-between;font-size:13px;align-items:center;flex-wrap:wrap;gap:6px;"><span style="color:#C4D1BD">رقم عضوية الولاء</span><strong style="color:#FDFBF7">${esc(loyaltyCustomer.membership)}</strong></div>`;
+            }
+            detailsHtml += `<div style="display:flex;justify-content:space-between;font-size:13px;align-items:center;flex-wrap:wrap;gap:6px;"><span style="color:#C4D1BD">الخطة</span><strong style="color:#F7E0C0;text-align:right;">${esc(plan)}</strong></div>`;
+            
+            if (active) {
+                detailsHtml += `<div style="display:flex;justify-content:space-between;font-size:13px;align-items:center;flex-wrap:wrap;gap:6px;"><span style="color:#C4D1BD">الرصيد</span><strong style="color:#FDFBF7">${Number(sub.remainingUses)} / ${Number(sub.totalUses)} مشروب</strong></div>`;
+                detailsHtml += `<div style="display:flex;justify-content:space-between;font-size:13px;align-items:center;flex-wrap:wrap;gap:6px;"><span style="color:#C4D1BD">تاريخ البداية</span><strong style="color:#FDFBF7;direction:ltr;">${clubDate(sub.startedAt)}</strong></div>`;
+                detailsHtml += `<div style="display:flex;justify-content:space-between;font-size:13px;align-items:center;flex-wrap:wrap;gap:6px;"><span style="color:#C4D1BD">تاريخ الانتهاء</span><strong style="color:#FDFBF7;direction:ltr;">${clubDate(sub.expiresAt)}</strong></div>`;
+            }
+
+            if (clubCustomer.phone) {
+                detailsHtml += `<div style="display:flex;justify-content:space-between;font-size:13px;align-items:center;flex-wrap:wrap;gap:6px;"><span style="color:#C4D1BD">الهاتف</span><strong style="color:#FDFBF7" dir="ltr">${esc(clubCustomer.phone)}</strong></div>`;
+            }
+            
+            detailsHtml += `<div style="display:flex;justify-content:space-between;font-size:13px;align-items:center;flex-wrap:wrap;gap:6px;"><span style="color:#C4D1BD">الحالة</span><strong style="color:${active?'#4caf50':'#e53935'}">${active?'فعال':'غير فعال'}</strong></div>`;
+            detailsHtml += `</div>`;
+
+            let existingDetails = card.querySelector('.club-account-details-row');
+            if (!existingDetails) {
+                existingDetails = document.createElement('div');
+                existingDetails.className = 'club-account-details-row';
+                existingDetails.style.gridColumn = '1 / -1';
+                existingDetails.style.width = '100%';
+                card.appendChild(existingDetails);
+            }
+            existingDetails.innerHTML = detailsHtml;
         }
         async function renderClubAccountModal(){
             const content=document.getElementById('clubAccountContent');if(!content)return;
@@ -4579,7 +4639,7 @@
         window.closeClubAccount=function(){setModalOpen(document.getElementById('clubAccountModal'),false);};
         window.signInForClubAccount=async function(){
             if(!auth)return showToast('خدمة الدخول غير متاحة حالياً.','error');
-            try{const provider=new firebase.auth.GoogleAuthProvider();provider.addScope('email');const result=await auth.signInWithPopup(provider).catch(async error=>{if(['auth/popup-blocked','auth/operation-not-supported-in-this-environment'].includes(error.code)){await auth.signInWithRedirect(provider);return null;}throw error;});if(result?.user){await loadClubCustomer(result.user);renderClubAccountModal();}}catch(error){console.error('CLUB_ACCOUNT_SIGNIN_FAILED',error);showToast('تعذر تسجيل الدخول للحساب.','error');}
+            try{const provider=new firebase.auth.GoogleAuthProvider();provider.addScope('email');const result=await auth.signInWithPopup(provider).catch(async error=>{if(['auth/popup-blocked','auth/operation-not-supported-in-this-environment'].includes(error.code)){await auth.signInWithRedirect(provider);return null;}throw error;});if(result?.user){await loadClubCustomer(result.user);renderClubAccountModal();setModalOpen(document.getElementById('clubAccountModal'),false);}}catch(error){console.error('CLUB_ACCOUNT_SIGNIN_FAILED',error);showToast('تعذر تسجيل الدخول للحساب.','error');}
         };
         window.signOutClubAccount=async function(){try{await auth?.signOut();}finally{renderClubAccountModal();}};
         window.submitClubAccountClaim=async function(){
