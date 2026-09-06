@@ -1612,8 +1612,11 @@ async function redeemGift(){const gift=giftRedeemMatch;if(!gift||gift.giftStatus
 <script>
 /* 101 CLUB LOGIC */
 let currentClubCustomer = null;
+function normalizeSearchText(value) {
+  return String(value ?? '').trim().toLocaleLowerCase('ar-IQ').replace(/[\u064B-\u065F\u0670]/g, '').replace(/\s+/g, ' ');
+}
 function normalizeIraqiPhone(value) {
-  const raw = String(value || '').replace(/\D/g, '');
+  const raw = String(value ?? '').replace(/\D/g, '');
   if (!raw) return '';
   if (raw.startsWith('00964')) return raw.slice(2);
   if (raw.startsWith('964')) return raw;
@@ -1621,7 +1624,36 @@ function normalizeIraqiPhone(value) {
   if (raw.startsWith('7')) return '964' + raw;
   return raw;
 }
+function normalizeClubNumber(value) { return String(value ?? '').trim().toUpperCase().replace(/[\s_]+/g, '-').replace(/-+/g, '-'); }
+function normalizeMembershipNumber(value) { return String(value ?? '').trim().toUpperCase().replace(/[\s_]+/g, '-').replace(/-+/g, '-'); }
+function detectSearchType(query) {
+  const raw = String(query ?? '').trim(), digits = raw.replace(/\D/g, '');
+  if (/^(?:\+?964|00964|0?7)\d{8,10}$/.test(raw.replace(/[\s()-]/g, '')) || /^(?:964|07|7)\d{8,10}$/.test(digits)) return 'phone';
+  if (/^club(?:[\s-]*\d+){2,}$/i.test(raw)) return 'club';
+  if (/^\d+[\s-]+\d+$/.test(raw)) return 'membership';
+  return 'text';
+}
 const clubPhoneMatches=(a,b)=>Boolean(normalizeIraqiPhone(a)&&normalizeIraqiPhone(a)===normalizeIraqiPhone(b));
+function clubFieldValue(record, names) { for (const name of names) if (record && record[name] != null && String(record[name]).trim() !== '') return record[name]; return ''; }
+function clubSourceSchema(source, key, value) {
+  const fields = Object.keys(value || {}).sort(), has = names => names.some(name => fields.includes(name));
+  console.info('[CLUB_SEARCH_SOURCE_SCHEMA]', {source, key, fields,
+    hasName:has(['name','customerName','fullName','displayName']), hasPhone:has(['phone','phoneNumber','mobile','mobileNumber']),
+    hasClubNumber:has(['clubNumber','clubNo','clubId','subscriptionNumber']), hasMembershipNumber:has(['membershipNumber','membership','cardId','memberId']),
+    hasUid:has(['uid','userId']), hasRequestId:has(['requestId','requestID'])});
+}
+function buildClubSearchRecord(subscription, {requests, customers, loyalty}) {
+  const sub = subscription || {}, subscriptionId = sub.subscriptionId;
+  const matchedRequest = requests.find(item => (sub.requestId && (item.id === sub.requestId || item.requestId === sub.requestId)) || (sub.uid && item.uid === sub.uid)) || null;
+  const matchedCustomer = customers.find(item => item.id === sub.customerId || item.activeSubscriptionId === subscriptionId || (sub.uid && item.uid === sub.uid) || (sub.clubNumber && normalizeClubNumber(item.clubNumber) === normalizeClubNumber(sub.clubNumber)) || (sub.phone && clubPhoneMatches(item.phone, sub.phone))) || null;
+  const membershipHint = sub.membershipNumber || matchedCustomer?.membershipNumber;
+  const matchedLoyalty = loyalty.find(item => (membershipHint && (item.id === membershipHint || item.membershipNumber === membershipHint)) || (sub.uid && item.uid === sub.uid) || (matchedCustomer?.uid && item.uid === matchedCustomer.uid) || (sub.phone && clubPhoneMatches(item.phone, sub.phone))) || null;
+  const name = clubFieldValue(sub,['name','customerName']) || clubFieldValue(matchedCustomer,['name','customerName']) || clubFieldValue(matchedRequest,['name','customerName']) || clubFieldValue(matchedLoyalty,['name','customerName']);
+  const phone = clubFieldValue(sub,['phone','phoneNumber','mobile','mobileNumber']) || clubFieldValue(matchedCustomer,['phone','phoneNumber','mobile','mobileNumber']) || clubFieldValue(matchedRequest,['phone','phoneNumber','mobile','mobileNumber']) || clubFieldValue(matchedLoyalty,['phone','phoneNumber','mobile','mobileNumber']);
+  const clubNumber = clubFieldValue(sub,['clubNumber','clubNo','clubId','subscriptionNumber']) || clubFieldValue(matchedCustomer,['clubNumber','clubNo','clubId','subscriptionNumber']) || clubFieldValue(matchedRequest,['clubNumber','clubNo','clubId','subscriptionNumber']);
+  const membershipNumber = clubFieldValue(sub,['membershipNumber','membership','cardId','memberId']) || clubFieldValue(matchedCustomer,['membershipNumber','membership','cardId','memberId']) || matchedLoyalty?.id || clubFieldValue(matchedLoyalty,['membershipNumber','membership','cardId','memberId']);
+  return {subscriptionId, name, normalizedName:normalizeSearchText(name), phone, normalizedPhone:normalizeIraqiPhone(phone), clubNumber, normalizedClubNumber:normalizeClubNumber(clubNumber), membershipNumber, normalizedMembershipNumber:normalizeMembershipNumber(membershipNumber), status:sub.status, originalSubscription:sub, matchedRequest, matchedCustomer, matchedLoyalty, pin:matchedCustomer?.pin||matchedLoyalty?.pin||''};
+}
 function clubSubscriptionState(sub){
   if(!sub)return {label:'لا يوجد اشتراك',active:false};
   if(sub.status!=='active')return {label:'الاشتراك غير فعال',active:false};
@@ -1630,57 +1662,28 @@ function clubSubscriptionState(sub){
   return {label:'فعال',active:true};
 }
 async function searchClubCust() {
-  const q = document.getElementById('clubSearchQ').value.trim();
-  const normalizedClubNumber=q.toUpperCase(), normalizedPhone=normalizeIraqiPhone(q);
-  const msg = document.getElementById('clubSearchMsg');
-  msg.textContent = '';
-  document.getElementById('clubProfile').style.display = 'none';
-  if(!q) return;
-
-  msg.textContent = 'جارٍ البحث...';
-  console.info('[CLUB_SEARCH_QUERY]',{queryType:normalizedPhone?'phone':normalizedClubNumber.startsWith('CLUB-')?'club':'name'});
-  try{
-    const [customersSnap,subscriptionsSnap,requestsSnap]=await Promise.all([db.ref('subscription_customers').once('value'),db.ref('subscriptions').once('value'),db.ref('subscription_requests').once('value')]);
-    const customers=[];customersSnap.forEach(c=>customers.push({id:c.key,...(c.val()||{})}));
-    const subscriptions=[];subscriptionsSnap.forEach(s=>subscriptions.push({subscriptionId:s.key,...(s.val()||{})}));
-    const requests=[];requestsSnap.forEach(r=>requests.push({id:r.key,...(r.val()||{})}));
-    console.info('[CLUB_SEARCH_SOURCE_COUNTS] '+JSON.stringify({customers:customers.length,subscriptions:subscriptions.length,requests:requests.length,subscriptionKeys:subscriptions.slice(0,5).map(s=>s.subscriptionId),subscriptionClubs:subscriptions.slice(0,5).map(s=>s.clubNumber||s.membershipNumber||''),customerClubs:customers.slice(0,5).map(c=>c.clubNumber||''),customerPhonePresent:customers.slice(0,5).map(c=>Boolean(c.phone||c.customerPhone)),requestClubs:requests.slice(0,5).map(r=>r.clubNumber||''),clubFields:subscriptions.slice(0,5).map(s=>Boolean(s.clubNumber||s.membershipNumber)),phoneFields:subscriptions.slice(0,5).map(s=>Boolean(s.phone||s.customerPhone))}));
-    if(!subscriptions.length){
-      const linkedIds=[...new Set(customers.map(c=>c.activeSubscriptionId).filter(Boolean))];
-      const linkedSubs=await Promise.all(linkedIds.map(async id=>{try{const snap=await db.ref('subscriptions/'+id).once('value');return snap.exists()?{subscriptionId:id,...(snap.val()||{})}:null;}catch{return null;}}));
-      subscriptions.push(...linkedSubs.filter(Boolean));
-      console.info('[CLUB_SEARCH_SUBSCRIPTION_FALLBACK]',{count:subscriptions.length});
-    }
-    const customerMatches=customers.filter(c=>String(c.clubNumber||'').toUpperCase()===normalizedClubNumber||(normalizedPhone&&clubPhoneMatches(c.phone||c.customerPhone,q))||String(c.name||c.customerName||'').trim().toLowerCase().includes(q.toLowerCase()));
-    for(const customer of customerMatches){
-      if(customer.activeSubscriptionId&&!subscriptions.some(s=>s.subscriptionId===customer.activeSubscriptionId)){
-        try{const snap=await db.ref('subscriptions/'+customer.activeSubscriptionId).once('value');if(snap.exists())subscriptions.push({subscriptionId:customer.activeSubscriptionId,...(snap.val()||{})});}catch(error){console.info('[CLUB_SEARCH_LINKED_SUBSCRIPTION_SKIPPED]',{code:error?.code||'denied'});}
-      }
-    }
-    let loyaltyById={};
-    try{const loyaltySnap=await db.ref('loyalty_customers').once('value');loyaltySnap.forEach(c=>loyaltyById[c.key]={id:c.key,...(c.val()||{})});}catch(error){console.info('[CLUB_SEARCH_LOYALTY_LOOKUP_SKIPPED]',{code:error?.code||'denied'});}
+  const q=document.getElementById('clubSearchQ').value.trim(), searchType=detectSearchType(q), normalizedQuery=searchType==='phone'?normalizeIraqiPhone(q):searchType==='club'?normalizeClubNumber(q):searchType==='membership'?normalizeMembershipNumber(q):normalizeSearchText(q), msg=document.getElementById('clubSearchMsg');
+  msg.textContent=''; document.getElementById('clubProfile').style.display='none'; if(!q)return; msg.textContent='جارٍ البحث...';
+  console.info('[CLUB_SEARCH_QUERY]',{queryType:searchType}); console.info('[CLUB_SEARCH_TYPE]',{type:searchType}); console.info('[CLUB_SEARCH_NORMALIZED_QUERY]',{type:searchType,value:searchType==='phone'?'[redacted]':normalizedQuery});
+  try {
+    const [subscriptionsSnap,requestsSnap,customersSnap,loyaltySnap]=await Promise.all([db.ref('subscriptions').once('value'),db.ref('subscription_requests').once('value'),db.ref('subscription_customers').once('value'),db.ref('loyalty_customers').once('value')]);
+    const subscriptions=[],requests=[],customers=[],loyalty=[];
+    requestsSnap.forEach(c=>{const value=c.val()||{};clubSourceSchema('subscription_requests',c.key,value);requests.push({id:c.key,...value});});
+    customersSnap.forEach(c=>{const value=c.val()||{};clubSourceSchema('subscription_customers',c.key,value);customers.push({id:c.key,...value});});
+    subscriptionsSnap.forEach(c=>{const value=c.val()||{};clubSourceSchema('subscriptions',c.key,value);subscriptions.push({...value,subscriptionId:c.key});});
+    loyaltySnap.forEach(c=>{const value=c.val()||{};clubSourceSchema('loyalty_customers',c.key,value);loyalty.push({id:c.key,...value});});
+    console.info('[CLUB_SEARCH_SOURCE_COUNTS]',{customers:customers.length,subscriptions:subscriptions.length,requests:requests.length,loyalty:loyalty.length});
     const matches=[];
     for(const sub of subscriptions){
-      const linked=customers.find(c=>c.activeSubscriptionId===sub.subscriptionId||c.id===sub.customerId||(sub.clubNumber&&c.clubNumber===sub.clubNumber)||(sub.uid&&c.uid===sub.uid));
-      const request=requests.find(r=>r.id===sub.requestId||(sub.uid&&r.uid===sub.uid)||(sub.clubNumber&&r.clubNumber===sub.clubNumber));
-      const loyalty=(sub.membershipNumber&&loyaltyById[sub.membershipNumber])||(linked?.membershipNumber&&loyaltyById[linked.membershipNumber])||Object.values(loyaltyById).find(c=>(sub.uid&&c.uid===sub.uid)||(linked?.uid&&c.uid===linked.uid));
-      const record={...(request||{}),...(linked||{}),...(loyalty||{}),...sub,clubNumber:sub.clubNumber||sub.membershipNumber||linked?.clubNumber||request?.clubNumber||'',phone:sub.phone||sub.customerPhone||linked?.phone||linked?.customerPhone||request?.phone||'',name:sub.name||sub.customerName||linked?.name||request?.name||request?.customerName||'',id:linked?.id||sub.customerId||sub.clubNumber||sub.membershipNumber||sub.subscriptionId,subscriptionId:sub.subscriptionId,loyaltyMembership:loyalty?.id||linked?.membershipNumber||sub.membershipNumber||''};
-      const name=String(record.name||record.customerName||'').trim().toLowerCase(),club=String(record.clubNumber||'').toUpperCase();
-      if(club===normalizedClubNumber||(normalizedPhone&&clubPhoneMatches(record.phone,q))||(name&&name.includes(q.toLowerCase()))||String(record.loyaltyMembership).toLowerCase()===q.toLowerCase())matches.push(record);
+      const record=buildClubSearchRecord(sub,{requests,customers,loyalty}), nameMatched=searchType==='text'&&record.normalizedName.includes(normalizedQuery), phoneMatched=searchType==='phone'&&Boolean(record.normalizedPhone)&&record.normalizedPhone===normalizedQuery, clubMatched=searchType==='club'&&Boolean(record.normalizedClubNumber)&&record.normalizedClubNumber===normalizedQuery, membershipMatched=searchType==='membership'&&Boolean(record.normalizedMembershipNumber)&&record.normalizedMembershipNumber===normalizedQuery;
+      console.info('[CLUB_SEARCH_MATCH_DECISION]',{subscriptionId:record.subscriptionId,nameMatched,phoneMatched,clubMatched,membershipMatched}); if(nameMatched||phoneMatched||clubMatched||membershipMatched)matches.push(record);
     }
-    console.info('[CLUB_SEARCH_MATCHES]',{count:matches.length});
-    const found=matches.sort((a,b)=>Number(clubSubscriptionState(b).active)-Number(clubSubscriptionState(a).active))[0];
-    if(!found){msg.textContent='❌ لم يتم العثور على مشترك 101 CLUB بهذا الرقم أو الاسم.';return;}
-    console.info('[CLUB_SEARCH_SUBSCRIPTION_ID]',{subscriptionId:found.subscriptionId});currentClubCustomer=found;msg.textContent='';
-    document.getElementById('clubCustNameDisplay').textContent=found.name||found.customerName||'—';
-    document.getElementById('clubCustNumberDisplay').textContent=found.clubNumber||'—';
-    document.getElementById('clubLoyaltyMembershipDisplay').textContent='عضوية الولاء: '+(found.loyaltyMembership||'—');
-    document.getElementById('clubPhoneDisplay').textContent=found.phone||'—';document.getElementById('clubPinInput').value='';
-    const sub=(await db.ref('subscriptions/'+found.subscriptionId).once('value')).val(),state=clubSubscriptionState(sub);
-    document.getElementById('clubPlanDisplay').textContent=sub?.planName||sub?.planId||'—';document.getElementById('clubStatusDisplay').textContent=state.label;
-    document.getElementById('clubRemainingUsesDisplay').textContent=sub?`${Number(sub.remainingUses)||0} / ${Number(sub.totalUses)||0}`:'لا يوجد';
-    document.getElementById('clubExpiresDisplay').textContent=sub?.expiresAt?new Date(Number(sub.expiresAt)).toLocaleDateString('ar-IQ'):'—';document.getElementById('clubProfile').style.display='block';
-  }catch(error){console.error('[CLUB_SEARCH_FAILED]',{code:error?.code||'unknown'});msg.textContent='❌ تعذر البحث عن مشترك 101 CLUB.';}
+    console.info('[CLUB_SEARCH_CANDIDATES]',{count:subscriptions.length}); console.info('[CLUB_SEARCH_MATCHES]',{count:matches.length});
+    const found=matches.sort((a,b)=>Number(clubSubscriptionState(b).active)-Number(clubSubscriptionState(a).active))[0]; if(!found){msg.textContent='❌ لم يتم العثور على مشترك 101 CLUB بهذا الرقم أو الاسم.';return;}
+    console.info('[CLUB_SEARCH_SUBSCRIPTION_ID]',{subscriptionId:found.subscriptionId}); currentClubCustomer=found; msg.textContent='';
+    document.getElementById('clubCustNameDisplay').textContent=found.name||'—'; document.getElementById('clubCustNumberDisplay').textContent=found.clubNumber||'—'; document.getElementById('clubLoyaltyMembershipDisplay').textContent='عضوية الولاء: '+(found.membershipNumber||'—'); document.getElementById('clubPhoneDisplay').textContent=found.phone||'—'; document.getElementById('clubPinInput').value='';
+    const sub=(await db.ref('subscriptions/'+found.subscriptionId).once('value')).val(),state=clubSubscriptionState(sub); document.getElementById('clubPlanDisplay').textContent=sub?.planName||sub?.planId||'—'; document.getElementById('clubStatusDisplay').textContent=state.label; document.getElementById('clubRemainingUsesDisplay').textContent=sub?`${Number(sub.remainingUses)||0} / ${Number(sub.totalUses)||0}`:'لا يوجد'; document.getElementById('clubExpiresDisplay').textContent=sub?.expiresAt?new Date(Number(sub.expiresAt)).toLocaleDateString('ar-IQ'):'—'; document.getElementById('clubProfile').style.display='block';
+  } catch(error) { console.error('[CLUB_SEARCH_FAILED]',{code:error?.code||'unknown'}); msg.textContent='❌ تعذر البحث عن مشترك 101 CLUB.'; }
 }
 
 async function redeemClubDrink() {
