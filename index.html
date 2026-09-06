@@ -2859,7 +2859,7 @@
                 <button class="google-loyalty-btn" id="loyaltyGoogleBtn" type="button" onclick="signInForLoyalty()"><svg class="google-logo-mark" viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M21.35 12.18c0-.72-.06-1.25-.19-1.8H12v3.44h5.38c-.11.86-.71 2.15-2.04 3.02l-.02.12 2.96 2.29.21.02c1.92-1.77 3.03-4.37 3.03-7.09Z"/><path fill="#34A853" d="M12 21.68c2.63 0 4.84-.87 6.45-2.37l-3.07-2.38c-.82.57-1.92.97-3.38.97a5.85 5.85 0 0 1-5.54-4.05l-.11.01-3.08 2.38-.04.1A9.75 9.75 0 0 0 12 21.68Z"/><path fill="#FBBC05" d="M6.46 13.85A5.93 5.93 0 0 1 6.15 12c0-.64.11-1.26.3-1.85v-.13L3.33 7.6l-.1.05A9.75 9.75 0 0 0 2.2 12c0 1.57.37 3.05 1.03 4.35l3.23-2.5Z"/><path fill="#EA4335" d="M12 6.1c1.84 0 3.08.8 3.79 1.46l2.77-2.7C16.83 3.25 14.63 2.3 12 2.3a9.75 9.75 0 0 0-8.77 5.35l3.22 2.5A5.87 5.87 0 0 1 12 6.1Z"/></svg><span class="google-login-label">تسجيل الدخول بواسطة Google</span></button>
                 <p class="google-login-msg" id="loyaltyLoginError" role="alert" aria-live="polite"></p>
                 <div class="login-divider" id="loyaltyLoginDivider">أو</div>
-                <form id="membershipLoginForm">
+                <form id="membershipLoginForm" onsubmit="window.handleMembershipLogin(event)">
                     <label for="membershipLoginId"><span id="membershipLoginIdLabel">رقم العضوية</span><input id="membershipLoginId" name="membership" placeholder="101-1" autocomplete="username" required></label>
                     <label for="membershipLoginPin"><span id="membershipLoginPinLabel">رمز PIN</span><input id="membershipLoginPin" name="pin" type="password" inputmode="numeric" maxlength="6" autocomplete="current-password" required></label>
                     <button class="membership-login-btn" id="membershipLoginSubmit" type="submit">تسجيل الدخول</button>
@@ -4332,26 +4332,45 @@
             if (!preserveAuth) renderClubAccount();
         }
 
-        async function handleMembershipLogin(event) {
-            event.preventDefault();
+        window.handleMembershipLogin = async function(event) {
+            if (event) event.preventDefault();
+            console.log('[LOYALTY_LOGIN_CLICK]');
             loyaltyLoginRequested = true;
             const membership = document.getElementById('membershipLoginId')?.value.trim();
             const pin = document.getElementById('membershipLoginPin')?.value.trim();
+            console.log('[LOYALTY_LOGIN_INPUT]');
             const message = document.getElementById('loyaltyLoginError');
+            const submitBtn = document.getElementById('membershipLoginSubmit');
+            const originalBtnText = submitBtn ? submitBtn.textContent : 'تسجيل الدخول';
             if (message) message.textContent = '';
-            if (!cloudFunctions || !auth) { if (message) message.textContent = 'خدمة الدخول الآمن غير متاحة حاليًا.'; return; }
+            if (!membership || !pin) {
+                if (message) message.textContent = 'تأكد من رقم العضوية والـPIN.';
+                console.log('[LOYALTY_LOGIN_FAILED]');
+                return;
+            }
+            if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'جاري التحقق...'; }
+            if (!cloudFunctions || !auth) { 
+                if (message) message.textContent = 'خدمة الدخول الآمن غير متاحة حاليًا.'; 
+                if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = originalBtnText; }
+                console.log('[LOYALTY_LOGIN_FAILED]');
+                return; 
+            }
             try {
+                console.log('[LOYALTY_LOGIN_LOOKUP_START]');
                 const result = await cloudFunctions.httpsCallable('loginWithMembership')({ membership, pin });
+                console.log('[LOYALTY_LOGIN_LOOKUP_RESULT]');
                 if (!result.data?.token) throw new Error('Missing custom token');
                 await auth.signInWithCustomToken(result.data.token);
                 document.getElementById('loyaltyLoginModal')?.classList.remove('open');
-                event.target.reset();
-                console.info('[LOYALTY_PIN_LOGIN_RESULT]', {success:true});
+                if (event && event.target && event.target.reset) event.target.reset();
+                console.log('[LOYALTY_LOGIN_SUCCESS]');
             } catch (error) {
-                console.info('[LOYALTY_PIN_LOGIN_RESULT]', {success:false, code:error?.code || 'unknown'});
-                if (message) message.textContent = error?.code === 'functions/unauthenticated' || error?.code === 'functions/invalid-argument' ? 'رقم العضوية أو رمز PIN غير صحيح.' : loyaltyErrorMessage(error);
+                console.log('[LOYALTY_LOGIN_FAILED]');
+                if (message) message.textContent = (error?.code === 'functions/unauthenticated' || error?.code === 'functions/invalid-argument') ? 'تأكد من رقم العضوية والـPIN.' : 'تعذر تسجيل الدخول، حاول مرة أخرى.';
+            } finally {
+                if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = originalBtnText; }
             }
-        }
+        };
 
         window.handleCardAuthAction = () => window.signInForLoyalty();
 
