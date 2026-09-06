@@ -4256,16 +4256,22 @@
         }
 
         window.signInForLoyalty = async function() {
-            if (!auth) { showLoyaltyLoginError(new Error('Firebase Auth is unavailable.')); return; }
+            console.log('[LOYALTY_GOOGLE_CLICK]');
+            if (!auth || !firebase.auth.GoogleAuthProvider) { 
+                showLoyaltyLoginError(new Error('Firebase Auth is unavailable.')); 
+                return; 
+            }
             loyaltyLoginRequested = true;
             const btn = document.getElementById('loyaltyGoogleBtn');
             const label = btn?.querySelector('.google-login-label');
             const message = document.getElementById('loyaltyLoginError');
             if (message) message.textContent = '';
-            console.info('[LOYALTY_PIN_LOGIN_START]', {hasMembership:Boolean(membership), hasPin:Boolean(pin)});
+            
             if (btn) btn.disabled = true;
-            if (label) label.textContent = currentLang === 'en' ? 'Signing in…' : 'جاري تسجيل الدخول…';
+            if (label) label.textContent = 'جاري تسجيل الدخول...';
+            
             try {
+                console.log('[LOYALTY_GOOGLE_AUTH_START]');
                 const provider = new firebase.auth.GoogleAuthProvider();
                 provider.addScope('email');
                 const result = await auth.signInWithPopup(provider).catch(async error => {
@@ -4275,12 +4281,15 @@
                     }
                     throw error;
                 });
+                console.log('[LOYALTY_GOOGLE_AUTH_RESULT]', { success: !!result?.user });
                 if (result && !result.user) throw new Error('Google sign-in did not return a Firebase user.');
+                // Note: The auth state listener handles modal closing and UI updates upon successful login
             } catch (error) {
+                console.log('[LOYALTY_GOOGLE_AUTH_ERROR]', error?.code || error?.message);
                 showLoyaltyLoginError(error);
             } finally {
                 if (btn) btn.disabled = false;
-                if (label) label.textContent = currentLang === 'en' ? 'Sign in with Google' : 'تسجيل الدخول بواسطة Google';
+                if (label) label.textContent = 'تسجيل الدخول بواسطة Google';
             }
         };
 
@@ -4334,38 +4343,38 @@
 
         window.handleMembershipLogin = async function(event) {
             if (event) event.preventDefault();
-            console.log('[LOYALTY_LOGIN_CLICK]');
+            console.log('[LOYALTY_PIN_CLICK]');
             loyaltyLoginRequested = true;
             const membership = document.getElementById('membershipLoginId')?.value.trim();
             const pin = document.getElementById('membershipLoginPin')?.value.trim();
-            console.log('[LOYALTY_LOGIN_INPUT]');
+            console.log('[LOYALTY_PIN_VALIDATE]');
             const message = document.getElementById('loyaltyLoginError');
             const submitBtn = document.getElementById('membershipLoginSubmit');
             const originalBtnText = submitBtn ? submitBtn.textContent : 'تسجيل الدخول';
             if (message) message.textContent = '';
             if (!membership || !pin) {
                 if (message) message.textContent = 'تأكد من رقم العضوية والـPIN.';
-                console.log('[LOYALTY_LOGIN_FAILED]');
+                console.log('[LOYALTY_PIN_FAILED]');
                 return;
             }
             if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'جاري التحقق...'; }
             if (!cloudFunctions || !auth) { 
                 if (message) message.textContent = 'خدمة الدخول الآمن غير متاحة حاليًا.'; 
                 if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = originalBtnText; }
-                console.log('[LOYALTY_LOGIN_FAILED]');
+                console.log('[LOYALTY_PIN_FAILED]');
                 return; 
             }
             try {
-                console.log('[LOYALTY_LOGIN_LOOKUP_START]');
+                console.log('[LOYALTY_PIN_LOOKUP_START]');
                 const result = await cloudFunctions.httpsCallable('loginWithMembership')({ membership, pin });
-                console.log('[LOYALTY_LOGIN_LOOKUP_RESULT]');
+                console.log('[LOYALTY_PIN_RESULT]');
                 if (!result.data?.token) throw new Error('Missing custom token');
                 await auth.signInWithCustomToken(result.data.token);
                 document.getElementById('loyaltyLoginModal')?.classList.remove('open');
                 if (event && event.target && event.target.reset) event.target.reset();
-                console.log('[LOYALTY_LOGIN_SUCCESS]');
+                console.log('[LOYALTY_PIN_SUCCESS]');
             } catch (error) {
-                console.log('[LOYALTY_LOGIN_FAILED]');
+                console.log('[LOYALTY_PIN_FAILED]');
                 if (message) message.textContent = (error?.code === 'functions/unauthenticated' || error?.code === 'functions/invalid-argument') ? 'تأكد من رقم العضوية والـPIN.' : 'تعذر تسجيل الدخول، حاول مرة أخرى.';
             } finally {
                 if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = originalBtnText; }
@@ -5076,7 +5085,7 @@
             document.getElementById("areaSelect")?.addEventListener("change", updateCheckoutSummary);
             document.getElementById("checkoutForm")?.addEventListener("submit", handleCheckoutSubmit);
             document.getElementById("eventBookingForm")?.addEventListener("submit", handleEventBookingSubmit);
-            document.getElementById('membershipLoginForm')?.addEventListener('submit', handleMembershipLogin);
+            document.getElementById('membershipLoginForm')?.addEventListener('submit', window.handleMembershipLogin);
             document.getElementById('welcomeStartBtn')?.addEventListener('click', () => setModalOpen(document.getElementById('welcomeModal'), false));
             document.getElementById('aiAssistantBtn')?.addEventListener('click', window.toggleAIChatDrawer);
             document.getElementById('aiChatCloseBtn')?.addEventListener('click', window.closeChatbot);
