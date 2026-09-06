@@ -4751,6 +4751,42 @@
             };
         }
         let aiChatRequestInFlight = false;
+        let pendingProductSelection = [];
+        function normalizeProductReference(value) {
+            return String(value || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[ًٌٍَُِّْـ]/g, '').replace(/[،,.!?؟:؛()[\]{}]/g, ' ').replace(/\s+/g, ' ').trim().replace(/لاتية/g, 'لاتيه');
+        }
+        function resolveProductReference(userText, menu = products) {
+            const source = normalizeProductReference(userText).replace(/^(ضيفيلي|ضيفلي|ضيف|اضيفي|اضف|add|put|نزللي|حطيلي)\s*/i, '').replace(/\s+(للسلة|بالسلة|الى السلة|to (?:the )?cart)$/i, '').trim();
+            const entries = (Array.isArray(menu) ? menu : []).filter(product => product && !product.hidden && !product.comingSoon && product.available !== false && product.active !== false).map(product => ({ productId: String(product.id), name: productName(product), normalizedName: normalizeProductReference(productName(product)) }));
+            if (!source) return { status: 'NO_MATCH', options: [] };
+            const exact = entries.filter(item => item.normalizedName === source);
+            if (exact.length === 1) return { status: 'EXACT_MATCH', product: exact[0], options: exact };
+            const matches = entries.filter(item => item.normalizedName.includes(source) || source.includes(item.normalizedName));
+            if (matches.length === 1) return { status: 'UNIQUE_FUZZY_MATCH', product: matches[0], options: matches };
+            if (matches.length > 1) return { status: 'MULTIPLE_MATCHES', options: matches.slice(0, 8) };
+            return { status: 'NO_MATCH', options: [] };
+        }
+        function resolvePendingProductChoice(userText) {
+            if (!pendingProductSelection.length) return null;
+            const value = normalizeProductReference(userText), ordinal = value.match(/^(?:ال)?(اول|أول|ثاني|الثاني|ثالث|الثالث|آخر|الاخير|الأخير)(?:\s+واحد)?$/);
+            let index = -1;
+            if (ordinal) { const word = ordinal[1]; index = /آخر|اخير/.test(word) ? pendingProductSelection.length - 1 : /ثاني/.test(word) ? 1 : /ثالث/.test(word) ? 2 : 0; }
+            if (index < 0) { const numeric = value.match(/^(?:ال)?(\d+)(?:\s+واحد)?$/); if (numeric) index = Number(numeric[1]) - 1; }
+            if (index >= 0 && index < pendingProductSelection.length) return pendingProductSelection[index];
+            const matches = pendingProductSelection.filter(item => normalizeProductReference(item.name).includes(value));
+            return matches.length === 1 ? matches[0] : null;
+        }
+        function isCartAddIntent(text) { return /(?:ضيف|اضيف|أضيف|حطي|نزل|add|put)\b/i.test(String(text || '')) && /(?:سلة|للسلة|cart|basket|لاتيه|لاتية|قهوة|coffee|latte|موكا|mocha)/i.test(String(text || '')); }
+        function localCartIntent(text, addReply) {
+            const choice = resolvePendingProductChoice(text);
+            if (choice) { pendingProductSelection = []; const result = executeChatCartAction({ type: 'cart_add', productId: choice.productId, quantity: 1 }); addReply(chatActionMessage(result)); return true; }
+            if (!isCartAddIntent(text)) return false;
+            const resolved = resolveProductReference(text);
+            if (resolved.status === 'EXACT_MATCH' || resolved.status === 'UNIQUE_FUZZY_MATCH') { pendingProductSelection = []; const result = executeChatCartAction({ type: 'cart_add', productId: resolved.product.productId, quantity: 1 }); addReply(chatActionMessage(result)); return true; }
+            if (resolved.status === 'MULTIPLE_MATCHES') { pendingProductSelection = resolved.options.map(item => ({ productId: item.productId, name: item.name })); addReply(currentLang === 'en' ? `Sure 🤎 We have several options:\n${pendingProductSelection.map((item, i) => `${i + 1}. ${item.name}`).join('\n')}\nWhich one would you like?` : `أكيد 🤎 عندنا أكثر من خيار:\n${pendingProductSelection.map((item, i) => `${i + 1}. ${item.name}`).join('\n')}\nأي واحد تقصد؟`); return true; }
+            addReply(currentLang === 'en' ? 'That product is not currently on the menu.' : 'هذا المنتج مو موجود حالياً بالمنيو.');
+            return true;
+        }
         function getChatCartSnapshot() {
             const itemCount = cart.reduce((sum, item) => sum + Math.max(0, Number(item.qty ?? item.quantity) || 0), 0);
             const total = cart.reduce((sum, item) => { const product = findProduct(item.id ?? item.productId); return sum + (Number(product?.price ?? item.price) || 0) * (Math.max(0, Number(item.qty ?? item.quantity) || 0)); }, 0);
@@ -4819,7 +4855,7 @@
                         language,
                         history: historyForWorker,
                         history: historyForWorker,
-                        context: { ...buildChatContext(), cartItems: getChatCartSnapshot().items }
+                        context: { ...buildChatContext(), cartItems: getChatCartSnapshot().items, pendingProductSelection }
                     })
                 });
                 const result = await response.json().catch(() => ({}));
@@ -4831,6 +4867,7 @@
                     error.code = result.error;
                     throw error;
                 }
+                if (localCartIntent(text, addReply)) return;
                 const actions = Array.isArray(result.actions) ? result.actions : [];
                 const reply = actions.length ? actions.map(executeChatCartAction).map(chatActionMessage).join('\n') : (result.reply || (currentLang === 'en' ? 'I could not answer right now.' : 'لم أتمكن من الإجابة الآن.'));
                 addReply(reply); if (voiceModeActive) speakChatReply(reply);
