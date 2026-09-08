@@ -4294,6 +4294,7 @@
             
             try {
                 console.log('[LOYALTY_GOOGLE_AUTH_START]');
+                await auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
                 const provider = new firebase.auth.GoogleAuthProvider();
                 provider.addScope('email');
                 const result = await auth.signInWithPopup(provider).catch(async error => {
