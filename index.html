@@ -3187,7 +3187,7 @@
         let db = null, auth = null;
         async function callLoyaltySecurity(path, options = {}) {
             const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
-            if (auth?.currentUser) headers.Authorization = `Bearer ${await auth.currentUser.getIdToken()}`;
+            if (auth?.currentUser) headers.Authorization = `Bearer ${await auth.currentUser.getIdToken(true)}`;
             const response = await fetch(`${LOYALTY_SECURITY_ENDPOINT}${path}`, { ...options, headers, body: options.body && typeof options.body !== 'string' ? JSON.stringify(options.body) : options.body });
             const data = await response.json().catch(() => ({}));
             if (!response.ok) { const error = new Error(data.error || 'LOYALTY_SECURITY_FAILED'); error.code = `functions/${data.error || 'internal'}`; throw error; }
@@ -4419,16 +4419,25 @@
                         if (!loyaltyLoginRequested || profileError?.code !== 'functions/PROFILE_NOT_FOUND') throw profileError;
                         profileResult = await callLoyaltySecurity('/api/loyalty/provision-google', { method: 'POST', body: {} });
                     }
+                    const provisionStatus = profileResult?.data?.status || '';
                     const membership = String(profileResult?.data?.profile?.membershipNumber || '');
-                    if (membership) {
+                    if (provisionStatus === 'pending') {
+                        loyaltyAuthStatusKey = 'provision_pending';
+                        showPendingLoyaltyState(user);
+                    } else if (membership) {
                         loadCustomerData(membership, profileResult.data.profile);
                         loyaltyAuthStatusKey = 'auth_success';
                         watchLoyaltyLink(user.uid);
                     } else if (loyaltyLoginRequested) {
                         const provisioned = await requestGoogleLoyaltyProvisioning();
-                        loyaltyAuthStatusKey = 'auth_success';
-                        loadCustomerData(provisioned.profile.membershipNumber, provisioned.profile);
-                        watchLoyaltyLink(user.uid);
+                        if (provisioned.status === 'pending') {
+                            loyaltyAuthStatusKey = 'provision_pending';
+                            showPendingLoyaltyState(user);
+                        } else {
+                            loyaltyAuthStatusKey = 'auth_success';
+                            loadCustomerData(provisioned.profile.membershipNumber, provisioned.profile);
+                            watchLoyaltyLink(user.uid);
+                        }
                     } else {
                         resetLoyaltyGuestUI(true);
                     }
@@ -4655,7 +4664,7 @@
 
         async function requestGoogleLoyaltyProvisioning() {
             const result = await callLoyaltySecurity('/api/loyalty/provision-google', { method: 'POST', body: {} });
-            if (!result.data?.profile?.membershipNumber) throw new Error('Missing provisioned loyalty profile');
+            if (!['existing_member','pending','already_provisioned','created'].includes(result.data?.status)) throw new Error('Missing provisioned loyalty status');
             return result.data;
         }
 
