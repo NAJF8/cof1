@@ -1,0 +1,18 @@
+import assert from 'node:assert/strict';
+import { webcrypto } from 'node:crypto';
+import { serviceAccountToken } from '../src/firebase-admin.js';
+
+globalThis.crypto ??= webcrypto;
+const pair = await crypto.subtle.generateKey({ name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' }, true, ['sign', 'verify']);
+const pkcs8 = new Uint8Array(await crypto.subtle.exportKey('pkcs8', pair.privateKey));
+let binary = ''; for (const byte of pkcs8) binary += String.fromCharCode(byte);
+const privateKey = `-----BEGIN PRIVATE KEY-----\n${btoa(binary)}\n-----END PRIVATE KEY-----`;
+const originalFetch = globalThis.fetch;
+let calls = 0;
+globalThis.fetch = async (_url, options) => { calls += 1; const assertion = new URLSearchParams(options.body).get('assertion'); assert.equal(assertion.split('.').length, 3); return new Response(JSON.stringify({ access_token: 'fixture-access-token', expires_in: 3600 }), { status: 200, headers: { 'Content-Type': 'application/json' } }); };
+const env = { FIREBASE_SERVICE_ACCOUNT_EMAIL: 'fixture@example.iam.gserviceaccount.com', FIREBASE_SERVICE_ACCOUNT_PRIVATE_KEY: privateKey };
+assert.equal(await serviceAccountToken(env), 'fixture-access-token');
+assert.equal(await serviceAccountToken(env), 'fixture-access-token');
+assert.equal(calls, 1);
+globalThis.fetch = originalFetch;
+console.log('service-account JWT/OAuth fixture: PASS');

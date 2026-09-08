@@ -1,0 +1,13 @@
+name = "coffee-101-ai-chat"
+main = "src/index.js"
+compatibility_date = "2026-09-05"
+
+[vars]
+# Change this in Cloudflare without changing the frontend.
+GEMINI_MODEL = "gemini-3.6-flash"
+# failover (default) or round-robin. API keys remain Cloudflare Secrets.
+GEMINI_KEY_STRATEGY = "failover"
+# Comma-separated production origin whitelist. Never use * here.
+ALLOWED_ORIGINS = "https://najf8.github.io,https://101coffees.com,https://www.101coffees.com"
+CLOUDFLARE_ACCOUNT_ID = "d05e0aff35c06eadf40d2eac51a81d6a"
+CLOUDFLARE_WORKER_NAME = "coffee-101-ai-chat"

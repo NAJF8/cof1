@@ -1,0 +1,14 @@
+{
+  "name": "coffee-101-ai-chat-worker",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "test": "node test/loyalty-security.test.js && node test/firebase-admin.test.js && node test/static-loyalty.test.mjs",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

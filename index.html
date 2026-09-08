@@ -3184,7 +3184,7 @@
         // Update this one value after the first Worker deployment. Keep the API key in Cloudflare only.
         const AI_CHAT_ENDPOINT = 'https://coffee-101-ai-chat.coffee101.workers.dev/api/chat';
         const LOYALTY_SECURITY_ENDPOINT = 'https://coffee-101-ai-chat.coffee101.workers.dev';
-        let db = null, auth = null, cloudFunctions = null;
+        let db = null, auth = null;
         async function callLoyaltySecurity(path, options = {}) {
             const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
             if (auth?.currentUser) headers.Authorization = `Bearer ${await auth.currentUser.getIdToken()}`;
@@ -3200,7 +3200,6 @@
             auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(error => {
                 console.warn('[LOYALTY_AUTH_PERSISTENCE_FAILED]', error?.code || error?.message);
             });
-            cloudFunctions = typeof firebase.functions === 'function' ? firebase.functions() : null;
         } catch (e) {
             console.error("Firebase init failed", e);
         }
@@ -4381,7 +4380,7 @@
                 return;
             }
             if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'جاري التحقق...'; }
-            if (!cloudFunctions || !auth) { 
+            if (!auth) {
                 if (message) message.textContent = 'خدمة الدخول الآمن غير متاحة حاليًا.'; 
                 if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = originalBtnText; }
                 console.log('[LOYALTY_PIN_FAILED]');
@@ -4436,7 +4435,7 @@
                     document.getElementById('loyaltyLoginModal')?.classList.remove('open');
                 } catch (error) {
                     loyaltyAuthStatusKey = 'auth_error';
-                    console.error('[LOYALTY_PROVISION_FAILED]', { code:error?.code, message:error?.message, path:'loyalty_customers + loyalty_links + loyalty_counter', operation:'transaction/update' });
+                    console.error('[LOYALTY_PROVISION_FAILED]', { code:error?.code, message:error?.message, operation:'worker-provision' });
                     showPendingLoyaltyState(user, true);
                     document.getElementById('loyaltyLoginModal')?.classList.remove('open');
                 }
@@ -4461,7 +4460,7 @@
         }
 
         function watchLoyaltyLink(uid) {
-            // Protected loyalty_links is server-only. The Worker profile endpoint is authoritative.
+            // The Worker profile endpoint is authoritative for the authenticated membership link.
             void uid;
         }
 

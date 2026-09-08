@@ -420,7 +420,7 @@ async function editCustomerId() {
   
   const cleanNewId = newId.trim();
   try {
-    const result = await firebase.functions().httpsCallable('changeLoyaltyMembership')({oldId, newId:cleanNewId});
+    const result = await callLoyaltySecurity('/api/admin/loyalty/change-membership',{method:'POST',body:{oldId,newId:cleanNewId}});
     if (!result.data?.membershipNumber) throw new Error('تعذر تغيير رقم العضوية');
     
     if (currentCustomerRef) { currentCustomerRef.off(); currentCustomerRef = null; }
@@ -436,7 +436,6 @@ async function editCustomerId() {
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-functions-compat.js"></script>
 <script>
 const firebaseConfig = {
   apiKey: "AIzaSyD2oQ1UGsFrIqSu2nQX6m6zQbkQ3AEYwhM",
@@ -451,6 +450,15 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 const db = firebase.database();
+const LOYALTY_SECURITY_ENDPOINT = 'https://coffee-101-ai-chat.coffee101.workers.dev';
+async function callLoyaltySecurity(path, options = {}) {
+  const headers = {'Content-Type':'application/json', ...(options.headers || {})};
+  if (auth.currentUser) headers.Authorization = `Bearer ${await auth.currentUser.getIdToken()}`;
+  const response = await fetch(`${LOYALTY_SECURITY_ENDPOINT}${path}`, {...options, headers, body: options.body && typeof options.body !== 'string' ? JSON.stringify(options.body) : options.body});
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) { const error = new Error(data.error || 'LOYALTY_SECURITY_FAILED'); error.code = data.error || 'LOYALTY_SECURITY_FAILED'; throw error; }
+  return data;
+}
 const loyaltyPersistenceReady = auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(async error => {
   console.warn('[LOYALTY_AUTH_PERSISTENCE_FAILED]', { code:error?.code||'unknown' });
   await auth.setPersistence(firebase.auth.Auth.Persistence.SESSION);
@@ -562,7 +570,7 @@ async function bootstrapLoyaltyRole(user){
   }
   const record=adminSnapshot.val();
   if(email===SUPER_ADMIN_EMAIL&&(!record||record.status!=='active'||record.role!=='super_admin')){
-    await firebase.functions().httpsCallable('provisionGoogleSuperAdmin')();
+    await callLoyaltySecurity('/api/admin/provision-super-admin',{method:'POST',body:{}});
     return {uid:user.uid,name:'Super Admin',role:'super_admin',permissions:{}};
   }
   if(!record)throw loyaltyBootstrapError('لا يوجد سجل موظف مفعّل لهذا الحساب.','role/not-found','/admins/{current-user}');
@@ -837,13 +845,13 @@ async function searchCust() {
 
   try {
     if (currentCashier?.role === 'cashier') {
-      const lookup = firebase.functions().httpsCallable('searchCustomer');
-      const result = await lookup({ query:q });
-      const found = result.data?.customer;
+      const result = await callLoyaltySecurity('/api/admin/loyalty/search',{method:'POST',body:{query:q}});
+      const found = result.customer;
       if (!found) { msg.textContent = '❌ لم يتم العثور على عميل بهذا الرقم.'; return; }
       currentCustomerRef?.off();
-      currentCustomerRef = db.ref('loyalty_customers/' + found.id);
-      currentCustomerRef.on('value', snapshot => { if (snapshot.exists()) { currentCustomer = { id:found.id, ...snapshot.val(), email:undefined }; renderProfile(); } });
+      currentCustomerRef = null;
+      currentCustomer = { id:found.membershipNumber, ...found, email:undefined };
+      renderProfile();
       return;
     }
     let cust = null;
@@ -1446,7 +1454,7 @@ async function quickDeleteCustomer(cardId, name) {
   
   try {
     // If has UID link, remove link too
-    await firebase.functions().httpsCallable('deleteLoyaltyCustomer')({membership:cardId});
+    await callLoyaltySecurity('/api/admin/loyalty/delete',{method:'POST',body:{membership:cardId}});
 
     if (currentCustomer && currentCustomer.id === cardId) {
       if (currentCustomerRef) { currentCustomerRef.off(); currentCustomerRef = null; }

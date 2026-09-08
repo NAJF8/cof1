@@ -71,7 +71,7 @@
     },
     "loyalty_links": {
       "$uid": {
-        ".read": "auth != null && ($uid === auth.uid || auth.token.email === 'mohameadalhaear100@gmail.com' || root.child('admins').child(auth.uid).child('status').val() === 'active')",
+        ".read": false,
         ".write": false
       }
     },

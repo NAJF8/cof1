@@ -548,11 +548,6 @@ body,.top-bar,.card,.stat-card,.main-content,.sidebar,.auth-card,.table-wrap,tab
           <tbody id="rewardsTable"></tbody></table>
         </div>
       </div>
-      <div class="card" id="loyaltyResetCard" style="border:1px solid #e53935">
-        <h3 style="color:#c62828">⚠️ إعادة ضبط العملاء</h3>
-        <p style="color:var(--muted);font-size:13px;margin-bottom:12px">يحذف جميع العملاء وسجلات ولائهم ويحافظ على محمد (101-1) وفاطمة (101-2) فقط، برمز 0224. يبدأ أول عميل جديد من 101-3.</p>
-        <button class="btn btn-danger" onclick="resetLoyaltyCustomers()">إعادة ضبط العملاء الآن</button>
-      </div>
     </section>
 
     <!-- ─── LOYALTY CUSTOMERS ─── -->
@@ -990,6 +985,15 @@ firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 const db   = firebase.database();
 const storage = firebase.storage();
+const LOYALTY_SECURITY_ENDPOINT = 'https://coffee-101-ai-chat.coffee101.workers.dev';
+async function callLoyaltySecurity(path, options = {}) {
+  const headers = {'Content-Type':'application/json', ...(options.headers || {})};
+  if (auth.currentUser) headers.Authorization = `Bearer ${await auth.currentUser.getIdToken()}`;
+  const response = await fetch(`${LOYALTY_SECURITY_ENDPOINT}${path}`, {...options, headers, body: options.body && typeof options.body !== 'string' ? JSON.stringify(options.body) : options.body});
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) { const error = new Error(data.error || 'LOYALTY_SECURITY_FAILED'); error.code = data.error || 'LOYALTY_SECURITY_FAILED'; throw error; }
+  return data;
+}
 
 // ── State ─────────────────────────────────────────────────
 let currentUser  = null, currentRole = null;
@@ -1164,7 +1168,7 @@ function showAdminDashboard(user, role){
 
 async function bootstrapSuperAdmin(user){
   try {
-    await firebase.functions().httpsCallable('provisionGoogleSuperAdmin')();
+    await callLoyaltySecurity('/api/admin/provision-super-admin', {method:'POST', body:{}});
   } catch(e) { console.error(e); }
 }
 
@@ -1570,23 +1574,6 @@ function renderEventsAdmin(){const tb=document.getElementById('eventsTable');if(
 function renderTablesAdmin(){const tb=document.getElementById('tablesTable');if(tb)tb.innerHTML=tablesDB.map(t=>`<tr><td>${esc(t.name)}</td><td>${t.isActive!==false?'🟢 مفعلة':'🔴 معطلة'}</td><td><button class="btn-edit" onclick="editTable('${t.id}')">تعديل</button> <button class="btn-outline" onclick="toggleTable('${t.id}')">${t.isActive!==false?'تعطيل':'تفعيل'}</button> <button class="btn-delete" onclick="deleteTable('${t.id}')">حذف</button></td></tr>`).join('')||'<tr><td colspan="3" style="text-align:center;padding:20px">لا توجد طاولات.</td></tr>';}
 function updateEventBookingStatus(id,status){if(!eventCanManage())return;db.ref('eventBookings/'+id+'/status').set(status).then(()=>showNotif('تم تحديث حالة الحجز.')).catch(e=>showNotif('خطأ: '+e.message,'error'));}
 
-async function resetLoyaltyCustomers(){
-  if(currentRole!=='super_admin') return alert('هذه العملية متاحة لـ Super Admin فقط.');
-  if(!confirm('تحذير نهائي: سيتم حذف جميع العملاء وسجل عمليات الولاء. هل تريد المتابعة؟')) return;
-  if(!confirm('تأكيد ثانٍ: سيبقى 101-1 و101-2 برمز 0224، وسيبدأ الترقيم من 101-3.')) return;
-  try {
-    const superCustomer={name:currentUser.displayName||'Super Admin',email:SUPER_ADMIN_EMAIL,uid:currentUser.uid,memberType:'Super Admin',hearts:0,pin:'0224',createdAt:Date.now()};
-    const fatimaCustomer={name:'فاطمة',email:'fatmanajah2006@gmail.com',memberType:'زبون',hearts:0,pin:'0224',createdAt:Date.now()};
-    await db.ref().update({
-      loyalty_customers:{'101-1':superCustomer,'101-2':fatimaCustomer},
-      loyalty_links:{[currentUser.uid]:'101-1'},
-      loyalty_logs:null,
-      loyalty_counter:2
-    });
-    showNotif('تمت إعادة ضبط العملاء. العضوية التالية ستكون 101-3.');
-  } catch(e) { showNotif('تعذر تنفيذ إعادة الضبط: '+e.message,'error'); }
-}
-
 // ══════════════════════════════════════════════════════════
 // BOOKINGS
 // ══════════════════════════════════════════════════════════
@@ -1851,8 +1838,8 @@ function generateAdminPin(){
 async function activateLoyaltyPending(uid){
   if(!can('manage_loyalty_pending')) return showNotif('ليس لديك صلاحية تفعيل العضويات.','error');
   try{
-    const result=await firebase.functions().httpsCallable('activatePendingLoyalty')({uid});
-    showNotif(`تم تفعيل العضوية ${result.data?.membershipNumber||''} بنجاح.`);
+    const result=await callLoyaltySecurity('/api/admin/loyalty/activate-pending',{method:'POST',body:{uid}});
+    showNotif(`تم تفعيل العضوية ${result.membershipNumber||''} بنجاح.`);
   }catch(error){
     console.error('LOYALTY_PENDING_ACTIVATION_FAILED:',error?.code,error?.message,error);
     showNotif('تعذر تفعيل العضوية: '+(error.message||'خطأ غير معروف'),'error');
@@ -2946,7 +2933,7 @@ window.insertClubVariable=function(variable){const field=document.getElementById
 window.saveClubSettings=async function(){if(!canManageClub())return showNotif('ليس لديك صلاحية حفظ الإعدادات.','error');const message=document.getElementById('clubWhatsAppTemplate').value.trim()||clubDefaultWhatsAppTemplate(),payload={whatsappActivationMessage:message,updatedAt:firebase.database.ServerValue.TIMESTAMP};try{const ref=db.ref('subscription_settings');await ref.update(payload);const saved=(await ref.once('value')).val()||{};if(saved.whatsappActivationMessage!==message)throw new Error('لم تتطابق القراءة مع الرسالة المحفوظة.');clubSettings=saved;renderClubMessagePreview();showNotif('تم حفظ رسالة تفعيل 101 CLUB والتحقق منها.');}catch(error){showNotif('تعذر حفظ الإعدادات: '+error.message,'error');}};
 function normalizeClubPhone(value){const raw=String(value||'').replace(/\D/g,'');if(raw.length<8||raw.length>15)return '';return raw.startsWith('0')?'964'+raw.slice(1):raw;}
 function clubTemplate(text,values){return String(text||clubDefaultWhatsAppTemplate()).replace(/{{(name|planName|clubNumber|pin|totalUses|expiryDate)}}/g,(_,key)=>values[key]??'');}
-async function reserveClubPin(customerId){const result=await firebase.functions().httpsCallable('reserveClubPin')({customerId});if(!result.data?.pin)throw new Error('تعذر توليد PIN فريد.');return result.data.pin;}
+async function reserveClubPin(customerId){const result=await callLoyaltySecurity('/api/admin/club/reserve-pin',{method:'POST',body:{customerId}});if(!result.pin)throw new Error('تعذر توليد PIN فريد.');return result.pin;}
 window.confirmClubPayment=async function(){
   const request=pendingClubPaymentRequest;if(!request||!canManageClub())return;const btn=document.getElementById('clubConfirmPaymentBtn'),phoneInput=document.getElementById('clubPaymentPhone'),phone=phoneInput?.value.trim()||'',normalized=normalizeClubPhone(phone);if(!normalized)return showNotif('أدخل رقم WhatsApp صالحاً قبل التفعيل.','error');const plan=subscriptionPlans[request.planId];if(!plan)return showNotif('الخطة غير متاحة.','error');
   if(btn){btn.disabled=true;btn.textContent='جارٍ التفعيل...';}
