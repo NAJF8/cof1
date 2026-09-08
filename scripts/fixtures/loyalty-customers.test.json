@@ -1,0 +1,7 @@
+{
+  "101-101": { "name": "Test Customer A", "pin": "1234" },
+  "101-102": { "name": "Test Customer B", "pin": "5678" },
+  "101-103": { "name": "Missing PIN" },
+  "bad-id": { "name": "Invalid membership", "pin": "12ab" },
+  "101-101 ": { "name": "Duplicate normalized membership", "pin": "9999" }
+}

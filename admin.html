@@ -1164,32 +1164,7 @@ function showAdminDashboard(user, role){
 
 async function bootstrapSuperAdmin(user){
   try {
-    // 1. Ensure Super Admin is in admins node
-    const snap=await db.ref('admins/'+user.uid).once('value');
-    if(!snap.exists()){
-      await db.ref('admins/'+user.uid).set({
-        email:user.email, displayName:user.displayName||'Super Admin', photoURL:user.photoURL||'',
-        role:'super_admin', status:'active', addedAt:Date.now(), addedBy:'system'
-      });
-    } else {
-      await db.ref('admins/'+user.uid).update({ role: 'super_admin', status: 'active' });
-    }
-
-    // 2. Reserved accounts: Muhammad 101-1 and Fatima 101-2, both PIN 0224.
-    const mCustSnap = await db.ref('loyalty_customers/101-1').once('value');
-    if(!mCustSnap.exists()){
-       await db.ref('loyalty_customers/101-1').set({
-          name: user.displayName || 'محمد', email: 'mohameadalhaear100@gmail.com',
-          memberType: 'Super Admin', hearts: 0, pin:'0224', createdAt: Date.now(), uid: user.uid
-       });
-    } else {
-       await db.ref('loyalty_customers/101-1').update({ uid: user.uid, email: 'mohameadalhaear100@gmail.com', pin:'0224' });
-    }
-    await db.ref('loyalty_links/' + user.uid).set('101-1');
-    const fatimaSnap=await db.ref('loyalty_customers/101-2').once('value');
-    if(!fatimaSnap.exists()) await db.ref('loyalty_customers/101-2').set({name:'فاطمة',email:'fatmanajah2006@gmail.com',memberType:'زبون',hearts:0,pin:'0224',createdAt:Date.now()});
-    else await db.ref('loyalty_customers/101-2').update({email:'fatmanajah2006@gmail.com',pin:'0224'});
-    await db.ref('loyalty_counter').transaction(value => Math.max(Number(value)||0, 2));
+    await firebase.functions().httpsCallable('provisionGoogleSuperAdmin')();
   } catch(e) { console.error(e); }
 }
 
@@ -1875,33 +1850,11 @@ function generateAdminPin(){
 
 async function activateLoyaltyPending(uid){
   if(!can('manage_loyalty_pending')) return showNotif('ليس لديك صلاحية تفعيل العضويات.','error');
-  const pendingRef=db.ref('loyalty_pending/'+uid);
   try{
-    const pendingSnap=await pendingRef.once('value');
-    const pending=pendingSnap.val();
-    if(!pending || pending.status!=='pending') return showNotif('هذا الطلب غير متاح أو تم تفعيله مسبقًا.','info');
-    const linkSnap=await db.ref('loyalty_links/'+uid).once('value');
-    if(linkSnap.exists()) { await pendingRef.remove(); return showNotif('العضوية موجودة مسبقًا وتم تنظيف الطلب.','info'); }
-
-    const claim=await pendingRef.transaction(value=>value&&value.status==='pending'?{...value,status:'activating',updatedAt:Date.now()}:value);
-    if(!claim.committed || claim.snapshot.val()?.status!=='activating') return showNotif('الطلب قيد المعالجة من أدمن آخر.','info');
-    const counter=await db.ref('loyalty_counter').transaction(value=>(Number(value)||0)+1);
-    if(!counter.committed) throw new Error('تعذر حجز رقم العضوية');
-    const number=Number(counter.snapshot.val());
-    const membership='101-'+number;
-    const existingMembership=await db.ref('loyalty_customers/'+membership).once('value');
-    if(existingMembership.exists()) throw new Error('رقم العضوية محجوز مسبقًا');
-    const now=Date.now();
-    const customer={uid, name:pending.displayName||pending.email||'عضو 101', displayName:pending.displayName||'', email:pending.email||'', photoURL:pending.photoURL||'', memberType:'زبون', membershipStatus:'عضو مميز', hearts:0, currentHearts:0, totalEarned:0, totalHeartsEarned:0, totalSpent:0, totalHeartsSpent:0, totalHeartsRedeemed:0, pin:generateAdminPin(), createdAt:now, updatedAt:now};
-    const updates={};
-    updates['loyalty_customers/'+membership]=customer;
-    updates['loyalty_links/'+uid]=membership;
-    updates['loyalty_pending/'+uid]=null;
-    await db.ref().update(updates);
-    showNotif(`تم تفعيل العضوية ${membership} بنجاح.`);
+    const result=await firebase.functions().httpsCallable('activatePendingLoyalty')({uid});
+    showNotif(`تم تفعيل العضوية ${result.data?.membershipNumber||''} بنجاح.`);
   }catch(error){
     console.error('LOYALTY_PENDING_ACTIVATION_FAILED:',error?.code,error?.message,error);
-    await pendingRef.update({status:'pending',updatedAt:Date.now()}).catch(()=>{});
     showNotif('تعذر تفعيل العضوية: '+(error.message||'خطأ غير معروف'),'error');
   }
 }
@@ -2993,7 +2946,7 @@ window.insertClubVariable=function(variable){const field=document.getElementById
 window.saveClubSettings=async function(){if(!canManageClub())return showNotif('ليس لديك صلاحية حفظ الإعدادات.','error');const message=document.getElementById('clubWhatsAppTemplate').value.trim()||clubDefaultWhatsAppTemplate(),payload={whatsappActivationMessage:message,updatedAt:firebase.database.ServerValue.TIMESTAMP};try{const ref=db.ref('subscription_settings');await ref.update(payload);const saved=(await ref.once('value')).val()||{};if(saved.whatsappActivationMessage!==message)throw new Error('لم تتطابق القراءة مع الرسالة المحفوظة.');clubSettings=saved;renderClubMessagePreview();showNotif('تم حفظ رسالة تفعيل 101 CLUB والتحقق منها.');}catch(error){showNotif('تعذر حفظ الإعدادات: '+error.message,'error');}};
 function normalizeClubPhone(value){const raw=String(value||'').replace(/\D/g,'');if(raw.length<8||raw.length>15)return '';return raw.startsWith('0')?'964'+raw.slice(1):raw;}
 function clubTemplate(text,values){return String(text||clubDefaultWhatsAppTemplate()).replace(/{{(name|planName|clubNumber|pin|totalUses|expiryDate)}}/g,(_,key)=>values[key]??'');}
-async function reserveClubPin(customerId){for(let attempt=0;attempt<100;attempt++){const values=new Uint32Array(1);crypto.getRandomValues(values);const pin=String(1000+(values[0]%9000));const reservation=await db.ref('subscription_pin_index/'+pin).transaction(current=>current||customerId);if(reservation.committed&&reservation.snapshot.val()===customerId)return pin;}throw new Error('تعذر توليد PIN فريد.');}
+async function reserveClubPin(customerId){const result=await firebase.functions().httpsCallable('reserveClubPin')({customerId});if(!result.data?.pin)throw new Error('تعذر توليد PIN فريد.');return result.data.pin;}
 window.confirmClubPayment=async function(){
   const request=pendingClubPaymentRequest;if(!request||!canManageClub())return;const btn=document.getElementById('clubConfirmPaymentBtn'),phoneInput=document.getElementById('clubPaymentPhone'),phone=phoneInput?.value.trim()||'',normalized=normalizeClubPhone(phone);if(!normalized)return showNotif('أدخل رقم WhatsApp صالحاً قبل التفعيل.','error');const plan=subscriptionPlans[request.planId];if(!plan)return showNotif('الخطة غير متاحة.','error');
   if(btn){btn.disabled=true;btn.textContent='جارٍ التفعيل...';}

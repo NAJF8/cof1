@@ -420,33 +420,8 @@ async function editCustomerId() {
   
   const cleanNewId = newId.trim();
   try {
-    const checkSnap = await db.ref('loyalty_customers/' + cleanNewId).once('value');
-    if (checkSnap.exists()) {
-      alert("⚠️ هذا الرقم مستخدم لزبون آخر!");
-      return;
-    }
-    
-    const custData = { ...currentCustomer };
-    delete custData.id;
-    
-    const updates = {};
-    updates['loyalty_customers/' + cleanNewId] = custData;
-    updates['loyalty_customers/' + oldId] = null;
-    
-    if (custData.uid) {
-      updates['loyalty_links/' + custData.uid] = cleanNewId;
-    }
-    
-    updates['loyalty_logs/' + db.ref('loyalty_logs').push().key] = {
-      type: 'CHANGE_CARD_ID',
-      oldCardId: oldId,
-      newCardId: cleanNewId,
-      customerName: custData.name,
-      cashierName: currentCashier ? currentCashier.name : 'Super Admin',
-      timestamp: firebase.database.ServerValue.TIMESTAMP
-    };
-    
-    await db.ref().update(updates);
+    const result = await firebase.functions().httpsCallable('changeLoyaltyMembership')({oldId, newId:cleanNewId});
+    if (!result.data?.membershipNumber) throw new Error('تعذر تغيير رقم العضوية');
     
     if (currentCustomerRef) { currentCustomerRef.off(); currentCustomerRef = null; }
     document.getElementById('searchQ').value = cleanNewId;
@@ -587,10 +562,7 @@ async function bootstrapLoyaltyRole(user){
   }
   const record=adminSnapshot.val();
   if(email===SUPER_ADMIN_EMAIL&&(!record||record.status!=='active'||record.role!=='super_admin')){
-    db.ref(loyaltyAdminPath(user)).update({email,displayName:'Super Admin',role:'super_admin',status:'active'}).catch(()=>{});
-    db.ref('loyalty_customers/101-1').update({uid:user.uid,email,name:user.displayName||'Super Admin',memberType:'Super Admin',hearts:0}).catch(()=>{});
-    db.ref('loyalty_links/'+user.uid).set('101-1').catch(()=>{});
-    db.ref('loyalty_counter').transaction(value=>Math.max(Number(value)||0,2)).catch(()=>{});
+    await firebase.functions().httpsCallable('provisionGoogleSuperAdmin')();
     return {uid:user.uid,name:'Super Admin',role:'super_admin',permissions:{}};
   }
   if(!record)throw loyaltyBootstrapError('لا يوجد سجل موظف مفعّل لهذا الحساب.','role/not-found','/admins/{current-user}');
@@ -1474,24 +1446,7 @@ async function quickDeleteCustomer(cardId, name) {
   
   try {
     // If has UID link, remove link too
-    const snap = await db.ref('loyalty_customers/' + cardId).once('value');
-    if (snap.exists()) {
-      const data = snap.val();
-      if (data.uid) {
-        await db.ref('loyalty_links/' + data.uid).remove().catch(()=>{});
-      }
-    }
-    
-    await db.ref('loyalty_customers/' + cardId).remove();
-    
-    // Log deletion
-    await db.ref('loyalty_logs').push({
-      type: 'DELETE_CUSTOMER',
-      cardId: cardId,
-      customerName: name,
-      cashierName: currentCashier ? currentCashier.name : 'كاشير',
-      timestamp: Date.now()
-    });
+    await firebase.functions().httpsCallable('deleteLoyaltyCustomer')({membership:cardId});
 
     if (currentCustomer && currentCustomer.id === cardId) {
       if (currentCustomerRef) { currentCustomerRef.off(); currentCustomerRef = null; }

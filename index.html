@@ -4393,21 +4393,16 @@
             if (user) {
                 loadClubCustomer(user);
                 try {
-                    // Existing accounts can be loaded directly under the current Rules:
-                    // the user may read only their own link and linked customer record.
-                    const linkSnap = await db.ref(`loyalty_links/${user.uid}`).once('value');
-                    const membership = linkSnap.exists() ? String(linkSnap.val()) : '';
-                    const customerSnap = membership ? await db.ref(`loyalty_customers/${membership}`).once('value') : null;
-                    if (customerSnap?.exists()) {
-                        loadCustomerData(membership);
+                    const profileResult = await cloudFunctions?.httpsCallable('getMyLoyaltyProfile')();
+                    const membership = String(profileResult?.data?.profile?.membershipNumber || '');
+                    if (membership) {
+                        loadCustomerData(membership, profileResult.data.profile);
                         loyaltyAuthStatusKey = 'auth_success';
                         watchLoyaltyLink(user.uid);
                     } else if (loyaltyLoginRequested) {
-                        // Membership/PIN provisioning remains Admin-only. The customer may
-                        // create/update only their own pending activation request.
-                        const provisioned = await createNewCustomer(user);
+                        const provisioned = await requestGoogleLoyaltyProvisioning();
                         loyaltyAuthStatusKey = 'auth_success';
-                        loadCustomerData(provisioned.membership);
+                        loadCustomerData(provisioned.profile.membershipNumber, provisioned.profile);
                         watchLoyaltyLink(user.uid);
                     } else {
                         resetLoyaltyGuestUI(true);
@@ -4466,11 +4461,11 @@
                 const membership = snap.exists() ? String(snap.val()) : '';
                 if (!membership || !currentFirebaseUser || currentFirebaseUser.uid !== uid) return;
                 try {
-                    const customer = await db.ref(`loyalty_customers/${membership}`).once('value');
-                    if (!customer.exists()) return;
+                    const profileResult = await cloudFunctions?.httpsCallable('getMyLoyaltyProfile')();
+                    const profile = profileResult?.data?.profile;
+                    if (!profile) return;
                     loyaltyAuthStatusKey = 'auth_success';
-                    loadCustomerData(membership);
-                    await db.ref(`loyalty_pending/${uid}`).remove().catch(() => {});
+                    loadCustomerData(membership, profile);
                     document.getElementById('loyaltyLoginModal')?.classList.remove('open');
                 } catch (error) {
                     console.error('LOYALTY_ACTIVATION_LOAD_FAILED:', error?.code, error?.message, error);
@@ -4478,11 +4473,10 @@
             });
         }
 
-        function loadCustomerData(memId) {
+        function loadCustomerData(memId, suppliedProfile = null) {
             if (loyaltyCustomerRef) loyaltyCustomerRef.off();
-            loyaltyCustomerRef = db.ref('loyalty_customers/' + memId);
-            loyaltyCustomerRef.on('value', snap => {
-                loyaltyCustomer = snap.val();
+            const renderProfile = profile => {
+                loyaltyCustomer = profile;
                 if (loyaltyCustomer) {
                     const idDisplay = document.getElementById('cardDisplayId');
                     const nameDisplay = document.getElementById('cardDisplayName');
@@ -4525,12 +4519,16 @@
                     if (summaryHearts) summaryHearts.textContent = `${h} / 5`;
                     if (summaryStamps) summaryStamps.innerHTML = Array.from({length:5}, (_, i) => `<span class="loyalty-stamp ${i < h ? 'filled' : ''}"></span>`).join('');
 
-                    userPinRaw = loyaltyCustomer.pin || '••••';
+                    userPinRaw = '••••';
                     const pinDisplay = document.getElementById('cardDisplayPin');
                     if (pinDisplay) pinDisplay.textContent = isPinRevealed ? userPinRaw : '••••';
                     if (summaryPin) summaryPin.textContent = isPinRevealed ? userPinRaw : '••••';
                     document.getElementById('loyaltyCardRefBox')?.style.setProperty('display', 'none');
                 }
+            };
+            if (suppliedProfile) { renderProfile(suppliedProfile); return; }
+            cloudFunctions?.httpsCallable('getMyLoyaltyProfile')().then(result => renderProfile(result.data?.profile)).catch(error => {
+                console.warn('LOYALTY_PROFILE_LOAD_FAILED', error?.code || error?.message);
             });
         }
 
@@ -4664,17 +4662,10 @@
             try{await requestRef.set(request);const shopPhone=(settings.whatsapp||'').replace(/\D/g,'').replace(/^0/,'964'),payment=document.getElementById('clubRequestPayment');const text=`مرحباً 101 COFFEE ❤️\nأرغب بتأكيد طلب اشتراك 101 CLUB.\nرقم الطلب: ${request.requestId}\nالاسم: ${request.name}\nالخطة: ${request.planName}\nالسعر: ${money(request.price)}`;const url=shopPhone?`https://wa.me/${shopPhone}?text=${encodeURIComponent(text)}`:'';if(payment){payment.style.display='block';payment.innerHTML=`<p>تم إنشاء الطلب. حوّل المبلغ وأرسل صورة الإثبات عبر WhatsApp.</p>${url?`<a class="primary-btn" href="${url}" target="_blank" rel="noopener">إرسال إثبات التحويل عبر WhatsApp</a>`:''}`;}if(url)window.open(url,'_blank','noopener');showToast('تم إرسال طلب اشتراك 101 CLUB.','success');}catch(error){console.error('CLUB_REQUEST_FAILED',error);showToast('تعذر إرسال طلب الاشتراك.','error');}
         };
 
-        function generateMembershipPin() { const values=new Uint32Array(1); if(window.crypto?.getRandomValues)window.crypto.getRandomValues(values);else values[0]=Math.floor(Math.random()*9000); return String(1000+(values[0]%9000)); }
-        async function createNewCustomer(user) {
-            if (!db || !user?.uid) throw new Error('Realtime Database is not available');
-            const linkRef = db.ref(`loyalty_links/${user.uid}`);
-            let linkSnap=await linkRef.once('value'), membership=linkSnap.exists()?String(linkSnap.val()):'';
-            if(!membership){const counter=await db.ref('loyalty_counter').transaction(value=>(Number(value)||0)+1);if(!counter.committed)throw new Error('Membership counter transaction was not committed');const candidate=`101-${Number(counter.snapshot.val())}`;const reservation=await linkRef.transaction(existing=>existing||candidate);membership=String(reservation.snapshot.val()||'');if(!membership)throw new Error('Loyalty membership reservation was not committed');}
-            const customerRef=db.ref(`loyalty_customers/${membership}`), existingCustomer=await customerRef.once('value');
-            if(existingCustomer.exists())return {membership,pin:String(existingCustomer.val().pin||'')};
-            const now = firebase.database.ServerValue.TIMESTAMP;
-            const customer={uid:user.uid,name:user.displayName||'عضو 101',displayName:user.displayName||'',email:user.email||'',photoURL:user.photoURL||'',memberType:'زبون',membershipStatus:'عضو مميز',pin:generateMembershipPin(),hearts:0,currentHearts:0,totalEarned:0,totalHeartsEarned:0,totalSpent:0,totalHeartsSpent:0,totalHeartsRedeemed:0,createdAt:now,updatedAt:now};
-            const created=await customerRef.transaction(existing=>existing||customer), saved=created.snapshot.val(); if(!saved||saved.uid!==user.uid)throw new Error('Membership record could not be created'); const pin=String(saved.pin||''); if(created.committed)showWelcomeModal(membership,pin); return {membership,pin};
+        async function requestGoogleLoyaltyProvisioning() {
+            const result = await cloudFunctions.httpsCallable('provisionGoogleLoyalty')();
+            if (!result.data?.profile?.membershipNumber) throw new Error('Missing provisioned loyalty profile');
+            return result.data;
         }
 
         window.openLoyalty = function() {

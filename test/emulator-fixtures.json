@@ -1,0 +1,29 @@
+{
+  "projectId": "demo-101-coffee",
+  "warning": "Local emulator fixtures only. Never use with production credentials or a production database URL.",
+  "admins": {
+    "cashier-uid": { "email": "cashier@example.test", "role": "cashier", "status": "active", "permissions": { "manage_points": true } },
+    "manager-uid": { "email": "manager@example.test", "role": "manager", "status": "active" },
+    "admin-uid": { "email": "admin@example.test", "role": "admin", "status": "active" },
+    "super-admin-uid": { "email": "super-admin@example.test", "role": "super_admin", "status": "active" }
+  },
+  "loyalty_customers": {
+    "101-100": { "uid": "customer-a-uid", "email": "customer.a@example.test", "name": "CUSTOMER_A", "pin": "1234", "hearts": 2, "currentHearts": 2 },
+    "101-101": { "uid": "customer-b-uid", "email": "customer.b@example.test", "name": "CUSTOMER_B", "pin": "5678", "hearts": 1, "currentHearts": 1 }
+  },
+  "loyalty_links": {
+    "customer-a-uid": "101-100",
+    "customer-b-uid": "101-101"
+  },
+  "legacy_customer_without_credential": {
+    "membership": "101-100",
+    "pin": "1234",
+    "expected": "first trusted login upgrades to loyalty_credentials; plaintext is never returned"
+  },
+  "membership_login_cases": [
+    { "name": "correct PIN", "membership": "101-100", "pin": "1234", "expected": "allow" },
+    { "name": "wrong PIN", "membership": "101-100", "pin": "9999", "expected": "generic failure" },
+    { "name": "unknown membership", "membership": "101-999", "pin": "1234", "expected": "generic failure" },
+    { "name": "locked correct PIN", "membership": "101-100", "pin": "1234", "expected": "deny while locked" }
+  ]
+}

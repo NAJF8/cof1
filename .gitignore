@@ -1,4 +1,6 @@
 functions/node_modules/
+functions/.secret.local
+.tools/
 cloudflare-worker/node_modules/
 cloudflare-worker/.dev.vars
 cloudflare-worker/.env
