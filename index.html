@@ -3197,6 +3197,9 @@
             if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
             db = firebase.database();
             auth = firebase.auth();
+            auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(error => {
+                console.warn('[LOYALTY_AUTH_PERSISTENCE_FAILED]', error?.code || error?.message);
+            });
             cloudFunctions = typeof firebase.functions === 'function' ? firebase.functions() : null;
         } catch (e) {
             console.error("Firebase init failed", e);
