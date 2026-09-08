@@ -3184,7 +3184,16 @@
         };
         // Update this one value after the first Worker deployment. Keep the API key in Cloudflare only.
         const AI_CHAT_ENDPOINT = 'https://coffee-101-ai-chat.coffee101.workers.dev/api/chat';
+        const LOYALTY_SECURITY_ENDPOINT = 'https://coffee-101-ai-chat.coffee101.workers.dev';
         let db = null, auth = null, cloudFunctions = null;
+        async function callLoyaltySecurity(path, options = {}) {
+            const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
+            if (auth?.currentUser) headers.Authorization = `Bearer ${await auth.currentUser.getIdToken()}`;
+            const response = await fetch(`${LOYALTY_SECURITY_ENDPOINT}${path}`, { ...options, headers, body: options.body && typeof options.body !== 'string' ? JSON.stringify(options.body) : options.body });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) { const error = new Error(data.error || 'LOYALTY_SECURITY_FAILED'); error.code = `functions/${data.error || 'internal'}`; throw error; }
+            return { data };
+        }
         try {
             if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
             db = firebase.database();
@@ -4377,7 +4386,7 @@
             }
             try {
                 console.log('[LOYALTY_PIN_LOOKUP_START]');
-                const result = await cloudFunctions.httpsCallable('loginWithMembership')({ membership, pin });
+                const result = await callLoyaltySecurity('/api/loyalty/login', { method: 'POST', body: { membershipNumber: membership, pin } });
                 console.log('[LOYALTY_PIN_RESULT]');
                 if (!result.data?.token) throw new Error('Missing custom token');
                 await auth.signInWithCustomToken(result.data.token);
@@ -4403,7 +4412,11 @@
             if (user) {
                 loadClubCustomer(user);
                 try {
-                    const profileResult = await cloudFunctions?.httpsCallable('getMyLoyaltyProfile')();
+                    let profileResult;
+                    try { profileResult = await callLoyaltySecurity('/api/loyalty/profile', { method: 'GET' }); } catch (profileError) {
+                        if (!loyaltyLoginRequested || profileError?.code !== 'functions/PROFILE_NOT_FOUND') throw profileError;
+                        profileResult = await callLoyaltySecurity('/api/loyalty/provision-google', { method: 'POST', body: {} });
+                    }
                     const membership = String(profileResult?.data?.profile?.membershipNumber || '');
                     if (membership) {
                         loadCustomerData(membership, profileResult.data.profile);
@@ -4444,43 +4457,9 @@
             if (copy) copy.textContent = currentLang === 'en' ? 'Your 101 rewards account is being activated.' : 'حساب مكافآت 101 الخاص بك قيد التفعيل.';
         }
 
-        async function createPendingActivation(user) {
-            if (!db || !user?.uid) throw new Error('Realtime Database is not available');
-            const ref = db.ref(`loyalty_pending/${user.uid}`);
-            const existing = await ref.once('value');
-            if (existing.exists()) return existing.val();
-            const record = {
-                uid: user.uid,
-                displayName: user.displayName || '',
-                email: user.email || '',
-                photoURL: user.photoURL || '',
-                createdAt: firebase.database.ServerValue.TIMESTAMP,
-                updatedAt: firebase.database.ServerValue.TIMESTAMP,
-                status: 'pending',
-                source: 'google'
-            };
-            await ref.set(record);
-            return record;
-        }
-
         function watchLoyaltyLink(uid) {
-            if (!db || !uid) return;
-            if (window.loyaltyPendingRef) window.loyaltyPendingRef.off();
-            window.loyaltyPendingRef = db.ref(`loyalty_links/${uid}`);
-            window.loyaltyPendingRef.on('value', async snap => {
-                const membership = snap.exists() ? String(snap.val()) : '';
-                if (!membership || !currentFirebaseUser || currentFirebaseUser.uid !== uid) return;
-                try {
-                    const profileResult = await cloudFunctions?.httpsCallable('getMyLoyaltyProfile')();
-                    const profile = profileResult?.data?.profile;
-                    if (!profile) return;
-                    loyaltyAuthStatusKey = 'auth_success';
-                    loadCustomerData(membership, profile);
-                    document.getElementById('loyaltyLoginModal')?.classList.remove('open');
-                } catch (error) {
-                    console.error('LOYALTY_ACTIVATION_LOAD_FAILED:', error?.code, error?.message, error);
-                }
-            });
+            // Protected loyalty_links is server-only. The Worker profile endpoint is authoritative.
+            void uid;
         }
 
         function loadCustomerData(memId, suppliedProfile = null) {
@@ -4537,7 +4516,7 @@
                 }
             };
             if (suppliedProfile) { renderProfile(suppliedProfile); return; }
-            cloudFunctions?.httpsCallable('getMyLoyaltyProfile')().then(result => renderProfile(result.data?.profile)).catch(error => {
+            callLoyaltySecurity('/api/loyalty/profile', { method: 'GET' }).then(result => renderProfile(result.data?.profile)).catch(error => {
                 console.warn('LOYALTY_PROFILE_LOAD_FAILED', error?.code || error?.message);
             });
         }
@@ -4673,7 +4652,7 @@
         };
 
         async function requestGoogleLoyaltyProvisioning() {
-            const result = await cloudFunctions.httpsCallable('provisionGoogleLoyalty')();
+            const result = await callLoyaltySecurity('/api/loyalty/provision-google', { method: 'POST', body: {} });
             if (!result.data?.profile?.membershipNumber) throw new Error('Missing provisioned loyalty profile');
             return result.data;
         }
