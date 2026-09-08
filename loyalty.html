@@ -1561,8 +1561,62 @@ let giftRedeemMatch=null;
 const giftEsc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
 const giftFmt=value=>Number(value||0).toLocaleString('en-US')+' د.ع';
 function findGiftForRedeem(){const q=(document.getElementById('giftRedeemSearch')?.value||'').trim().toLowerCase(),box=document.getElementById('giftRedeemResult');if(!q)return;box.innerHTML='<p class="muted">جارٍ البحث…</p>';db.ref('gift_orders').once('value').then(snap=>{let found=null;snap.forEach(c=>{const g={id:c.key,...c.val()};if(!found&&[g.giftCode,g.orderCode,g.recipientPhone,g.senderPhone].some(v=>String(v||'').toLowerCase().includes(q)))found=g;});giftRedeemMatch=found;if(!found){box.innerHTML='<p style="color:#e53935;font-weight:700">لم يتم العثور على هدية مطابقة.</p>';return;}renderGiftRedeemResult(found);}).catch(e=>box.innerHTML='<p style="color:#e53935">تعذر البحث: '+giftEsc(e.message)+'</p>');}
-function renderGiftRedeemResult(g){const box=document.getElementById('giftRedeemResult'),expired=g.expiresAt&&Number(g.expiresAt)<=Date.now();let state='';if(g.giftStatus==='awaiting_payment')state='❌ لم يتم تأكيد الدفع بعد';else if(g.giftStatus==='redeemed')state=`❌ تم استخدام هذه الهدية سابقاً${g.redeemedAt?' بتاريخ '+new Date(g.redeemedAt).toLocaleString('ar-IQ'):''}`;else if(g.giftStatus==='expired'||expired)state='⌛ انتهت صلاحية الهدية';else if(g.giftStatus==='active')state='✅ الهدية فعالة';else state='❌ الهدية غير متاحة';const canRedeem=g.giftStatus==='active'&&!expired;box.innerHTML=`<div style="background:var(--surface2);border:1px solid var(--border);border-radius:14px;padding:16px"><h3 style="margin:0 0 8px;color:var(--primary-lt)">${state}</h3><p><b>الطلب:</b> ${giftEsc(g.orderCode)}<br><b>كود الهدية:</b> ${giftEsc(g.giftCode||'—')}<br><b>المستلم:</b> ${giftEsc(g.recipientName)}<br><b>المحتوى:</b> ${giftEsc(g.productName||'مبلغ مفتوح')} — ${giftFmt(g.giftValue)}<br><b>الصلاحية:</b> ${g.expiresAt?new Date(g.expiresAt).toLocaleDateString('ar-IQ'):'—'}</p>${canRedeem?'<button class="btn-primary" type="button" onclick="redeemGift()">🎁 تم تسليم الهدية</button>':''}</div>`;}
-async function redeemGift(){const gift=giftRedeemMatch;if(!gift||gift.giftStatus!=='active')return;if(!confirm('تأكيد تسليم الهدية؟ لا يمكن استخدام الكود مرة ثانية.'))return;try{const result=await db.ref('gift_orders/'+gift.id).transaction(current=>{if(!current||current.giftStatus!=='active'||(current.expiresAt&&Number(current.expiresAt)<=Date.now()))return;current.giftStatus='redeemed';current.redeemedAt=firebase.database.ServerValue.TIMESTAMP;current.redeemedBy=auth.currentUser?.uid||null;current.redeemedByName=currentCashier?.name||null;current.redeemedByRole=currentCashier?.role||null;return current;});if(!result.committed)throw new Error('تعذر التسليم: قد تكون الهدية انتهت أو استُخدمت من جهاز آخر.');await db.ref('gift_logs').push({type:'gift_redeemed',giftId:gift.id,uid:auth.currentUser?.uid||null,role:currentCashier?.role||null,timestamp:firebase.database.ServerValue.TIMESTAMP});giftRedeemMatch={...gift,giftStatus:'redeemed'};renderGiftRedeemResult(giftRedeemMatch);showToast('✅ تم تسليم الهدية بنجاح.');}catch(e){showToast('❌ '+e.message);}}
+function renderGiftRedeemResult(g){const box=document.getElementById('giftRedeemResult'),expired=g.expiresAt&&Number(g.expiresAt)<=Date.now();let state='';if(g.giftStatus==='awaiting_payment')state='❌ لم يتم تأكيد الدفع بعد';else if(g.giftStatus==='redeemed'||g.redeemedAt)state=`❌ تم استخدام هذه الهدية سابقاً${g.redeemedAt?' بتاريخ '+new Date(g.redeemedAt).toLocaleString('ar-IQ'):''}`;else if(g.giftStatus==='expired'||expired)state='⌛ انتهت صلاحية الهدية';else if(g.giftStatus==='active')state='✅ الهدية فعالة';else state='❌ الهدية غير متاحة';const canRedeem=g.giftStatus==='active'&&!expired&&!g.redeemedAt;box.innerHTML=`<div style="background:var(--surface2);border:1px solid var(--border);border-radius:14px;padding:16px"><h3 style="margin:0 0 8px;color:var(--primary-lt)">${state}</h3><p><b>الطلب:</b> ${giftEsc(g.orderCode)}<br><b>كود الهدية:</b> ${giftEsc(g.giftCode||'—')}<br><b>المستلم:</b> ${giftEsc(g.recipientName)}<br><b>المحتوى:</b> ${giftEsc(g.productName||'مبلغ مفتوح')} — ${giftFmt(g.giftValue)}<br><b>الصلاحية:</b> ${g.expiresAt?new Date(g.expiresAt).toLocaleDateString('ar-IQ'):'—'}</p>${canRedeem?'<button class="btn-primary" type="button" onclick="redeemGift()">🎁 تم تسليم الهدية</button>':''}</div>`;}
+function giftDeliveryDiagnostics(label, details) { console.info(`[GIFT_DELIVERY_${label}]`, details); }
+function giftDeliveryState(current, expectedGift) {
+  const value = current || {}, status = String(value.giftStatus || ''),
+    expired = Boolean(value.expiresAt && Number(value.expiresAt) <= Date.now()),
+    alreadyUsed = status === 'redeemed' || Boolean(value.redeemedAt),
+    idMatch = Boolean(value.giftId && expectedGift?.id && String(value.giftId) === String(expectedGift.id));
+  giftDeliveryDiagnostics('FOUND', { exists: Boolean(current) });
+  giftDeliveryDiagnostics('STATUS', { status: status || 'missing' });
+  giftDeliveryDiagnostics('EXPIRED', { expired });
+  giftDeliveryDiagnostics('ALREADY_USED', { alreadyUsed });
+  giftDeliveryDiagnostics('ID_MATCH', { idMatch });
+  return { status, expired, alreadyUsed, idMatch };
+}
+function giftDeliveryMessage(state) {
+  if (state.alreadyUsed || state.status === 'redeemed') return 'تم استخدام الهدية مسبقاً.';
+  if (state.expired || state.status === 'expired') return 'انتهت صلاحية الهدية.';
+  if (state.status === 'awaiting_payment') return 'لم يتم تأكيد دفع الهدية بعد.';
+  if (state.status === 'cancelled') return 'الهدية ملغاة.';
+  return 'تعذر تسليم الهدية حالياً.';
+}
+async function redeemGift(){
+  const gift=giftRedeemMatch;
+  if(!gift||gift.giftStatus!=='active')return;
+  if(!confirm('تأكيد تسليم الهدية؟ لا يمكن استخدام الكود مرة ثانية.'))return;
+  const giftRef=db.ref('gift_orders/'+gift.id);
+  try{
+    const result=await giftRef.transaction(current=>{
+      const state = giftDeliveryState(current, gift);
+      if(!current||state.status!=='active'||state.expired||state.alreadyUsed||!state.idMatch)return;
+      current.giftStatus='redeemed';
+      current.redeemedAt=firebase.database.ServerValue.TIMESTAMP;
+      current.redeemedBy=auth.currentUser?.uid||null;
+      current.redeemedByName=currentCashier?.name||null;
+      current.redeemedByRole=currentCashier?.role||null;
+      return current;
+    });
+    if(!result.committed){
+      const current=(result.snapshot&&result.snapshot.val())||((await giftRef.once('value')).val());
+      const state=giftDeliveryState(current,gift);
+      giftDeliveryDiagnostics('WRITE_RESULT',{committed:false,reason:giftDeliveryMessage(state)});
+      showToast('❌ '+giftDeliveryMessage(state));
+      return;
+    }
+    giftDeliveryDiagnostics('WRITE_RESULT',{committed:true});
+    try { await db.ref('gift_logs').push({type:'gift_redeemed',giftId:gift.id,uid:auth.currentUser?.uid||null,role:currentCashier?.role||null,timestamp:firebase.database.ServerValue.TIMESTAMP}); }
+    catch(logError) { giftDeliveryDiagnostics('LOG_WRITE_FAILED',{code:logError?.code||'unknown'}); }
+    giftRedeemMatch={...gift,giftStatus:'redeemed',redeemedAt:Date.now()};
+    renderGiftRedeemResult(giftRedeemMatch);
+    showToast('✅ تم تسليم الهدية بنجاح.');
+  }catch(e){
+    giftDeliveryDiagnostics('WRITE_RESULT',{committed:false,code:e?.code||'unknown'});
+    if(e?.code==='PERMISSION_DENIED') showToast('❌ لا تملك صلاحية تسليم الهدايا.');
+    else showToast('❌ تعذر تسليم الهدية حالياً.');
+  }
+}
 </script>
 <script>
 /* 101 CLUB LOGIC */
