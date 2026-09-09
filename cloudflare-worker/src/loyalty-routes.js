@@ -80,7 +80,7 @@ async function revealPin(request, env, current) {
         updates: {
           [`loyalty_customers/${resolved.membership}/pin`]: backfilledPin,
           [`loyalty_customers/${resolved.membership}/updatedAt`]: Date.now(),
-          [`loyalty_audit_logs/${auditId}`]: { type: 'PIN_BACKFILL_MISSING', membership: resolved.membership, uid: current.uid, createdAt: Date.now() }
+          [`loyalty_logs/${auditId}`]: { type: 'PIN_BACKFILL_MISSING', membership: resolved.membership, uid: current.uid, createdAt: Date.now() }
         },
         result: { pin: backfilledPin, backfilled: true }
       };
