@@ -3186,10 +3186,14 @@
         const LOYALTY_SECURITY_ENDPOINT = 'https://coffee-101-ai-chat.coffee101.workers.dev';
         let db = null, auth = null;
         async function callLoyaltySecurity(path, options = {}) {
+            if (path === '/api/loyalty/profile') console.info('[LOYALTY_PROFILE_FETCH_START]');
+            if (path === '/api/loyalty/provision-google') console.info('[LOYALTY_PROVISION_START]');
             const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
             if (auth?.currentUser) headers.Authorization = `Bearer ${await auth.currentUser.getIdToken(true)}`;
             const response = await fetch(`${LOYALTY_SECURITY_ENDPOINT}${path}`, { ...options, headers, body: options.body && typeof options.body !== 'string' ? JSON.stringify(options.body) : options.body });
             const data = await response.json().catch(() => ({}));
+            if (path === '/api/loyalty/profile') console.info('[LOYALTY_PROFILE_FETCH_RESULT]', { ok: response.ok, status: response.status, hasProfile: Boolean(data?.profile?.membershipNumber), error: data?.error || null });
+            if (path === '/api/loyalty/provision-google') console.info('[LOYALTY_PROVISION_STATUS]', { ok: response.ok, status: response.status, provisionStatus: data?.status || null, hasProfile: Boolean(data?.profile?.membershipNumber), error: data?.error || null });
             if (!response.ok) { const error = new Error(data.error || 'LOYALTY_SECURITY_FAILED'); error.code = `functions/${data.error || 'internal'}`; throw error; }
             return { data };
         }
@@ -4413,11 +4417,17 @@
             currentFirebaseUser = user;
             if (user) {
                 loadClubCustomer(user);
+                console.info('[LOYALTY_AUTH_OK]', { hasUser: true, emailVerified: user.emailVerified === true });
+                let provisionAttempted = false;
                 try {
                     let profileResult;
-                    try { profileResult = await callLoyaltySecurity('/api/loyalty/profile', { method: 'GET' }); } catch (profileError) {
-                        if (!loyaltyLoginRequested || profileError?.code !== 'functions/PROFILE_NOT_FOUND') throw profileError;
+                    try {
+                        profileResult = await callLoyaltySecurity('/api/loyalty/profile', { method: 'GET' });
+                    } catch (profileError) {
+                        if (profileError?.code !== 'functions/PROFILE_NOT_FOUND') throw profileError;
+                        provisionAttempted = true;
                         profileResult = await callLoyaltySecurity('/api/loyalty/provision-google', { method: 'POST', body: {} });
+                        if (profileResult.data?.status !== 'pending') profileResult = await callLoyaltySecurity('/api/loyalty/profile', { method: 'GET' });
                     }
                     const provisionStatus = profileResult?.data?.status || '';
                     const membership = String(profileResult?.data?.profile?.membershipNumber || '');
@@ -4444,8 +4454,9 @@
                     document.getElementById('loyaltyLoginModal')?.classList.remove('open');
                 } catch (error) {
                     loyaltyAuthStatusKey = 'auth_error';
-                    console.error('[LOYALTY_PROVISION_FAILED]', { code:error?.code, message:error?.message, operation:'worker-provision' });
-                    showPendingLoyaltyState(user, true);
+                    if (provisionAttempted) console.error('[LOYALTY_PROVISION_FAILED]', { code:error?.code, message:error?.message, operation:'worker-provision' });
+                    else console.warn('[LOYALTY_PROFILE_FLOW_FAILED]', { code:error?.code, message:error?.message });
+                    showPendingLoyaltyState(user, provisionAttempted);
                     document.getElementById('loyaltyLoginModal')?.classList.remove('open');
                 }
             } else {
@@ -4477,6 +4488,7 @@
             if (loyaltyCustomerRef) loyaltyCustomerRef.off();
             const renderProfile = profile => {
                 loyaltyCustomer = profile;
+                console.info('[LOYALTY_PROFILE_RENDER]', { hasProfile: Boolean(profile?.membershipNumber || profile?.id), membershipPresent: Boolean(profile?.membershipNumber) });
                 if (loyaltyCustomer) {
                     const idDisplay = document.getElementById('cardDisplayId');
                     const nameDisplay = document.getElementById('cardDisplayName');
