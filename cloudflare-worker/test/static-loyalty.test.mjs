@@ -35,4 +35,5 @@ assert.match(worker, /PROFILE_LINK_CONFLICT/);
 assert.match(worker, /ownsLinkedProfile/);
 assert.match(worker, /LEGACY_PIN_BACKFILL_MEMBERSHIP/);
 assert.match(worker, /PIN_BACKFILL_MISSING/);
+assert.match(worker, /firebaseAdminConditionalPut/);
 console.log('worker loyalty static checks: PASS');

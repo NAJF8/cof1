@@ -43,10 +43,15 @@ async function firebaseAdminConditionalPatch(env, updates, etag) {
   const response = await fetch(`${base}/.json`, { method: 'PATCH', headers: { Authorization: `Bearer ${await serviceAccountToken(env)}`, 'Content-Type': 'application/json', Accept: 'application/json', 'If-Match': etag }, body: JSON.stringify(updates) });
   const text = await response.text();
   if (response.status === 412) throw new Error('FIREBASE_ETAG_CONFLICT');
-  if (!response.ok) {
-    console.error('[FIREBASE_CONDITIONAL_PATCH_FAILED]', { status: response.status, detail: String(text || '').slice(0, 160) });
-    throw new Error(`FIREBASE_${response.status}`);
-  }
+  if (!response.ok) throw new Error(`FIREBASE_${response.status}`);
+  return text ? JSON.parse(text) : null;
+}
+async function firebaseAdminConditionalPut(env, path, body, etag) {
+  const base = String(env.FIREBASE_DATABASE_URL || 'https://coffee-30fa7-default-rtdb.firebaseio.com').replace(/\/$/, '');
+  const response = await fetch(`${base}/${String(path).replace(/^\//, '')}.json`, { method: 'PUT', headers: { Authorization: `Bearer ${await serviceAccountToken(env)}`, 'Content-Type': 'application/json', Accept: 'application/json', 'If-Match': etag }, body: JSON.stringify(body) });
+  const text = await response.text();
+  if (response.status === 412) throw new Error('FIREBASE_ETAG_CONFLICT');
+  if (!response.ok) throw new Error(`FIREBASE_${response.status}`);
   return text ? JSON.parse(text) : null;
 }
 async function firebaseAdminAtomicPatch(env, plan, options = {}) {
@@ -67,4 +72,4 @@ async function firebaseAdminAtomicPatch(env, plan, options = {}) {
   }
   throw new Error('FIREBASE_ETAG_CONFLICT');
 }
-export { firebaseAdminRequest, firebaseAdminReadWithEtag, firebaseAdminConditionalPatch, firebaseAdminAtomicPatch, serviceAccountToken };
+export { firebaseAdminRequest, firebaseAdminReadWithEtag, firebaseAdminConditionalPatch, firebaseAdminConditionalPut, firebaseAdminAtomicPatch, serviceAccountToken };

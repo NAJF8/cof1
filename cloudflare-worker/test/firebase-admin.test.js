@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { webcrypto } from 'node:crypto';
-import { serviceAccountToken } from '../src/firebase-admin.js';
+import { serviceAccountToken, firebaseAdminConditionalPut } from '../src/firebase-admin.js';
 
 globalThis.crypto ??= webcrypto;
 const pair = await crypto.subtle.generateKey({ name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' }, true, ['sign', 'verify']);
@@ -14,5 +14,12 @@ const env = { FIREBASE_SERVICE_ACCOUNT_EMAIL: 'fixture@example.iam.gserviceaccou
 assert.equal(await serviceAccountToken(env), 'fixture-access-token');
 assert.equal(await serviceAccountToken(env), 'fixture-access-token');
 assert.equal(calls, 1);
+globalThis.fetch = originalFetch;
+let conditionalRequest;
+globalThis.fetch = async (url, options) => { conditionalRequest = { url: String(url), options }; return new Response(JSON.stringify({ pin: '1234' }), { status: 200, headers: { 'Content-Type': 'application/json' } }); };
+assert.deepEqual(await firebaseAdminConditionalPut(env, 'loyalty_customers/101-15', { pin: '1234' }, 'fixture-etag'), { pin: '1234' });
+assert.equal(conditionalRequest.options.method, 'PUT');
+assert.equal(conditionalRequest.options.headers['If-Match'], 'fixture-etag');
+assert.match(conditionalRequest.url, /loyalty_customers\/101-15\.json$/);
 globalThis.fetch = originalFetch;
 console.log('service-account JWT/OAuth fixture: PASS');
