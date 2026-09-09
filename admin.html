@@ -1470,15 +1470,11 @@ async function saveProd(){
   };
   if(idVal){
     data.id=Number(idVal);
-    console.info('[PRODUCT_SAVE_START]', {id:idVal});
-    console.info('[PRODUCT_SAVE_ID]', idVal);
-    console.info('[PRODUCT_SAVE_IMAGE_PRESENT]', Boolean(data.image));
+    console.info('[PRODUCT_SAVE_START]', {id:idVal}); console.info('[PRODUCT_SAVE_ID]', idVal); console.info('[PRODUCT_SAVE_IMAGE_PRESENT]', Boolean(data.image));
     try { await db.ref('products/'+idVal).update(data); const saved=await db.ref('products/'+idVal).once('value'); const value=saved.val()||{}; if(value.image!==data.image) throw new Error('PRODUCT_IMAGE_READBACK_MISMATCH'); console.info('[PRODUCT_SAVE_OK]', {id:idVal, imageField:'image', imagePresent:Boolean(value.image)}); resetProdForm();showNotif('تم تعديل المنتج!'); } catch(e) { console.error('[PRODUCT_SAVE_FAILED]', {id:idVal, code:e.code||e.message}); showNotif('خطأ: '+e.message,'error'); }
   }else{
     const newId=Date.now();data.id=newId;
-    console.info('[PRODUCT_SAVE_START]', {id:String(newId)});
-    console.info('[PRODUCT_SAVE_ID]', String(newId));
-    console.info('[PRODUCT_SAVE_IMAGE_PRESENT]', Boolean(data.image));
+    console.info('[PRODUCT_SAVE_START]', {id:String(newId)}); console.info('[PRODUCT_SAVE_ID]', String(newId)); console.info('[PRODUCT_SAVE_IMAGE_PRESENT]', Boolean(data.image));
     try { await db.ref('products/'+newId).set(data); const saved=await db.ref('products/'+newId).once('value'); const value=saved.val()||{}; if(value.image!==data.image) throw new Error('PRODUCT_IMAGE_READBACK_MISMATCH'); console.info('[PRODUCT_SAVE_OK]', {id:String(newId), imageField:'image', imagePresent:Boolean(value.image)}); resetProdForm();showNotif('تمت إضافة المنتج!'); } catch(e) { console.error('[PRODUCT_SAVE_FAILED]', {id:String(newId), code:e.code||e.message}); showNotif('خطأ: '+e.message,'error'); }
   }
 }

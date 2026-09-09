@@ -3184,10 +3184,14 @@
         const AI_CHAT_ENDPOINT = 'https://coffee-101-ai-chat.coffee101.workers.dev/api/chat';
         const LOYALTY_SECURITY_ENDPOINT = 'https://coffee-101-ai-chat.coffee101.workers.dev';
         let db = null, auth = null;
-        const isMobileLoyaltyAuth = () => window.matchMedia('(max-width: 767px)').matches || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
+        let authRedirectPending = true;
+        let authInitComplete = false;
+        let pendingAuthStateUser;
+        let authStateProcessing = false;
+        const isMobileLoyaltyAuth = () => window.matchMedia('(max-width: 767px)').matches;
         const maskAuthId = value => { const text = String(value || ''); return text ? `${text.slice(0, 4)}…${text.slice(-2)}` : null; };
         const mobileAuthTrace = (stage, details = {}) => { if (isMobileLoyaltyAuth()) console.info(`[MOBILE_${stage}]`, details); };
-        const mobileAuthError = (stage, error) => { if (isMobileLoyaltyAuth()) console.warn('[MOBILE_AUTH_ERROR]', { stage, code: String(error?.code || error?.message || 'unknown').slice(0, 80) }); };
+        const mobileAuthError = (stage, error) => { if (isMobileLoyaltyAuth()) console.warn('[MOBILE_AUTH_FAIL]', { stage, code: String(error?.code || error?.message || 'unknown').slice(0, 80) }); };
         async function callLoyaltySecurity(path, options = {}) {
             if (path === '/api/loyalty/profile') { console.info('[LOYALTY_PROFILE_FETCH_START]'); mobileAuthTrace('PROFILE_HTTP', { method: options.method || 'GET' }); }
             if (path === '/api/loyalty/provision-google') { console.info('[LOYALTY_PROVISION_START]'); mobileAuthTrace('PROVISION_HTTP', { method: options.method || 'POST' }); }
@@ -3196,7 +3200,7 @@
                 try {
                     mobileAuthTrace('CURRENT_USER', { present: true, uid: maskAuthId(auth.currentUser.uid) });
                     headers.Authorization = `Bearer ${await auth.currentUser.getIdToken(true)}`;
-                    mobileAuthTrace('ID_TOKEN', { path, ok: true });
+                    mobileAuthTrace('TOKEN_OK', { path });
                 } catch (error) {
                     mobileAuthError('ID_TOKEN', error);
                     throw error;
@@ -3216,13 +3220,22 @@
             db = firebase.database();
             auth = firebase.auth();
             mobileAuthTrace('REDIRECT_RETURN', { origin: window.location.origin });
-            auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(error => {
+            const authPersistenceReady = auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).then(() => {
+                mobileAuthTrace('PERSISTENCE_OK');
+            }).catch(error => {
                 console.warn('[LOYALTY_AUTH_PERSISTENCE_FAILED]', error?.code || error?.message);
-                mobileAuthError('PERSISTENCE', error);
+                mobileAuthError('persistence', error);
+                throw error;
             });
+            window.__loyaltyAuthPersistenceReady = authPersistenceReady;
+            authRedirectPending = true;
             auth.getRedirectResult().then(result => {
-                mobileAuthTrace('REDIRECT_RESULT', { hasUser: Boolean(result?.user) });
-            }).catch(error => { console.warn('[MOBILE_AUTH_REDIRECT_FAILED]', { code: error?.code || 'unknown' }); mobileAuthError('getRedirectResult', error); });
+                mobileAuthTrace(result?.user ? 'REDIRECT_RESULT_OK' : 'REDIRECT_RESULT_EMPTY', { hasUser: Boolean(result?.user) });
+            }).catch(error => { console.warn('[MOBILE_AUTH_REDIRECT_FAILED]', { code: error?.code || 'unknown' }); mobileAuthError('getRedirectResult', error); }).finally(() => {
+                authRedirectPending = false;
+                authInitComplete = true;
+                void processAuthState(auth.currentUser || pendingAuthStateUser || null);
+            });
         } catch (e) {
             console.error("Firebase init failed", e);
         }
@@ -4327,6 +4340,7 @@
 
         window.signInForLoyalty = async function() {
             const mobileAuth = isMobileLoyaltyAuth();
+            mobileAuthTrace('AUTH_CLICK', { mobile: mobileAuth });
             console.info('[MOBILE_AUTH_START]', { mobile: mobileAuth });
             mobileAuthTrace('AUTH_START', { redirect: mobileAuth });
             if (!auth || !firebase.auth.GoogleAuthProvider) { 
@@ -4344,12 +4358,13 @@
             
             try {
                 console.log('[LOYALTY_GOOGLE_AUTH_START]');
-                await auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
+                await window.__loyaltyAuthPersistenceReady;
+                mobileAuthTrace('PERSISTENCE_OK');
                 const provider = new firebase.auth.GoogleAuthProvider();
                 provider.addScope('email');
                 if (mobileAuth) {
                     console.info('[MOBILE_AUTH_REDIRECT]');
-                    mobileAuthTrace('REDIRECT_START');
+                    mobileAuthTrace('REDIRECT_START', { origin: window.location.origin });
                     await auth.signInWithRedirect(provider);
                     return;
                 }
@@ -4470,7 +4485,7 @@
 
         async function onAuthChanged(user) {
             currentFirebaseUser = user;
-            mobileAuthTrace('AUTH_STATE', { hasUser: Boolean(user), uid: maskAuthId(user?.uid) });
+            mobileAuthTrace(user ? 'AUTH_STATE_USER' : 'AUTH_STATE_NULL', { hasUser: Boolean(user), uid: maskAuthId(user?.uid) });
             if (user) {
                 mobileAuthTrace('CURRENT_USER', { present: true, uid: maskAuthId(user.uid) });
                 loadClubCustomer(user);
@@ -4524,6 +4539,12 @@
             } else {
                 resetLoyaltyGuestUI();
             }
+        }
+
+        async function processAuthState(user) {
+            if (!authInitComplete || authRedirectPending || authStateProcessing) return;
+            authStateProcessing = true;
+            try { await onAuthChanged(user); } finally { authStateProcessing = false; }
         }
 
         function showPendingLoyaltyState(user, failed = false) {
