@@ -3460,6 +3460,7 @@
             loyaltyLoginRequested = false,
             loyaltyAuthStatusKey = '',
             isPinRevealed = false,
+            pinRevealTimer = null,
             selectedRatingStars = 5,
             userPinRaw = "••••",
             lastOrderId = '';
@@ -4244,8 +4245,7 @@
             }
         };
 
-        window.togglePinVisibility = function() {
-            isPinRevealed = !isPinRevealed;
+        function applyPinVisibility() {
             const pinDisplay = document.getElementById('cardDisplayPin');
             const summaryPin = document.getElementById('summaryDisplayPin');
             const pinBtn = document.querySelector('.btn-pin-toggle');
@@ -4254,6 +4254,32 @@
             if (summaryPin) summaryPin.textContent = isPinRevealed ? userPinRaw : '••••';
             if (pinBtn) pinBtn.textContent = isPinRevealed ? '🙈' : '👁️';
             if (summaryPinBtn) summaryPinBtn.textContent = isPinRevealed ? '🙈' : '👁';
+        }
+        function hidePinVisibility() {
+            if (pinRevealTimer) { clearTimeout(pinRevealTimer); pinRevealTimer = null; }
+            isPinRevealed = false;
+            userPinRaw = '••••';
+            applyPinVisibility();
+        }
+        window.togglePinVisibility = async function() {
+            if (isPinRevealed) { hidePinVisibility(); return; }
+            if (!currentFirebaseUser || !loyaltyCustomer) return window.openLoyalty();
+            const buttons = [document.querySelector('.btn-pin-toggle'), document.getElementById('summaryPinToggle')].filter(Boolean);
+            buttons.forEach(button => { button.disabled = true; });
+            try {
+                const result = await callLoyaltySecurity('/api/loyalty/reveal-pin', { method: 'POST', body: {} });
+                const pin = String(result.data?.pin || '');
+                if (result.data?.available !== true || !/^\d{4,6}$/.test(pin)) {
+                    showToast(currentLang === 'en' ? 'This PIN cannot be displayed.' : 'لا يمكن عرض هذا الرمز لهذا الحساب.', 'error');
+                    return;
+                }
+                userPinRaw = pin;
+                isPinRevealed = true;
+                applyPinVisibility();
+                pinRevealTimer = setTimeout(hidePinVisibility, 15000);
+            } catch (error) {
+                showToast(currentLang === 'en' ? 'Could not reveal your PIN.' : 'تعذر عرض رمز PIN الخاص بك.', 'error');
+            } finally { buttons.forEach(button => { button.disabled = false; }); }
         };
         window.toggleCardPinReveal = window.togglePinVisibility;
 
@@ -4338,7 +4364,7 @@
             if (!preserveAuth) { if (clubCustomerRef) clubCustomerRef.off(); clubCustomerRef = null; clubCustomer = null; }
             loyaltyAuthStatusKey = '';
             userPinRaw = '••••';
-            isPinRevealed = false;
+            hidePinVisibility();
             document.getElementById('loyaltyCardRefBox')?.style.setProperty('display', 'none');
             document.getElementById('loyaltyExplorer')?.style.setProperty('display', 'block');
             document.getElementById('loyaltyDetailsBackdrop')?.classList.remove('open');
@@ -4695,6 +4721,7 @@
         };
 
         window.closeLoyaltyDetails = function() {
+            hidePinVisibility();
             document.getElementById('loyaltyDetailsBackdrop')?.classList.remove('open');
             document.getElementById('loyaltyCardRefBox')?.style.setProperty('display', 'none');
         };
