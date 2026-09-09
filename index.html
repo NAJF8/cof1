@@ -3184,11 +3184,15 @@
         const AI_CHAT_ENDPOINT = 'https://coffee-101-ai-chat.coffee101.workers.dev/api/chat';
         const LOYALTY_SECURITY_ENDPOINT = 'https://coffee-101-ai-chat.coffee101.workers.dev';
         let db = null, auth = null;
+        const isMobileLoyaltyAuth = () => window.matchMedia('(max-width: 767px)').matches || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
         async function callLoyaltySecurity(path, options = {}) {
             if (path === '/api/loyalty/profile') console.info('[LOYALTY_PROFILE_FETCH_START]');
             if (path === '/api/loyalty/provision-google') console.info('[LOYALTY_PROVISION_START]');
             const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
-            if (auth?.currentUser) headers.Authorization = `Bearer ${await auth.currentUser.getIdToken(true)}`;
+            if (auth?.currentUser) {
+                headers.Authorization = `Bearer ${await auth.currentUser.getIdToken(true)}`;
+                if (isMobileLoyaltyAuth()) console.info('[MOBILE_AUTH_TOKEN_OK]', { path });
+            }
             const response = await fetch(`${LOYALTY_SECURITY_ENDPOINT}${path}`, { ...options, headers, body: options.body && typeof options.body !== 'string' ? JSON.stringify(options.body) : options.body });
             const data = await response.json().catch(() => ({}));
             if (path === '/api/loyalty/profile') console.info('[NEW_LOYALTY_PROFILE_STATUS]', { ok: response.ok, status: response.status, profileStatus: data?.status || null, hasProfile: Boolean(data?.profile?.membershipNumber), error: data?.error || null });
@@ -3203,6 +3207,9 @@
             auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(error => {
                 console.warn('[LOYALTY_AUTH_PERSISTENCE_FAILED]', error?.code || error?.message);
             });
+            auth.getRedirectResult().then(result => {
+                if (result?.user) console.info('[MOBILE_AUTH_STATE_OK]', { source: 'redirect', hasUser: true });
+            }).catch(error => console.warn('[MOBILE_AUTH_REDIRECT_FAILED]', { code: error?.code || 'unknown' }));
         } catch (e) {
             console.error("Firebase init failed", e);
         }
@@ -4306,7 +4313,8 @@
         }
 
         window.signInForLoyalty = async function() {
-            console.log('[LOYALTY_GOOGLE_CLICK]');
+            const mobileAuth = isMobileLoyaltyAuth();
+            console.info('[MOBILE_AUTH_START]', { mobile: mobileAuth });
             if (!auth || !firebase.auth.GoogleAuthProvider) { 
                 showLoyaltyLoginError(new Error('Firebase Auth is unavailable.')); 
                 return; 
@@ -4325,8 +4333,15 @@
                 await auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
                 const provider = new firebase.auth.GoogleAuthProvider();
                 provider.addScope('email');
+                if (mobileAuth) {
+                    console.info('[MOBILE_AUTH_REDIRECT]');
+                    await auth.signInWithRedirect(provider);
+                    return;
+                }
+                console.info('[MOBILE_AUTH_POPUP]', { mobile: false });
                 const result = await auth.signInWithPopup(provider).catch(async error => {
                     if (['auth/popup-blocked', 'auth/operation-not-supported-in-this-environment'].includes(error.code)) {
+                        console.info('[MOBILE_AUTH_REDIRECT]', { fallback: true });
                         await auth.signInWithRedirect(provider);
                         return null;
                     }
@@ -4441,6 +4456,7 @@
         async function onAuthChanged(user) {
             currentFirebaseUser = user;
             if (user) {
+                if (isMobileLoyaltyAuth()) console.info('[MOBILE_AUTH_STATE_OK]', { hasUser: true });
                 loadClubCustomer(user);
                 console.info('[LOYALTY_AUTH_OK]', { hasUser: true, emailVerified: user.emailVerified === true });
                 let provisionAttempted = false;
@@ -4463,6 +4479,7 @@
                         loadCustomerData(membership, profileResult.data.profile);
                         loyaltyAuthStatusKey = 'auth_success';
                         watchLoyaltyLink(user.uid);
+                        if (isMobileLoyaltyAuth()) console.info('[MOBILE_AUTH_PROFILE_OK]', { active: true });
                     } else if (loyaltyLoginRequested) {
                         const provisioned = await requestGoogleLoyaltyProvisioning();
                         if (provisioned.profileStatus === 'pending') {
@@ -4475,6 +4492,7 @@
                             loyaltyAuthStatusKey = 'auth_success';
                             loadCustomerData(refreshedMembership, refreshedProfile.data.profile);
                             watchLoyaltyLink(user.uid);
+                            if (isMobileLoyaltyAuth()) console.info('[MOBILE_AUTH_PROFILE_OK]', { active: true });
                         } else throw new Error('LOYALTY_PROFILE_INVALID');
                     } else throw new Error('LOYALTY_PROFILE_INVALID');
                     document.getElementById('loyaltyLoginModal')?.classList.remove('open');
@@ -4563,6 +4581,7 @@
                     if (pinDisplay) pinDisplay.textContent = isPinRevealed ? userPinRaw : '••••';
                     if (summaryPin) summaryPin.textContent = isPinRevealed ? userPinRaw : '••••';
                     document.getElementById('loyaltyCardRefBox')?.style.setProperty('display', 'none');
+                    if (isMobileLoyaltyAuth()) console.info('[MOBILE_AUTH_RENDER_OK]', { memberVisible: member?.style.display === 'block' });
                 }
             };
             if (suppliedProfile) { renderProfile(suppliedProfile); return; }
