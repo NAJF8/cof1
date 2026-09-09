@@ -1039,6 +1039,7 @@ const ROLE_ACTIONS = {
   backup:           ['super_admin','admin']
 };
 const can = action => {
+  if(action==='write_products' && isSuperAdmin(currentUser?.email)) return true;
   if(!currentRole) return false;
   return (ROLE_ACTIONS[action]||[]).includes(currentRole);
 };
@@ -1440,11 +1441,12 @@ async function uploadProductImage(file){
   if(!file)return;
   if(!can('write_products')){showNotif('ليس لديك صلاحية لرفع الصور.','error');return;}
   const status=document.getElementById('prodImageStatus'); productImageUploadInProgress=true; status.textContent='جاري رفع الصورة...'; status.style.color='#667085';
+  console.info('[PRODUCT_IMAGE_UPLOAD_START]', {name:file.name||'', type:file.type||'', size:Number(file.size||0)});
   const form=new FormData(); form.append('image',file,file.name||'product-image');
-  try{const token=auth.currentUser?await auth.currentUser.getIdToken():'';const response=await fetch(`${LOYALTY_SECURITY_ENDPOINT}/api/admin/products/upload-image`,{method:'POST',headers:token?{Authorization:`Bearer ${token}`}:{},body:form});const data=await response.json().catch(()=>({}));if(!response.ok)throw Object.assign(new Error(data.error||'IMAGE_UPLOAD_FAILED'),{code:data.error});if(!/^https:\/\//i.test(data.imageUrl||''))throw new Error('IMAGE_UPLOAD_FAILED');document.getElementById('prodImage').value=data.imageUrl;setProductImagePreview(data.imageUrl);status.textContent='تم رفع الصورة بنجاح.';status.style.color='#2e7d32';showNotif('تم رفع صورة المنتج بنجاح.');}catch(error){status.textContent=productImageErrorMessage(error.code||error.message);status.style.color='#c62828';showNotif(status.textContent,'error');}finally{productImageUploadInProgress=false;}
+  try{const token=auth.currentUser?await auth.currentUser.getIdToken():'';const response=await fetch(`${LOYALTY_SECURITY_ENDPOINT}/api/admin/products/upload-image`,{method:'POST',headers:token?{Authorization:`Bearer ${token}`}:{},body:form});const data=await response.json().catch(()=>({}));console.info('[IMAGE_UPLOAD_HTTP]', response.status);console.info('[GITHUB_STATUS]', data.path?'PASS':'NOT_VERIFIED');if(!response.ok)throw Object.assign(new Error(data.error||'IMAGE_UPLOAD_FAILED'),{code:data.error});if(!/^https:\/\//i.test(data.imageUrl||''))throw new Error('IMAGE_UPLOAD_FAILED');console.info('[RETURNED_IMAGE_URL]', data.imageUrl);console.info('[PRODUCT_IMAGE_UPLOAD_OK]', {path:data.path||'', https:true});document.getElementById('prodImage').value=data.imageUrl;setProductImagePreview(data.imageUrl);console.info('[PRODUCT_IMAGE_URL_SET]', {present:true});status.textContent='تم رفع الصورة بنجاح.';status.style.color='#2e7d32';showNotif('تم رفع صورة المنتج بنجاح.');}catch(error){console.error('[PRODUCT_IMAGE_UPLOAD_FAILED]', {code:error.code||error.message});status.textContent=productImageErrorMessage(error.code||error.message);status.style.color='#c62828';showNotif(status.textContent,'error');}finally{productImageUploadInProgress=false;}
 }
 document.getElementById('prodImageFile')?.addEventListener('change',event=>uploadProductImage(event.target.files?.[0]));
-function saveProd(){
+async function saveProd(){
   if(!can('write_products')) return alert('ليس لديك صلاحية لهذه العملية.');
   if(productImageUploadInProgress) return showNotif('انتظر اكتمال رفع الصورة.','info');
   const idVal=document.getElementById('prodId').value;
@@ -1468,10 +1470,16 @@ function saveProd(){
   };
   if(idVal){
     data.id=Number(idVal);
-    db.ref('products/'+idVal).update(data).then(()=>{resetProdForm();showNotif('تم تعديل المنتج!');}).catch(e=>showNotif('خطأ: '+e.message,'error'));
+    console.info('[PRODUCT_SAVE_START]', {id:idVal});
+    console.info('[PRODUCT_SAVE_ID]', idVal);
+    console.info('[PRODUCT_SAVE_IMAGE_PRESENT]', Boolean(data.image));
+    try { await db.ref('products/'+idVal).update(data); const saved=await db.ref('products/'+idVal).once('value'); const value=saved.val()||{}; if(value.image!==data.image) throw new Error('PRODUCT_IMAGE_READBACK_MISMATCH'); console.info('[PRODUCT_SAVE_OK]', {id:idVal, imageField:'image', imagePresent:Boolean(value.image)}); resetProdForm();showNotif('تم تعديل المنتج!'); } catch(e) { console.error('[PRODUCT_SAVE_FAILED]', {id:idVal, code:e.code||e.message}); showNotif('خطأ: '+e.message,'error'); }
   }else{
     const newId=Date.now();data.id=newId;
-    db.ref('products/'+newId).set(data).then(()=>{resetProdForm();showNotif('تمت إضافة المنتج!');}).catch(e=>showNotif('خطأ: '+e.message,'error'));
+    console.info('[PRODUCT_SAVE_START]', {id:String(newId)});
+    console.info('[PRODUCT_SAVE_ID]', String(newId));
+    console.info('[PRODUCT_SAVE_IMAGE_PRESENT]', Boolean(data.image));
+    try { await db.ref('products/'+newId).set(data); const saved=await db.ref('products/'+newId).once('value'); const value=saved.val()||{}; if(value.image!==data.image) throw new Error('PRODUCT_IMAGE_READBACK_MISMATCH'); console.info('[PRODUCT_SAVE_OK]', {id:String(newId), imageField:'image', imagePresent:Boolean(value.image)}); resetProdForm();showNotif('تمت إضافة المنتج!'); } catch(e) { console.error('[PRODUCT_SAVE_FAILED]', {id:String(newId), code:e.code||e.message}); showNotif('خطأ: '+e.message,'error'); }
   }
 }
 
@@ -1485,8 +1493,8 @@ function editProd(id){
   document.getElementById('prodCategory').value=p.category;
   document.getElementById('prodDesc').value=p.descriptionAr||p.description||'';
   document.getElementById('prodDescEn').value=p.descriptionEn||'';
-  document.getElementById('prodImage').value=p.image||'';
-  setProductImagePreview(p.image||'');
+  document.getElementById('prodImage').value=p.image||p.imageUrl||'';
+  setProductImagePreview(p.image||p.imageUrl||'');
   document.getElementById('prodSoon').checked=!!p.comingSoon;
   document.getElementById('prodPop').checked=!!p.popular;
   document.getElementById('prodOffer').checked=!!p.offer;
