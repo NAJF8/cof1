@@ -13,9 +13,15 @@ const [index, loyalty, admin, rules] = await Promise.all([
 assert.match(index, /\/api\/loyalty\/login/);
 assert.match(index, /\/api\/loyalty\/profile/);
 assert.match(index, /\/api\/loyalty\/provision-google/);
+assert.match(index, /PROFILE_LINK_CONFLICT/);
+assert.match(index, /functions\/PROFILE_LINK_CONFLICT/);
 assert.match(loyalty, /\/api\/admin\/provision-super-admin/);
 assert.match(admin, /\/api\/admin\/provision-super-admin/);
 assert.equal(JSON.parse(rules).rules.loyalty_links.$uid['.read'], false);
 assert.equal(JSON.parse(rules).rules.loyalty_links.$uid['.write'], false);
 assert.doesNotMatch(index, /httpsCallable\(['"](?:loginWithMembership|getMyLoyaltyProfile|provisionGoogleLoyalty|provisionGoogleSuperAdmin)['"]\)/);
+const worker = await readFile(join(root, 'cloudflare-worker', 'src', 'loyalty-routes.js'), 'utf8');
+assert.match(worker, /PROFILE_LINK_CONFLICT/);
+assert.match(worker, /const result = await atomicPlan\(env, root =>/);
+assert.match(worker, /ownsLinkedProfile/);
 console.log('worker loyalty static checks: PASS');

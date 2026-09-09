@@ -4449,7 +4449,7 @@
                     try {
                         profileResult = await callLoyaltySecurity('/api/loyalty/profile', { method: 'GET' });
                     } catch (profileError) {
-                        if (profileError?.code !== 'functions/PROFILE_NOT_FOUND') throw profileError;
+                        if (!['functions/PROFILE_NOT_FOUND', 'functions/PROFILE_LINK_CONFLICT'].includes(profileError?.code)) throw profileError;
                         provisionAttempted = true;
                         profileResult = { data: await requestGoogleLoyaltyProvisioning() };
                         if (profileResult.data?.profileStatus !== 'pending') profileResult = await callLoyaltySecurity('/api/loyalty/profile', { method: 'GET' });
