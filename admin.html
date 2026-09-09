@@ -468,7 +468,10 @@ body,.top-bar,.card,.stat-card,.main-content,.sidebar,.auth-card,.table-wrap,tab
         </div>
         <div class="form-row">
           <div class="form-group"><label>القسم</label><select id="prodCategory"></select></div>
-          <div class="form-group"><label>رابط الصورة (https://...)</label><input id="prodImage" type="url" placeholder="https://example.com/image.jpg"></div>
+          <div class="form-group"><label>رابط الصورة الخارجي (اختياري)</label><input id="prodImage" type="url" placeholder="https://example.com/image.jpg"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label for="prodImageFile">رفع صورة المنتج من الجهاز</label><input id="prodImageFile" type="file" accept="image/jpeg,image/png,image/webp"><small id="prodImageStatus" style="display:block;margin-top:6px;color:#667085"></small><div style="display:flex;align-items:center;gap:10px;margin-top:8px"><img id="prodImagePreview" alt="معاينة صورة المنتج" style="display:none;width:88px;height:88px;border-radius:10px;object-fit:cover;border:1px solid #ddd"><button type="button" class="btn" id="btnRemoveProdImage" style="display:none;background:#f1f3f4" onclick="removeProdImage()">إزالة الصورة</button></div></div>
         </div>
         <div class="form-row"><div class="form-group"><label>الوصف بالعربي</label><textarea id="prodDesc" rows="2" placeholder="وصف قصير للمنتج..."></textarea></div><div class="form-group"><label>English description</label><textarea id="prodDescEn" rows="2" placeholder="Short product description..."></textarea></div></div>
         <div style="display:flex;gap:18px;margin-bottom:15px;flex-wrap:wrap">
@@ -1429,8 +1432,21 @@ function renderProductsTable(){
 // ══════════════════════════════════════════════════════════
 // PRODUCTS CRUD
 // ══════════════════════════════════════════════════════════
+let productImageUploadInProgress=false;
+function productImageErrorMessage(code){return ({IMAGE_TYPE_UNSUPPORTED:'نوع الصورة غير مدعوم',IMAGE_TOO_LARGE:'حجم الصورة أكبر من 5MB',FORBIDDEN:'ليس لديك صلاحية لرفع الصور',AUTH_REQUIRED:'ليس لديك صلاحية لرفع الصور',AUTH_INVALID:'ليس لديك صلاحية لرفع الصور',IMAGE_RATE_LIMITED:'تعذر رفع الصورة، حاول مرة أخرى',IMAGE_UPLOAD_FAILED:'تعذر رفع الصورة، حاول مرة أخرى',IMAGE_STORAGE_NOT_CONFIGURED:'تعذر رفع الصورة، حاول مرة أخرى'})[code]||'تعذر رفع الصورة، حاول مرة أخرى';}
+function setProductImagePreview(url){const img=document.getElementById('prodImagePreview'),remove=document.getElementById('btnRemoveProdImage');if(!img||!remove)return;if(url){img.src=url;img.style.display='block';remove.style.display='inline-flex';}else{img.removeAttribute('src');img.style.display='none';remove.style.display='none';}}
+function removeProdImage(){document.getElementById('prodImage').value='';document.getElementById('prodImageFile').value='';document.getElementById('prodImageStatus').textContent='';setProductImagePreview('');}
+async function uploadProductImage(file){
+  if(!file)return;
+  if(!can('write_products')){showNotif('ليس لديك صلاحية لرفع الصور.','error');return;}
+  const status=document.getElementById('prodImageStatus'); productImageUploadInProgress=true; status.textContent='جاري رفع الصورة...'; status.style.color='#667085';
+  const form=new FormData(); form.append('image',file,file.name||'product-image');
+  try{const token=auth.currentUser?await auth.currentUser.getIdToken():'';const response=await fetch(`${LOYALTY_SECURITY_ENDPOINT}/api/admin/products/upload-image`,{method:'POST',headers:token?{Authorization:`Bearer ${token}`}:{},body:form});const data=await response.json().catch(()=>({}));if(!response.ok)throw Object.assign(new Error(data.error||'IMAGE_UPLOAD_FAILED'),{code:data.error});if(!/^https:\/\//i.test(data.imageUrl||''))throw new Error('IMAGE_UPLOAD_FAILED');document.getElementById('prodImage').value=data.imageUrl;setProductImagePreview(data.imageUrl);status.textContent='تم رفع الصورة بنجاح.';status.style.color='#2e7d32';showNotif('تم رفع صورة المنتج بنجاح.');}catch(error){status.textContent=productImageErrorMessage(error.code||error.message);status.style.color='#c62828';showNotif(status.textContent,'error');}finally{productImageUploadInProgress=false;}
+}
+document.getElementById('prodImageFile')?.addEventListener('change',event=>uploadProductImage(event.target.files?.[0]));
 function saveProd(){
   if(!can('write_products')) return alert('ليس لديك صلاحية لهذه العملية.');
+  if(productImageUploadInProgress) return showNotif('انتظر اكتمال رفع الصورة.','info');
   const idVal=document.getElementById('prodId').value;
   const nameAr=document.getElementById('prodName').value.trim();
   const nameEn=document.getElementById('prodNameEn').value.trim();
@@ -1470,6 +1486,7 @@ function editProd(id){
   document.getElementById('prodDesc').value=p.descriptionAr||p.description||'';
   document.getElementById('prodDescEn').value=p.descriptionEn||'';
   document.getElementById('prodImage').value=p.image||'';
+  setProductImagePreview(p.image||'');
   document.getElementById('prodSoon').checked=!!p.comingSoon;
   document.getElementById('prodPop').checked=!!p.popular;
   document.getElementById('prodOffer').checked=!!p.offer;
@@ -1482,7 +1499,8 @@ function editProd(id){
 }
 
 function resetProdForm(){
-  ['prodId','prodName','prodNameEn','prodPrice','prodDesc','prodDescEn','prodImage'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+  ['prodId','prodName','prodNameEn','prodPrice','prodDesc','prodDescEn','prodImage','prodImageFile'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+  document.getElementById('prodImageStatus').textContent=''; setProductImagePreview('');
   ['prodSoon','prodPop','prodOffer','prodHidden'].forEach(id=>{const el=document.getElementById(id);if(el)el.checked=false;});
   document.getElementById('productFormTitle').textContent='إضافة منتج جديد';
   document.getElementById('btnSaveProd').textContent='💾 حفظ المنتج';
