@@ -64,9 +64,9 @@ async function revealPin(request, env, current) {
   if (!resolved?.membership || !resolved.customer) throw Error('PROFILE_NOT_FOUND');
   console.info('[PIN_MEMBERSHIP_FOUND]', { source: resolved.source });
   console.info('[PIN_OWNER_OK]');
+  console.info('[PIN_RECORD_FOUND]');
   const pin = String(resolved.customer.pin || '');
   if (!security.validPin(pin)) { console.info('[PIN_NOT_AVAILABLE]'); return response(request, env, { ok: true, available: false, error: 'PIN_NOT_AVAILABLE' }); }
-  console.info('[PIN_RECORD_FOUND]');
   console.info('[PIN_AVAILABLE]');
   return response(request, env, { ok: true, available: true, pin });
 }
