@@ -109,6 +109,7 @@ body { font-family: 'Cairo', sans-serif; background: var(--bg-gradient); color: 
     <button data-nav="songs" onclick="showLoyaltySection('songs')">🎵 اسمع الأغاني</button>
     <button data-nav="logs" onclick="showLoyaltySection('logs')">📜 سجل العمليات</button>
     <button data-nav="gifts" onclick="showLoyaltySection('gifts')">🎁 استلام هدية</button>
+    <button id="giftRequestsNav" data-nav="gift-requests" onclick="showLoyaltySection('gift-requests')" style="display:none">📦 طلبات الهدايا</button>
   </nav>
 
   <section id="loyalty-overview" class="dash-section active">
@@ -358,6 +359,7 @@ body { font-family: 'Cairo', sans-serif; background: var(--bg-gradient); color: 
 
   <section id="loyalty-logs" class="dash-section"><div class="card"><h2 class="card-title">📜 سجل العمليات</h2><div style="overflow-x:auto"><table class="data-table"><thead><tr><th>التاريخ</th><th>نوع العملية</th><th>العميل</th><th>التفاصيل</th><th>المنفذ</th><th>الدور</th></tr></thead><tbody id="loyaltyLogsBody"></tbody></table></div></div></section>
   <section id="loyalty-gifts" class="dash-section"><div class="card"><h2 class="card-title">🎁 استلام هدية</h2><p class="muted">ابحث بكود الهدية أو رقم الطلب أو هاتف المستلم، ثم تحقّق من الحالة قبل التسليم.</p><div class="search-box"><input id="giftRedeemSearch" class="search-input" placeholder="101-GIFT-XXXX أو GIFT-101-XXXX أو الهاتف" dir="ltr"><button class="btn-primary" type="button" onclick="findGiftForRedeem()">بحث</button></div><div id="giftRedeemResult" style="margin-top:18px"></div></div></section>
+  <section id="loyalty-gift-requests" class="dash-section"><div class="card"><h2 class="card-title">📦 طلبات الهدايا</h2><p class="muted">إدارة طلبات الهدايا المعلقة من خلال الصلاحية الآمنة للموظف.</p><div class="search-box" style="flex-wrap:wrap"><input id="giftRequestsSearch" class="search-input" placeholder="بحث: الطلب، الكود، الهاتف أو الاسم" oninput="renderGiftRequests()"><select id="giftRequestsFilter" class="search-input" style="max-width:180px" onchange="renderGiftRequests()"><option value="all">كل الحالات</option><option value="pending">بانتظار الموافقة</option><option value="approved">تمت الموافقة</option><option value="rejected">مرفوضة</option><option value="redeemed">تم التسليم</option><option value="expired">منتهية</option></select><button class="btn-primary" type="button" onclick="loadGiftRequests()">تحديث</button></div><div id="giftRequestsList" style="display:grid;gap:12px;margin-top:16px"></div></div></section>
 </div>
 
 <!-- ═══════════════════════ NEW CUSTOMER MODAL ═══════════════════════ -->
@@ -487,8 +489,8 @@ function can(action) {
 function can(action) {
   if (!currentCashier) return false;
   if (currentCashier.role === 'super_admin') return true;
-  if ((currentCashier.role === 'manager' || currentCashier.role === 'admin') && ['search_customers','manage_points','add_points','redeem_rewards','manage_customers','manage_rewards','manage_staff'].includes(action)) return true;
-  if (currentCashier.role === 'cashier' && ['search_customers','add_points','redeem_rewards'].includes(action)) return true;
+  if ((currentCashier.role === 'manager' || currentCashier.role === 'admin') && ['search_customers','manage_points','add_points','redeem_rewards','manage_customers','manage_rewards','manage_staff','manage_gifts'].includes(action)) return true;
+  if (currentCashier.role === 'cashier' && ['search_customers','add_points','redeem_rewards','manage_gifts'].includes(action)) return true;
   
   const p = currentCashier.permissions || {};
   return p[action] === true || (action === 'search_customers' && currentCashier.role === 'cashier');
@@ -512,6 +514,7 @@ function showLoyaltySection(name) {
   document.querySelectorAll('[data-nav]').forEach(el => el.classList.toggle('active', el.dataset.nav === name));
   document.getElementById('loyalty-' + name)?.classList.add('active');
   if (name === 'songs') renderLoyaltySongs();
+  if (name === 'gift-requests' && !can('manage_gifts')) { showToast('🚫 ليس لديك صلاحية للوصول إلى طلبات الهدايا.'); showLoyaltySection('overview'); }
 }
 
 function showToast(msg) {
@@ -581,6 +584,7 @@ auth.onAuthStateChanged(async user=>{
   console.log('[LOYALTY_AUTH_STATE]',{signedIn:Boolean(user),hasCurrentUser:Boolean(auth.currentUser),currentUserMatches:Boolean(user&&auth.currentUser&&user.uid===auth.currentUser.uid)});
   if(!user){
     currentCashier=null;
+    const giftRequestsTab=document.getElementById('giftRequestsNav');if(giftRequestsTab)giftRequestsTab.style.display='none';
     document.getElementById('loginScreen').style.display='flex';
     document.getElementById('appScreen').style.display='none';
     restoreLoyaltyLoginButton();
@@ -591,10 +595,12 @@ auth.onAuthStateChanged(async user=>{
     document.getElementById('loginScreen').style.display='none';
     document.getElementById('appScreen').style.display='block';
     document.getElementById('cashierNameDisplay').textContent=currentCashier.name;
+    const giftRequestsTab=document.getElementById('giftRequestsNav');if(giftRequestsTab){giftRequestsTab.style.display=can('manage_gifts')?'':'none';}
     if(currentCashier.role==='cashier'){
       const rewardsTab=document.querySelector('[data-nav="rewards"]');if(rewardsTab)rewardsTab.style.display='none';
       const staffTab=document.querySelector('[data-nav="staff"]');if(staffTab)staffTab.style.display='none';
     }
+    if(can('manage_gifts')) loadGiftRequests();
     loadDashboardData();
   }catch(error){
     console.error('[LOYALTY_LOGIN_BOOTSTRAP_FAILED]',{authSuccess:Boolean(auth.currentUser),firstFailedPath:error?.path||'unknown',code:error?.code||'unknown'});
@@ -1583,6 +1589,21 @@ function giftDeliveryState(current, expectedGift) {
   giftDeliveryDiagnostics('ID_MATCH', { idMatch });
   return { status, expired, alreadyUsed, idMatch };
 }
+let giftRequests = [];
+const giftRequestStatusLabel = { pending: '⏳ بانتظار الموافقة', approved: '✅ تمت الموافقة', rejected: '❌ مرفوضة', redeemed: '🎁 تم التسليم', expired: '⌛ منتهية' };
+function giftRequestStatus(gift) { return gift.approvalStatus || 'pending'; }
+function giftRequestText(gift) { return [gift.orderCode, gift.giftCode, gift.senderName, gift.senderPhone, gift.recipientName, gift.recipientPhone].join(' ').toLowerCase(); }
+function giftRequestDate(value) { return value ? new Date(Number(value)).toLocaleString('ar-IQ') : '—'; }
+function renderGiftRequests() {
+  const box = document.getElementById('giftRequestsList'); if (!box) return;
+  const q = (document.getElementById('giftRequestsSearch')?.value || '').trim().toLowerCase();
+  const filter = document.getElementById('giftRequestsFilter')?.value || 'all';
+  const list = giftRequests.filter(g => (!q || giftRequestText(g).includes(q)) && (filter === 'all' || giftRequestStatus(g) === filter));
+  box.innerHTML = list.length ? list.map(g => { const status = giftRequestStatus(g), canDecide = status === 'pending'; return `<article style="background:var(--surface2);border:1px solid var(--border);border-radius:14px;padding:14px;min-width:0"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><strong>${giftEsc(g.orderCode || g.id)}</strong><span>${giftRequestStatusLabel[status] || status}</span></div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:6px;margin-top:10px;font-size:13px"><span>كود الهدية: <b dir="ltr">${giftEsc(g.giftCode || '—')}</b></span><span>المُهدي: ${giftEsc(g.senderName || '—')}</span><span>المستلم: ${giftEsc(g.recipientName || '—')}</span><span dir="ltr">هاتف المستلم: ${giftEsc(g.recipientPhone || '—')}</span><span>الهدية: ${giftEsc(g.productName || g.giftType || '—')} — ${giftFmt(g.giftValue)}</span><span>التاريخ: ${giftRequestDate(g.createdAt)}</span></div>${g.message ? `<p style="margin:10px 0 0;color:var(--text-muted)">الرسالة: ${giftEsc(g.message)}</p>` : ''}${canDecide ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px"><button class="btn-primary" type="button" onclick="decideGiftRequest('${giftEsc(g.id)}','approve')">✅ موافقة</button><button class="btn-primary" type="button" style="background:#8b3030" onclick="decideGiftRequest('${giftEsc(g.id)}','reject')">❌ رفض</button></div>` : ''}</article>`; }).join('') : '<p class="muted">لا توجد طلبات مطابقة.</p>';
+}
+async function loadGiftRequests() { if (!requirePermission('manage_gifts')) return; const box = document.getElementById('giftRequestsList'); if (box) box.innerHTML = '<p class="muted">جارٍ تحميل الطلبات…</p>'; try { const result = await callLoyaltySecurity('/api/admin/gift/orders'); giftRequests = Array.isArray(result.orders) ? result.orders : []; renderGiftRequests(); } catch (error) { if (box) box.innerHTML = `<p style="color:#e53935">تعذر تحميل طلبات الهدايا: ${giftEsc(error.code || error.message)}</p>`; } }
+async function decideGiftRequest(giftId, decision) { if (!requirePermission('manage_gifts')) return; const gift = giftRequests.find(item => item.id === giftId); if (!gift || giftRequestStatus(gift) !== 'pending') return showToast('تمت معالجة هذا الطلب مسبقاً.'); const action = decision === 'approve' ? 'الموافقة' : 'الرفض'; if (!confirm(`هل تريد ${action} على طلب الهدية؟`)) return; try { const result = await callLoyaltySecurity(`/api/admin/gift/${decision}`, { method:'POST', body:{ giftId } }); giftRequests = giftRequests.map(item => item.id === giftId ? { ...item, ...result, approvalStatus: result.approvalStatus || (decision === 'approve' ? 'approved' : 'rejected'), giftStatus: result.giftStatus || item.giftStatus } : item); renderGiftRequests(); showToast(decision === 'approve' ? '✅ تمت الموافقة على طلب الهدية.' : '✅ تم رفض طلب الهدية.'); } catch (error) { const message = error.code === 'GIFT_ALREADY_DECIDED' || error.code === 'GIFT_NOT_PENDING' ? 'تمت معالجة الطلب مسبقاً.' : error.code === 'FORBIDDEN' ? 'لا تملك صلاحية معالجة طلبات الهدايا.' : 'تعذر تحديث طلب الهدية حالياً.'; showToast('❌ ' + message); if (error.code === 'GIFT_ALREADY_DECIDED' || error.code === 'GIFT_NOT_PENDING') await loadGiftRequests(); } }
+
 function giftDeliveryMessage(state) {
   if (state.alreadyUsed || state.status === 'redeemed') return 'تم استخدام الهدية مسبقاً.';
   if (state.expired || state.status === 'expired') return 'انتهت صلاحية الهدية.';
