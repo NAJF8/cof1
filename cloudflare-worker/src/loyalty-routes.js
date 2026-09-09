@@ -9,6 +9,7 @@ const MAX_PRODUCT_IMAGE_BYTES = 5 * 1024 * 1024;
 const PRODUCT_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const PRODUCT_IMAGE_RATE_LIMIT = 30;
 const PRODUCT_IMAGE_RATE_WINDOW_MS = 10 * 60 * 1000;
+const LEGACY_PIN_BACKFILL_MEMBERSHIP = '101-15';
 const productImageRateBuckets = new Map();
 let publicKeys = { expiresAt: 0, value: {} };
 let customTokenKey = { fingerprint: '', value: null };
@@ -27,6 +28,7 @@ async function verifyIdToken(token) { const parts = String(token || '').split('.
 async function auth(request) { const header = request.headers.get('Authorization') || ''; if (!header.startsWith('Bearer ')) throw Error('AUTH_REQUIRED'); return verifyIdToken(header.slice(7).trim()); }
 async function customToken(env, uid) { const email = String(env.FIREBASE_SERVICE_ACCOUNT_EMAIL || '').trim(), privateKey = String(env.FIREBASE_SERVICE_ACCOUNT_PRIVATE_KEY || ''); if (!email || !privateKey) throw Error('FIREBASE_SERVICE_ACCOUNT_NOT_CONFIGURED'); const fingerprint = privateKey.slice(0, 24); if (customTokenKey.fingerprint !== fingerprint) customTokenKey = { fingerprint, value: await crypto.subtle.importKey('pkcs8', pemBytes(privateKey), { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']) }; const now = Math.floor(Date.now() / 1000), head = jsonPart({ alg: 'RS256', typ: 'JWT' }), claim = jsonPart({ iss: email, sub: uid, aud: 'https://identitytoolkit.googleapis.com/google.identity.identitytoolkit.v1.IdentityToolkit', iat: now, exp: now + 3600, claims: { loyaltyMembership: uid.replace('loyalty-member:', '') } }), signature = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', customTokenKey.value, new TextEncoder().encode(`${head}.${claim}`)); return `${head}.${claim}.${b64url(signature)}`; }
 function safeCustomer(membership, customer) { return security.publicProfile(membership, customer); }
+function generateLoyaltyPin() { return String(Math.floor(Math.random() * 10000)).padStart(4, '0'); }
 function requestId(payload) { const value = String(payload?.requestId || payload?.idempotencyKey || '').trim(); if (!value) return ''; if (!/^[A-Za-z0-9._:-]{1,120}$/.test(value)) throw Error('INVALID_ARGUMENT'); return value; }
 function operationPath(kind, request) { return request ? `loyalty_operation_requests/${kind}/${encodeURIComponent(request).replace(/%/g, '_')}` : ''; }
 function replayOrPlan(root, kind, request) { if (!request) return null; const saved = root.loyalty_operation_requests?.[kind]?.[encodeURIComponent(request).replace(/%/g, '_')]; return saved?.result ? { replay: true, result: saved.result } : null; }
@@ -65,7 +67,27 @@ async function revealPin(request, env, current) {
   console.info('[PIN_MEMBERSHIP_FOUND]', { source: resolved.source });
   console.info('[PIN_OWNER_OK]');
   console.info('[PIN_RECORD_FOUND]');
-  const pin = String(resolved.customer.pin || '');
+  let pin = String(resolved.customer.pin || '');
+  if (!security.validPin(pin) && resolved.membership === LEGACY_PIN_BACKFILL_MEMBERSHIP) {
+    const result = await atomicPlan(env, root => {
+      const customer = root.loyalty_customers?.[resolved.membership];
+      if (!customer || !customerBelongsTo(current, customer)) throw Error('PROFILE_NOT_FOUND');
+      const existingPin = String(customer.pin || '');
+      if (security.validPin(existingPin)) return { updates: {}, result: { pin: existingPin, backfilled: false } };
+      const backfilledPin = generateLoyaltyPin();
+      const auditId = crypto.randomUUID();
+      return {
+        updates: {
+          [`loyalty_customers/${resolved.membership}/pin`]: backfilledPin,
+          [`loyalty_customers/${resolved.membership}/updatedAt`]: Date.now(),
+          [`loyalty_audit_logs/${auditId}`]: { type: 'PIN_BACKFILL_MISSING', membership: resolved.membership, uid: current.uid, createdAt: Date.now() }
+        },
+        result: { pin: backfilledPin, backfilled: true }
+      };
+    });
+    pin = String(result.pin || '');
+    console.info('[PIN_BACKFILL_MISSING]', { membership: resolved.membership, created: result.backfilled === true });
+  }
   if (!security.validPin(pin)) { console.info('[PIN_NOT_AVAILABLE]'); return response(request, env, { ok: true, available: false, error: 'PIN_NOT_AVAILABLE' }); }
   console.info('[PIN_AVAILABLE]');
   return response(request, env, { ok: true, available: true, pin });
@@ -82,7 +104,7 @@ async function provision(request, env, current, superAdmin = false) {
   let membership = ownsLinkedProfile ? linked : (superAdmin ? '101-1' : '');
   while (!membership) { number += 1; membership = `101-${number}`; if (await firebaseAdminRequest(env, `loyalty_customers/${membership}`)) membership = ''; }
   const existing = ownsLinkedProfile ? linkedCustomer : {};
-  const customer = { ...existing, uid: current.uid, email: current.email, name: String(existing.name || pending.displayName || current.name || 'عضو 101').slice(0, 120), memberType: superAdmin ? 'Super Admin' : existing.memberType || 'زبون', hearts: Number(existing.hearts || 0), currentHearts: Number(existing.currentHearts ?? existing.hearts ?? 0), updatedAt: Date.now() };
+  const customer = { ...existing, ...(ownsLinkedProfile ? {} : { pin: generateLoyaltyPin() }), uid: current.uid, email: current.email, name: String(existing.name || pending.displayName || current.name || 'عضو 101').slice(0, 120), memberType: superAdmin ? 'Super Admin' : existing.memberType || 'زبون', hearts: Number(existing.hearts || 0), currentHearts: Number(existing.currentHearts ?? existing.hearts ?? 0), updatedAt: Date.now() };
   const updates = { [`loyalty_customers/${membership}`]: customer, [`loyalty_links/${current.uid}`]: membership, loyalty_counter: Math.max(Number(membership.split('-')[1]), number) };
   if (pending.status === 'pending') updates[`loyalty_pending/${current.uid}`] = null;
   await firebaseAdminRequest(env, '', { method: 'PATCH', body: updates });
