@@ -4561,6 +4561,7 @@
             if (action) { action.textContent = currentLang === 'en' ? 'Sign out' : 'تسجيل الخروج'; action.onclick = window.logoutGoogle; }
             const copy = document.querySelector('#loyaltyGuestContent > p');
             if (copy) copy.textContent = currentLang === 'en' ? 'Your 101 rewards account is being activated.' : 'حساب مكافآت 101 الخاص بك قيد التفعيل.';
+            mobileAuthTrace('RENDER_OK', { state: 'pending' });
         }
 
         function watchLoyaltyLink(uid) {
@@ -4620,7 +4621,7 @@
                     if (pinDisplay) pinDisplay.textContent = isPinRevealed ? userPinRaw : '••••';
                     if (summaryPin) summaryPin.textContent = isPinRevealed ? userPinRaw : '••••';
                     document.getElementById('loyaltyCardRefBox')?.style.setProperty('display', 'none');
-                    if (isMobileLoyaltyAuth()) console.info('[MOBILE_AUTH_RENDER_OK]', { memberVisible: member?.style.display === 'block' });
+                    mobileAuthTrace('RENDER_OK', { state: 'active', memberVisible: member?.style.display === 'block' });
                     mobileAuthTrace('UI_RENDER', { memberVisible: member?.style.display === 'block' });
                 }
             };
@@ -4778,6 +4779,7 @@
             if (status) status.textContent = currentLang === 'en' ? 'Your rewards account could not be created. Please try again.' : 'تعذر إنشاء حساب المكافآت. حاول مرة أخرى.';
             const action = document.getElementById('loyaltyAuthAction');
             if (action) { action.textContent = currentLang === 'en' ? 'Sign out' : 'تسجيل الخروج'; action.onclick = window.logoutGoogle; }
+            mobileAuthTrace('RENDER_OK', { state: 'error' });
         }
 
         window.openLoyalty = function() {
@@ -5416,7 +5418,11 @@
 
             // 9. Auth State
             if (auth) {
-                auth.onAuthStateChanged(onAuthChanged);
+                auth.onAuthStateChanged(user => {
+                    pendingAuthStateUser = user;
+                    if (!authInitComplete || authRedirectPending) return;
+                    void processAuthState(user);
+                });
             }
 
             updateCandleDayUI();
