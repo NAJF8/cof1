@@ -1564,7 +1564,7 @@ function checkFirebaseLoaded() {
 window.addEventListener('load', checkFirebaseLoaded);
 </script>
 <script>
-/* Gift redemption: transaction guarantees that a code cannot be redeemed twice. */
+/* Gift delivery: the authenticated Worker performs the atomic redemption. */
 let giftRedeemMatch=null;
 const giftEsc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
 const giftFmt=value=>Number(value||0).toLocaleString('en-US')+' د.ع';
@@ -1590,40 +1590,23 @@ function giftDeliveryMessage(state) {
   if (state.status === 'cancelled') return 'الهدية ملغاة.';
   return 'تعذر تسليم الهدية حالياً.';
 }
+let giftRedeemBusy=false;
 async function redeemGift(){
   const gift=giftRedeemMatch;
-  if(!gift||gift.giftStatus!=='active')return;
+  if(giftRedeemBusy||!gift||gift.giftStatus!=='active')return;
   if(!confirm('تأكيد تسليم الهدية؟ لا يمكن استخدام الكود مرة ثانية.'))return;
-  const giftRef=db.ref('gift_orders/'+gift.id);
+  giftRedeemBusy=true;
+  const button=document.querySelector('#giftRedeemResult button'); if(button){button.disabled=true;button.textContent='جارٍ تسليم الهدية…';}
   try{
-    const result=await giftRef.transaction(current=>{
-      const state = giftDeliveryState(current, gift);
-      if(!current||state.status!=='active'||state.expired||state.alreadyUsed||!state.idMatch)return;
-      current.giftStatus='redeemed';
-      current.redeemedAt=firebase.database.ServerValue.TIMESTAMP;
-      current.redeemedBy=auth.currentUser?.uid||null;
-      current.redeemedByName=currentCashier?.name||null;
-      current.redeemedByRole=currentCashier?.role||null;
-      return current;
-    });
-    if(!result.committed){
-      const current=(result.snapshot&&result.snapshot.val())||((await giftRef.once('value')).val());
-      const state=giftDeliveryState(current,gift);
-      giftDeliveryDiagnostics('WRITE_RESULT',{committed:false,reason:giftDeliveryMessage(state)});
-      showToast('❌ '+giftDeliveryMessage(state));
-      return;
-    }
-    giftDeliveryDiagnostics('WRITE_RESULT',{committed:true});
-    try { await db.ref('gift_logs').push({type:'gift_redeemed',giftId:gift.id,uid:auth.currentUser?.uid||null,role:currentCashier?.role||null,timestamp:firebase.database.ServerValue.TIMESTAMP}); }
-    catch(logError) { giftDeliveryDiagnostics('LOG_WRITE_FAILED',{code:logError?.code||'unknown'}); }
+    const result=await callLoyaltySecurity('/api/admin/gift/redeem',{method:'POST',body:{giftId:gift.id,giftCode:gift.giftCode,orderCode:gift.orderCode,recipientPhone:gift.recipientPhone}});
+    giftDeliveryDiagnostics('WRITE_RESULT',{ok:Boolean(result?.ok),endpoint:'/api/admin/gift/redeem'});
     giftRedeemMatch={...gift,giftStatus:'redeemed',redeemedAt:Date.now()};
     renderGiftRedeemResult(giftRedeemMatch);
     showToast('✅ تم تسليم الهدية بنجاح.');
   }catch(e){
-    giftDeliveryDiagnostics('WRITE_RESULT',{committed:false,code:e?.code||'unknown'});
-    if(e?.code==='PERMISSION_DENIED') showToast('❌ لا تملك صلاحية تسليم الهدايا.');
-    else showToast('❌ تعذر تسليم الهدية حالياً.');
-  }
+    const messages={GIFT_ALREADY_REDEEMED:'تم استخدام الهدية مسبقاً.',GIFT_EXPIRED:'انتهت صلاحية الهدية.',GIFT_NOT_FOUND:'الهدية غير موجودة.',FORBIDDEN:'لا تملك صلاحية تسليم الهدايا.',AUTH_REQUIRED:'يجب تسجيل دخول الموظف.',AUTH_INVALID:'انتهت جلسة الموظف، سجّل الدخول مجدداً.'};
+    showToast('❌ '+(messages[e?.code]||'تعذر تسليم الهدية حالياً.'));
+  } finally { giftRedeemBusy=false; }
 }
 </script>
 <script>
