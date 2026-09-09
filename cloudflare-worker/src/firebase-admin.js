@@ -1,5 +1,5 @@
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
-const DATABASE_SCOPE = 'https://www.googleapis.com/auth/firebase.database';
+const DATABASE_SCOPES = 'https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/firebase.database';
 let tokenCache = { accessToken: '', expiresAt: 0 };
 
 function base64Url(bytes) { let value = ''; for (const byte of bytes) value += String.fromCharCode(byte); return btoa(value).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, ''); }
@@ -12,7 +12,7 @@ async function serviceAccountToken(env) {
   const privateKey = String(env.FIREBASE_SERVICE_ACCOUNT_PRIVATE_KEY || '');
   if (!email || !privateKey) throw new Error('FIREBASE_SERVICE_ACCOUNT_NOT_CONFIGURED');
   const header = jsonPart({ alg: 'RS256', typ: 'JWT' });
-  const claim = jsonPart({ iss: email, scope: DATABASE_SCOPE, aud: TOKEN_URL, iat: now, exp: now + 3600 });
+  const claim = jsonPart({ iss: email, scope: DATABASE_SCOPES, aud: TOKEN_URL, iat: now, exp: now + 3600 });
   const signingKey = await crypto.subtle.importKey('pkcs8', privateKeyBytes(privateKey), { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']);
   const signature = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', signingKey, new TextEncoder().encode(`${header}.${claim}`));
   const assertion = `${header}.${claim}.${base64Url(new Uint8Array(signature))}`;
