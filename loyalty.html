@@ -137,6 +137,7 @@ body { font-family: 'Cairo', sans-serif; background: var(--bg-gradient); color: 
         <button class="btn-primary" onclick="searchClubCust()">بحث</button>
       </div>
       <div id="clubSearchMsg" style="margin-top:15px; color:#e53935; font-weight:700; text-align:center;"></div>
+      <div id="clubAmbiguousMatches" style="display:none;margin-top:15px;"></div>
     </div>
     
     <div id="clubProfile" class="profile" style="display:none;">
@@ -1639,6 +1640,7 @@ async function redeemGift(){
 <script>
 /* 101 CLUB LOGIC */
 let currentClubCustomer = null;
+let currentClubAmbiguousMatches = new Map();
 function normalizeSearchText(value) {
   return String(value ?? '').trim().toLocaleLowerCase('ar-IQ').replace(/[\u064B-\u065F\u0670]/g, '').replace(/\s+/g, ' ');
 }
@@ -1692,16 +1694,33 @@ function clubSubscriptionState(sub){
   if(Number(sub.remainingUses)<=0)return {label:'الرصيد منتهي',active:false};
   return {label:'فعال',active:true};
 }
+function renderClubCustomer(found) {
+  const sub=found?.subscription||null, canonicalClubId=found?.canonicalClubId||found?.customerId||found?.id, shownClubNumber=displayClubNumber(found?.clubNumber||canonicalClubId);
+  currentClubCustomer={...found,clubNumber:canonicalClubId,displayClubNumber:shownClubNumber,canonicalClubId};
+  document.getElementById('clubCustNameDisplay').textContent=found?.name||'—'; document.getElementById('clubCustNumberDisplay').textContent=shownClubNumber||'—'; document.getElementById('clubPhoneDisplay').textContent=found?.phone||'—'; document.getElementById('clubPinInput').value='';
+  const canonicalActive=typeof found?.isActive==='boolean'?found.isActive:found?.status==='active'; document.getElementById('clubPlanDisplay').textContent=sub?.planName||sub?.planId||found?.planName||'—'; document.getElementById('clubStatusDisplay').textContent=canonicalActive?'الاشتراك فعال':'الاشتراك غير فعال'; document.getElementById('clubRemainingUsesDisplay').textContent=sub?`${Number(sub.remainingUses)||0} / ${Number(sub.totalUses)||0}`:'لا يوجد'; document.getElementById('clubExpiresDisplay').textContent=sub?.expiresAt?new Date(Number(sub.expiresAt)).toLocaleDateString('ar-IQ'):'—'; document.getElementById('clubProfile').style.display='block';
+}
+function renderClubAmbiguousMatches(matches) {
+  const container=document.getElementById('clubAmbiguousMatches'), safeMatches=Array.isArray(matches)?matches.filter(match=>match&&match.customerId):[];
+  currentClubAmbiguousMatches=new Map(safeMatches.map(match=>[String(match.customerId),match]));
+  container.innerHTML=safeMatches.length?`<div style="background:var(--surface2);border:1px solid var(--border);border-radius:14px;padding:14px;"><h3 style="margin:0 0 12px;color:var(--text);font-size:16px;">تم العثور على أكثر من عضوية لهذا الرقم</h3><div style="display:grid;gap:10px;">${safeMatches.map(match=>`<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px;"><div style="min-width:0;"><b style="display:block;">${esc(match.name||'—')}</b><span style="display:block;color:var(--text-muted);font-size:12px;margin-top:3px;">رقم العضوية: <span dir="ltr">${esc(displayClubNumber(match.clubNumber||match.canonicalClubId||''))}</span></span><span style="display:block;color:var(--text-muted);font-size:12px;margin-top:2px;">الباقة: ${esc(match.planName||match.subscription?.planName||match.subscription?.planId||'—')}</span><span style="display:block;color:var(--text-muted);font-size:12px;margin-top:2px;">الحالة: ${esc(match.status||'—')}</span></div><button type="button" class="btn-primary" data-club-customer-id="${esc(match.customerId)}" style="padding:8px 14px;font-size:13px;white-space:nowrap;">اختيار</button></div>`).join('')}</div></div>`:'';
+  container.style.display=safeMatches.length?'block':'none';
+  container.querySelectorAll('[data-club-customer-id]').forEach(button=>button.addEventListener('click',()=>selectClubAmbiguousMatch(button.dataset.clubCustomerId)));
+}
+function selectClubAmbiguousMatch(customerId) {
+  const selected=currentClubAmbiguousMatches.get(String(customerId));
+  if(!selected)return;
+  renderClubAmbiguousMatches([]); document.getElementById('clubSearchMsg').textContent=''; renderClubCustomer(selected);
+}
  async function searchClubCust() {
   const q=document.getElementById('clubSearchQ').value.trim(), msg=document.getElementById('clubSearchMsg');
-  msg.textContent=''; document.getElementById('clubProfile').style.display='none'; if(!q)return; msg.textContent='جارٍ البحث...';
+  msg.textContent=''; renderClubAmbiguousMatches([]); document.getElementById('clubProfile').style.display='none'; currentClubCustomer=null; if(!q)return; msg.textContent='جارٍ البحث...';
   try {
-    const result=await callLoyaltySecurity('/api/admin/club/search',{method:'POST',body:{query:q},forceRefresh:true}), found=result.customer, sub=found?.subscription||null;
+    const result=await callLoyaltySecurity('/api/admin/club/search',{method:'POST',body:{query:q},forceRefresh:true});
+    if(result.ambiguous===true){ renderClubAmbiguousMatches(result.matches); msg.textContent=''; return; }
+    const found=result.customer;
     if(!result.found||!found)throw Object.assign(new Error('CLUB_MEMBER_NOT_FOUND'),{code:'CLUB_MEMBER_NOT_FOUND'});
-    const canonicalClubId=result.canonicalClubId||found.canonicalClubId||found.customerId||found.id, shownClubNumber=displayClubNumber(found.clubNumber||canonicalClubId);
-    currentClubCustomer={...found,clubNumber:canonicalClubId,displayClubNumber:shownClubNumber,canonicalClubId}; msg.textContent='';
-    document.getElementById('clubCustNameDisplay').textContent=found.name||'—'; document.getElementById('clubCustNumberDisplay').textContent=shownClubNumber||'—'; document.getElementById('clubPhoneDisplay').textContent=found.phone||'—'; document.getElementById('clubPinInput').value='';
-    const canonicalActive=typeof result.isActive==='boolean'?result.isActive:found.status==='active'; document.getElementById('clubPlanDisplay').textContent=sub?.planName||sub?.planId||'—'; document.getElementById('clubStatusDisplay').textContent=canonicalActive?'الاشتراك فعال':'الاشتراك غير فعال'; document.getElementById('clubRemainingUsesDisplay').textContent=sub?`${Number(sub.remainingUses)||0} / ${Number(sub.totalUses)||0}`:'لا يوجد'; document.getElementById('clubExpiresDisplay').textContent=sub?.expiresAt?new Date(Number(sub.expiresAt)).toLocaleDateString('ar-IQ'):'—'; document.getElementById('clubProfile').style.display='block';
+    msg.textContent=''; found.isActive=typeof result.isActive==='boolean'?result.isActive:found.isActive; renderClubCustomer(found);
  } catch(error) { const code=error?.code||'unknown'; console.error('[CLUB_SEARCH_FAILED]',{code}); msg.textContent=code==='CLUB_MEMBER_NOT_FOUND'?'المشترك غير موجود':code==='AUTH_REQUIRED'||code==='AUTH_INVALID'?'يرجى تسجيل الدخول':code==='FORBIDDEN'?'ليس لديك صلاحية للبحث':code==='INVALID_INPUT'?'أدخل رقم المشترك أو رقم الهاتف بشكل صحيح':code==='BACKEND_AUTH_ERROR'?'تعذر الاتصال بخدمة المشتركين':'تعذر البحث حالياً'; }
  }
 

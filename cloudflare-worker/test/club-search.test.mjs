@@ -48,6 +48,7 @@ globalThis.fetch = async (input, options = {}) => {
     }
     const path = new URL(url).pathname.replace(/^\//, '').replace(/\.json$/, '');
     if (!path) return Response.json(databaseRoot(), { headers: { ETag: 'fixture-etag' } });
+    if (path.startsWith('subscriptions/')) return Response.json(subscriptions[path.slice('subscriptions/'.length)] ?? null);
     return Response.json(database[path]?.() ?? null);
   }
   throw new Error(`unexpected fetch ${url}`);
@@ -99,12 +100,39 @@ for (const query of ['07827337942', '7827337942', '9647827337942', '+96478273379
 }
 
 customerRecords = {
-  activeA: { status: 'active', clubNumber: 'CLUB-101-12', phone: '07827337942' },
-  activeB: { status: 'active', clubNumber: 'CLUB-101-13', phone: '07827337942' }
+  member12: { status: 'active', clubNumber: 'CLUB-101-12', name: 'محمد الحار', phone: '07827337942', pin: '1111', email: 'hidden@example.com', uid: 'uid-12' },
+  member8: { status: 'active', clubNumber: 'CLUB-101-8', name: 'MOHAMMED MUSLIM', phone: '07827337942', pin: '2222', email: 'hidden@example.com', uid: 'uid-8' },
+  member3: { status: 'active', clubNumber: 'CLUB-101-3', name: 'Member Three', phone: '07827337942', pin: '3333' },
+  member4: { status: 'active', clubNumber: 'CLUB-101-4', name: 'Member Four', phone: '07827337942', pin: '4444' },
+  member5: { status: 'active', clubNumber: 'CLUB-101-5', name: 'Member Five', phone: '07827337942', pin: '5555' },
+  member6: { status: 'active', clubNumber: 'CLUB-101-6', name: 'Member Six', phone: '07827337942', pin: '6666' }
 };
-const ambiguous = await json(await request('07827337942'));
-assert.equal(ambiguous.status, 409);
-assert.equal(ambiguous.body.error, 'CLUB_PHONE_AMBIGUOUS');
+subscriptions = {
+  sub12: { clubNumber: 'CLUB-101-12', status: 'active', planName: '101 CLUB Large', remainingUses: 3, totalUses: 10, expiresAt: Date.now() + 86400000 },
+  sub8: { clubNumber: 'CLUB-101-8', status: 'active', planName: '101 CLUB Small', remainingUses: 2, totalUses: 10, expiresAt: Date.now() + 86400000 },
+  sub3: { clubNumber: 'CLUB-101-3', status: 'active', planName: '101 CLUB Basic', remainingUses: 1, totalUses: 5, expiresAt: Date.now() + 86400000 },
+  sub4: { clubNumber: 'CLUB-101-4', status: 'active', planName: '101 CLUB Basic', remainingUses: 1, totalUses: 5, expiresAt: Date.now() + 86400000 },
+  sub5: { clubNumber: 'CLUB-101-5', status: 'active', planName: '101 CLUB Basic', remainingUses: 1, totalUses: 5, expiresAt: Date.now() + 86400000 },
+  sub6: { clubNumber: 'CLUB-101-6', status: 'active', planName: '101 CLUB Basic', remainingUses: 1, totalUses: 5, expiresAt: Date.now() + 86400000 }
+};
+const ambiguousQueries = ['07827337942', '7827337942', '9647827337942', '+9647827337942'];
+for (const query of ambiguousQueries) {
+  const ambiguous = await json(await request(query));
+  assert.equal(ambiguous.status, 200);
+  assert.equal(ambiguous.body.ok, true);
+  assert.equal(ambiguous.body.found, true);
+  assert.equal(ambiguous.body.ambiguous, true);
+  assert.equal(ambiguous.body.matches.length, 6);
+  assert.deepEqual(ambiguous.body.matches.map(match => match.clubNumber), ['101-3', '101-4', '101-5', '101-6', '101-8', '101-12']);
+  assert.equal(ambiguous.body.matches.find(match => match.clubNumber === '101-12').planName, '101 CLUB Large');
+  for (const match of ambiguous.body.matches) {
+    assert.equal(match.status, 'active');
+    assert.equal('pin' in match, false);
+    assert.equal('email' in match, false);
+    assert.equal('token' in match, false);
+    assert.equal('privateKey' in match, false);
+  }
+}
 
 customerRecords = {
   active: { status: 'active', clubNumber: 'CLUB-101-12', phone: '07827337942' },
@@ -180,8 +208,14 @@ assert.equal(reserveResult.status, 200);
 assert.match(reserveResult.body.pin, /^\d{4}$/);
 const loyaltySource = await readFile(new URL('../../loyalty.html', import.meta.url), 'utf8');
 const searchFlow = loyaltySource.slice(loyaltySource.indexOf('async function searchClubCust'), loyaltySource.indexOf('async function redeemClubDrink'));
+const clubUiFlow = loyaltySource.slice(loyaltySource.indexOf('function renderClubCustomer'), loyaltySource.indexOf('async function redeemClubDrink'));
+const selectionFlow = loyaltySource.slice(loyaltySource.indexOf('function selectClubAmbiguousMatch'), loyaltySource.indexOf('async function searchClubCust'));
 assert.equal((searchFlow.match(/db\.ref\(['"]subscriptions['"]\)\.once\(['"]value['"]\)/g) || []).length, 0);
 assert.match(searchFlow, /result\.isActive/);
-assert.match(searchFlow, /canonicalClubId/);
-assert.match(searchFlow, /canonicalActive\?'الاشتراك فعال':'الاشتراك غير فعال'/);
+assert.match(searchFlow, /result\.ambiguous===true/);
+assert.match(searchFlow, /renderClubAmbiguousMatches\(result\.matches\)/);
+assert.match(clubUiFlow, /canonicalClubId/);
+assert.match(clubUiFlow, /canonicalActive\?'الاشتراك فعال':'الاشتراك غير فعال'/);
+assert.match(clubUiFlow, /currentClubAmbiguousMatches\.get/);
+assert.doesNotMatch(selectionFlow, /searchClubCust\(/);
 console.log('club search endpoint fixtures: PASS');

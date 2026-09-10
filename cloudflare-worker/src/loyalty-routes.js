@@ -189,7 +189,17 @@ async function searchClub(request, env, current) {
     }
     console.info('[CLUB_PHONE_SCAN_COMPLETE]', { scanned, skipped, matches: matches.length });
     const activeMatches = matches.filter(([, value]) => isActiveCanonicalClubCustomer(value));
-    if (activeMatches.length > 1 || (activeMatches.length === 0 && matches.length > 1)) {
+    if (activeMatches.length > 1) {
+      const safeMatches = await Promise.all(activeMatches.map(async ([recordKey, record]) => {
+        const related = await findClubSubscription(env, recordKey, record);
+        const safe = safeClubCustomer(recordKey, record, related?.id, related?.value, related?.relation);
+        return { ...safe, planName: safe.subscription?.planName || safe.subscription?.planId || '' };
+      }));
+      safeMatches.sort((a, b) => String(a.clubNumber || '').localeCompare(String(b.clubNumber || ''), 'en', { numeric: true }));
+      console.info('[CLUB_PHONE_AMBIGUOUS]', { matches: matches.length, activeCanonicalMatches: activeMatches.length, returnedMatches: safeMatches.length });
+      return response(request, env, { ok: true, found: true, ambiguous: true, matches: safeMatches });
+    }
+    if (activeMatches.length === 0 && matches.length > 1) {
       console.error('[CLUB_PHONE_AMBIGUOUS]', { matches: matches.length, activeCanonicalMatches: activeMatches.length });
       throw Error('CLUB_PHONE_AMBIGUOUS');
     }
