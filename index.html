@@ -5,6 +5,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <meta name="theme-color" content="#536849" id="themeColorMeta">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="101 COFFEE">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <link rel="manifest" href="./manifest.webmanifest">
+    <link rel="icon" type="image/png" sizes="48x48" href="./assets/pwa/favicon-48.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="./assets/pwa/apple-touch-icon.png">
     <title>101 COFFEE — منيو إلكتروني | قهوة وحلويات ومشروبات</title>
     <meta name="description" content="101 COFFEE — أشهى قهوة وأجود المشروبات والحلويات في النجف الأشرف. اطلب قهوتك الآن واستمتع بتجربة فريدة. توصيل سريع وطلب عبر واتساب.">
     <meta name="keywords" content="قهوة, كافيه, نجف, 101 coffee, مشروبات, حلويات, لاتيه, كابتشينو">
@@ -5514,5 +5520,13 @@ function initGiftSettings(){if(!db)return;db.ref('gift_settings').on('value',sna
 const initGiftWhenReady=()=>{initGiftSettings();}; if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',initGiftWhenReady,{once:true});else initGiftWhenReady();
 </script>
 <script src="wa_helper.js"></script>
+<script>
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register('./sw.js', { scope: './' })
+                .catch(error => console.warn('PWA_SERVICE_WORKER_REGISTRATION_FAILED', error));
+        }, { once: true });
+    }
+</script>
 </body>
 </html>
