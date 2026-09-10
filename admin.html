@@ -3,6 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#536849">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="101 Admin">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="manifest" href="./manifest-admin.webmanifest">
+<link rel="icon" type="image/png" sizes="48x48" href="./assets/pwa/favicon-48.png">
+<link rel="apple-touch-icon" sizes="180x180" href="./assets/pwa/apple-touch-icon.png">
 <title>Admin — 101 COFFEE</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap');
@@ -3294,6 +3301,11 @@ async function giftLog(type,giftId){return db.ref('gift_logs').push({type,giftId
 async function confirmGiftPayment(id){if(!canManageGifts())return showNotif('ليس لديك صلاحية تأكيد التحويل.','error');const gift=giftOrdersDB.find(g=>g.id===id);if(!gift||gift.giftStatus!=='awaiting_payment'||!confirm(`هل أنت متأكد من استلام مبلغ ${giftFmt(gift.giftValue)} لهذا الطلب؟`))return;const code=`101-GIFT-${String(id).slice(-4).toUpperCase()}`;try{const result=await db.ref('gift_orders/'+id).transaction(current=>{if(!current||current.paymentStatus!=='pending'||current.giftStatus!=='awaiting_payment')return;current.paymentStatus='paid';current.giftStatus='active';current.giftCode=code;current.confirmedAt=firebase.database.ServerValue.TIMESTAMP;current.confirmedBy=currentUser?.uid||null;return current;});if(!result.committed)throw new Error('تم تغيير الطلب مسبقاً');await giftLog('payment_confirmed',id);showNotif('تم تأكيد التحويل وتفعيل كود الهدية.');}catch(e){showNotif('فشل تأكيد التحويل: '+e.message,'error');}}
 async function sendGiftToRecipient(id){const gift=giftOrdersDB.find(g=>g.id===id),phone=String(gift?.recipientPhone||'').replace(/\D/g,'').replace(/^0/,'964');if(!gift||gift.giftStatus!=='active'||!gift.giftCode||!phone)return showNotif('لا يمكن إرسال هذه الهدية حالياً.','error');const from=gift.anonymous?'':`\nمن: ${gift.senderName}`,text=`🎁 عندك هدية من 101 COFFEE ❤️\n\nأحدهم حب يخلي يومك أحلى ☕❤️\n\nالهدية: ${gift.productName||giftFmt(gift.giftValue)}\nرسالة المُهدي: "${gift.message||'—'}"\nكود الاستلام: ${gift.giftCode}\nصالحة لغاية: ${giftDate(gift.expiresAt)}\n📍 101 COFFEE${from}`;window.open(`https://wa.me/${phone}?text=${encodeURIComponent(text)}`,'_blank','noopener');try{await db.ref('gift_orders/'+id).update({sentAt:firebase.database.ServerValue.TIMESTAMP});await giftLog('gift_sent',id);}catch(e){console.error(e);}}
 const originalInitAdminApp=initAdminApp;initAdminApp=function(user,role){originalInitAdminApp(user,role);initGiftsAdmin();};
+</script>
+<script>
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('./sw.js', { scope: './' }).catch(() => {});
+}
 </script>
 </body>
 </html>
