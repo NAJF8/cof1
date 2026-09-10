@@ -75,6 +75,40 @@ function safeClubSubscription(id, value) {
 function canonicalClubIsActive(value) {
   return String(value?.status || '').trim().toLowerCase() === 'active';
 }
+const CLUB_PHONE_FIELDS = ['phone', 'phoneNumber', 'mobile', 'mobileNumber'];
+function clubRecordType(value) { return value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value; }
+function maskClubRecordKey(value) {
+  const key = String(value ?? '').trim();
+  if (!key) return '[empty]';
+  if (key.length <= 4) return `${key.slice(0, 1)}***`;
+  return `${key.slice(0, 2)}***${key.slice(-2)}`;
+}
+function safeClubExceptionMessage(error) {
+  return String(error?.message || error || 'UNKNOWN')
+    .replace(/Bearer\s+\S+/gi, '[redacted]')
+    .replace(/(?:\+?964|0)?7\d{9}/g, '[redacted]')
+    .slice(0, 160);
+}
+function clubPhoneFieldValue(record) {
+  if (record === null) return { skip: true, reason: 'null-record' };
+  if (typeof record !== 'object' || Array.isArray(record)) return { skip: true, reason: 'non-object-record' };
+  for (const field of CLUB_PHONE_FIELDS) {
+    if (!Object.prototype.hasOwnProperty.call(record, field)) continue;
+    const rawPhone = record[field];
+    if (rawPhone === null || rawPhone === undefined) continue;
+    if (typeof rawPhone !== 'string' && typeof rawPhone !== 'number') return { skip: true, field, reason: Array.isArray(rawPhone) ? 'phone-array' : 'phone-object' };
+    return { field, rawPhone };
+  }
+  return { skip: true, reason: 'missing-phone' };
+}
+function isActiveCanonicalClubCustomer(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) && canonicalClubIsActive(value) && Boolean(normalizeClubMembership(value.clubNumber));
+}
+function clubPhoneSourceEntries(source) {
+  if (source === null || source === undefined) return [];
+  if (Array.isArray(source) || (typeof source === 'object' && source !== null)) return Object.entries(source);
+  return [];
+}
 function safeClubCustomer(id, value, subscriptionId, subscription, subscriptionRelation = null) {
   const customer = value || {};
   const relation = subscription ? subscriptionRelation : null;
@@ -110,10 +144,54 @@ async function searchClub(request, env, current) {
   let customerId = query.type === 'club' ? query.value : '';
   let customer = query.type === 'club' ? await firebaseAdminRequest(env, `subscription_customers/${customerId}`) : null;
   if (query.type === 'phone') {
-    const customers = await firebaseAdminRequest(env, 'subscription_customers') || {};
-    const matches = Object.entries(customers).filter(([, value]) => normalizeIraqiPhone(value?.phone || value?.phoneNumber || value?.mobile || value?.mobileNumber) === query.value);
-    if (matches.length > 1) throw Error('INTERNAL_ERROR');
-    if (matches.length === 1) [customerId, customer] = matches[0];
+    console.info('[CLUB_PHONE_SEARCH_START]');
+    console.info('[CLUB_PHONE_SOURCE_READ_START]');
+    let customers;
+    try {
+      customers = await firebaseAdminRequest(env, 'subscription_customers');
+      console.info('[CLUB_PHONE_SOURCE_READ_OK]', { sourceType: clubRecordType(customers) });
+    } catch (error) {
+      console.error('[CLUB_PHONE_EXCEPTION]', { name: String(error?.name || 'Error').slice(0, 80), message: safeClubExceptionMessage(error), stage: 'source-read', currentRecordType: 'unavailable', recordKey: '[none]' });
+      throw error;
+    }
+    const entries = clubPhoneSourceEntries(customers);
+    console.info('[CLUB_PHONE_RECORD_COUNT]', { count: entries.length });
+    const matches = [];
+    let scanned = 0, skipped = 0;
+    for (const [recordKey, record] of entries) {
+      scanned += 1;
+      console.info('[CLUB_PHONE_RECORD_SCAN]', { recordKey: maskClubRecordKey(recordKey), recordType: clubRecordType(record) });
+      try {
+        const fieldValue = clubPhoneFieldValue(record);
+        if (fieldValue.skip) {
+          skipped += 1;
+          console.info('[CLUB_PHONE_RECORD_SKIPPED]', { recordKey: maskClubRecordKey(recordKey), recordType: clubRecordType(record), field: fieldValue.field || null, reason: fieldValue.reason });
+          continue;
+        }
+        const normalizedPhone = normalizeIraqiPhone(String(fieldValue.rawPhone));
+        if (!normalizedPhone) {
+          skipped += 1;
+          console.info('[CLUB_PHONE_RECORD_SKIPPED]', { recordKey: maskClubRecordKey(recordKey), recordType: clubRecordType(record), field: fieldValue.field, reason: 'invalid-phone' });
+          continue;
+        }
+        if (normalizedPhone === query.value) {
+          matches.push([recordKey, record, fieldValue.field]);
+          console.info('[CLUB_PHONE_MATCH]', { recordKey: maskClubRecordKey(recordKey), field: fieldValue.field });
+        }
+      } catch (error) {
+        skipped += 1;
+        console.error('[CLUB_PHONE_EXCEPTION]', { name: String(error?.name || 'Error').slice(0, 80), message: safeClubExceptionMessage(error), stage: 'record-phone-normalization', currentRecordType: clubRecordType(record), recordKey: maskClubRecordKey(recordKey) });
+        console.info('[CLUB_PHONE_RECORD_SKIPPED]', { recordKey: maskClubRecordKey(recordKey), recordType: clubRecordType(record), field: null, reason: 'normalization-exception' });
+      }
+    }
+    console.info('[CLUB_PHONE_SCAN_COMPLETE]', { scanned, skipped, matches: matches.length });
+    const activeMatches = matches.filter(([, value]) => isActiveCanonicalClubCustomer(value));
+    if (activeMatches.length > 1 || (activeMatches.length === 0 && matches.length > 1)) {
+      console.error('[CLUB_PHONE_AMBIGUOUS]', { matches: matches.length, activeCanonicalMatches: activeMatches.length });
+      throw Error('CLUB_PHONE_AMBIGUOUS');
+    }
+    const selected = activeMatches[0] || (matches.length === 1 ? matches[0] : null);
+    if (selected) [customerId, customer] = selected;
   }
   if (!customer || typeof customer !== 'object') { console.info('[CLUB_SEARCH_NOT_FOUND]', { type: query.type }); throw Error('CLUB_MEMBER_NOT_FOUND'); }
   const related = await findClubSubscription(env, customerId, customer);
@@ -243,8 +321,8 @@ async function route(request, env, url) {
     if (url.pathname === '/api/admin/club/search') console.error('[CLUB_SEARCH_FAIL]', { code: String(error?.message || 'UNKNOWN').slice(0, 80) });
     console.error('[LOYALTY_ROUTE_FAILED]', { path: url.pathname, code: String(error?.message || 'UNKNOWN').slice(0, 80) });
     const rawCode = String(error?.message || '');
-    const code = ['AUTH_REQUIRED', 'AUTH_INVALID', 'INVALID_CONTENT_TYPE', 'PAYLOAD_TOO_LARGE', 'FORBIDDEN', 'NOT_FOUND', 'ALREADY_EXISTS', 'GIFT_NOT_FOUND', 'GIFT_ALREADY_REDEEMED', 'GIFT_EXPIRED', 'GIFT_NOT_AVAILABLE', 'GIFT_ALREADY_DECIDED', 'GIFT_NOT_PENDING', 'INVALID_ARGUMENT', 'INVALID_INPUT', 'INVALID_MEMBERSHIP', 'INVALID_PENDING', 'INSUFFICIENT_HEARTS', 'HEARTS_OUT_OF_RANGE', 'CLUB_UNAVAILABLE', 'CLUB_MEMBER_NOT_FOUND', 'CLAIM_INVALID', 'PIN_RESERVATION_FAILED', 'VERIFIED_EMAIL_REQUIRED', 'PROFILE_NOT_FOUND', 'PROFILE_LINK_CONFLICT', 'BACKEND_AUTH_ERROR', 'INTERNAL_ERROR'].includes(rawCode) ? rawCode : rawCode.startsWith('FIREBASE_') ? (rawCode.includes('401') || rawCode.includes('403') ? 'BACKEND_AUTH_ERROR' : 'INTERNAL_ERROR') : 'REQUEST_FAILED';
-    const status = ['AUTH_REQUIRED', 'AUTH_INVALID'].includes(code) ? 401 : code === 'FORBIDDEN' ? 403 : ['CLUB_MEMBER_NOT_FOUND', 'NOT_FOUND', 'PROFILE_NOT_FOUND'].includes(code) ? 404 : ['BACKEND_AUTH_ERROR', 'INTERNAL_ERROR'].includes(code) ? 500 : code === 'PROFILE_LINK_CONFLICT' ? 409 : code === 'INVALID_CONTENT_TYPE' ? 415 : code === 'PAYLOAD_TOO_LARGE' ? 413 : 400;
+    const code = ['AUTH_REQUIRED', 'AUTH_INVALID', 'INVALID_CONTENT_TYPE', 'PAYLOAD_TOO_LARGE', 'FORBIDDEN', 'NOT_FOUND', 'ALREADY_EXISTS', 'GIFT_NOT_FOUND', 'GIFT_ALREADY_REDEEMED', 'GIFT_EXPIRED', 'GIFT_NOT_AVAILABLE', 'GIFT_ALREADY_DECIDED', 'GIFT_NOT_PENDING', 'INVALID_ARGUMENT', 'INVALID_INPUT', 'INVALID_MEMBERSHIP', 'INVALID_PENDING', 'INSUFFICIENT_HEARTS', 'HEARTS_OUT_OF_RANGE', 'CLUB_UNAVAILABLE', 'CLUB_MEMBER_NOT_FOUND', 'CLUB_PHONE_AMBIGUOUS', 'CLAIM_INVALID', 'PIN_RESERVATION_FAILED', 'VERIFIED_EMAIL_REQUIRED', 'PROFILE_NOT_FOUND', 'PROFILE_LINK_CONFLICT', 'BACKEND_AUTH_ERROR', 'INTERNAL_ERROR'].includes(rawCode) ? rawCode : rawCode.startsWith('FIREBASE_') ? (rawCode.includes('401') || rawCode.includes('403') ? 'BACKEND_AUTH_ERROR' : 'INTERNAL_ERROR') : 'REQUEST_FAILED';
+    const status = ['AUTH_REQUIRED', 'AUTH_INVALID'].includes(code) ? 401 : code === 'FORBIDDEN' ? 403 : ['CLUB_MEMBER_NOT_FOUND', 'NOT_FOUND', 'PROFILE_NOT_FOUND'].includes(code) ? 404 : ['BACKEND_AUTH_ERROR', 'INTERNAL_ERROR'].includes(code) ? 500 : ['CLUB_PHONE_AMBIGUOUS', 'PROFILE_LINK_CONFLICT'].includes(code) ? 409 : code === 'INVALID_CONTENT_TYPE' ? 415 : code === 'PAYLOAD_TOO_LARGE' ? 413 : 400;
     return fail(request, env, code, status);
   }
 }

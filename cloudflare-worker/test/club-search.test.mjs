@@ -17,6 +17,7 @@ let role = 'manager';
 let writes = 0;
 let allowWrites = false;
 let customer = { status: 'active', clubNumber: 'CLUB-101-6', name: 'Known Club Member', phone: '07827337942', uid: 'member-uid', pin: '1234' };
+let customerRecords = { 'CLUB-101-6': customer };
 let subscriptions = { subscriptionA: { clubNumber: 'CLUB-101-6', status: 'active', planName: 'Test', remainingUses: 3, totalUses: 10, expiresAt: Date.now() + 86400000 } };
 const applyRootUpdate = (root, path, value) => {
   const parts = path.split('/').filter(Boolean);
@@ -28,10 +29,10 @@ const applyRootUpdate = (root, path, value) => {
 const database = {
   'admins/staff-uid': () => ({ role, status: 'active', permissions: {} }),
   'subscription_customers/CLUB-101-6': () => customer,
-  subscription_customers: () => ({ 'CLUB-101-6': customer }),
+  subscription_customers: () => customerRecords,
   subscriptions: () => subscriptions
 };
-const databaseRoot = () => ({ admins: { 'staff-uid': { role, status: 'active', permissions: {} } }, subscription_customers: { 'CLUB-101-6': customer }, subscriptions, subscription_pin_index: {} });
+const databaseRoot = () => ({ admins: { 'staff-uid': { role, status: 'active', permissions: {} } }, subscription_customers: customerRecords, subscriptions, subscription_pin_index: {} });
 globalThis.fetch = async (input, options = {}) => {
   const url = String(input);
   if (url.includes('service_accounts/v1/jwk')) return Response.json({ keys: [publicJwk] });
@@ -61,6 +62,15 @@ const env = { ALLOWED_ORIGINS: 'https://najf8.github.io', FIREBASE_SERVICE_ACCOU
 const post = async (path, payload, token) => { const auth = token === null ? null : (token || await idToken()); return handleLoyaltyRoutes(new Request(`https://worker.test${path}`, { method: 'POST', headers: { Origin: 'https://najf8.github.io', 'Content-Type': 'application/json', ...(auth ? { Authorization: `Bearer ${auth}` } : {}) }, body: JSON.stringify(payload) }), env, new URL(`https://worker.test${path}`)); };
 const request = async (query, token) => post('/api/admin/club/search', { query }, token);
 const json = async response => ({ status: response.status, body: await response.json() });
+const phoneFixture = async (records, expectedStatus, expectedClub = null) => {
+  customerRecords = records;
+  subscriptions = {};
+  const result = await json(await request('07827337942'));
+  assert.notEqual(result.status, 500);
+  assert.equal(result.status, expectedStatus);
+  if (expectedClub) assert.equal(result.body.customer.clubNumber, expectedClub);
+  return result;
+};
 
 assert.equal(normalizeIraqiPhone('07827337942'), '9647827337942');
 assert.equal(normalizeIraqiPhone('7827337942'), '9647827337942');
@@ -72,7 +82,40 @@ assert.deepEqual(clubSearchQuery('101-6'), { type: 'club', value: 'CLUB-101-6', 
 assert.deepEqual(clubSearchQuery('CLUB-101-6'), { type: 'club', value: 'CLUB-101-6', displayMembership: '101-6', canonicalClubId: 'CLUB-101-6' });
 assert.equal(safeClubCustomer('CLUB-101-6', customer, null, null).pin, undefined);
 
+await phoneFixture({ normal: { status: 'active', clubNumber: 'CLUB-101-12', name: 'String Phone', phone: '07827337942' } }, 200, '101-12');
+await phoneFixture({ numeric: { status: 'active', clubNumber: 'CLUB-101-12', name: 'Number Phone', phone: 7827337942 } }, 200, '101-12');
+await phoneFixture({ missing: { status: 'active', clubNumber: 'CLUB-101-12', name: 'Missing Phone' } }, 404);
+await phoneFixture({ empty: null }, 404);
+await phoneFixture({ malformed: 'not-a-record' }, 404);
+await phoneFixture({ malformed: { status: 'active', clubNumber: 'CLUB-101-12', phone: { value: '07827337942' } } }, 404);
+await phoneFixture({ unrelatedA: { status: 'active', clubNumber: 'CLUB-101-13', phone: '07811111111' }, unrelatedB: { status: 'inactive', clubNumber: 'CLUB-101-14', phone: '07822222222' } }, 404);
+await phoneFixture({ known: { status: 'active', clubNumber: 'CLUB-101-12', name: 'Known 101-12', phone: '+9647827337942' } }, 200, '101-12');
+for (const query of ['07827337942', '7827337942', '9647827337942', '+9647827337942']) {
+  customerRecords = { known: { status: 'active', clubNumber: 'CLUB-101-12', name: 'Known 101-12', phone: '+9647827337942' } };
+  const knownResult = await json(await request(query));
+  assert.equal(knownResult.status, 200);
+  assert.equal(knownResult.body.found, true);
+  assert.equal(knownResult.body.customer.clubNumber, '101-12');
+}
+
+customerRecords = {
+  activeA: { status: 'active', clubNumber: 'CLUB-101-12', phone: '07827337942' },
+  activeB: { status: 'active', clubNumber: 'CLUB-101-13', phone: '07827337942' }
+};
+const ambiguous = await json(await request('07827337942'));
+assert.equal(ambiguous.status, 409);
+assert.equal(ambiguous.body.error, 'CLUB_PHONE_AMBIGUOUS');
+
+customerRecords = {
+  active: { status: 'active', clubNumber: 'CLUB-101-12', phone: '07827337942' },
+  inactive: { status: 'inactive', clubNumber: 'CLUB-101-13', phone: '07827337942' }
+};
+const activePrecedence = await json(await request('07827337942'));
+assert.equal(activePrecedence.status, 200);
+assert.equal(activePrecedence.body.customer.clubNumber, '101-12');
+
 customer = { status: 'active', clubNumber: 'CLUB-101-6', name: 'Known Club Member', phone: '07827337942', uid: 'member-uid', pin: '1234' };
+customerRecords = { 'CLUB-101-6': customer };
 subscriptions = { subscriptionA: { clubNumber: 'CLUB-101-6', status: 'cancelled', planName: 'Historical', remainingUses: 0, totalUses: 10, expiresAt: Date.now() - 86400000 } };
 let firstCustomer = null;
 for (const query of ['101-6', 'CLUB-101-6', '07827337942', '7827337942', '9647827337942', '+9647827337942']) {
@@ -95,6 +138,7 @@ for (const query of ['101-6', 'CLUB-101-6', '07827337942', '7827337942', '964782
   assert.deepEqual(result.body.customer, firstCustomer);
 }
 customer = { status: 'inactive', clubNumber: 'CLUB-101-6', name: 'Known Club Member', phone: '07827337942', uid: 'member-uid', pin: '1234' };
+customerRecords = { 'CLUB-101-6': customer };
 subscriptions = { subscriptionA: { clubNumber: 'CLUB-101-6', status: 'active', planName: 'Historical', remainingUses: 3, totalUses: 10, expiresAt: Date.now() + 86400000 } };
 const inactiveCanonical = await json(await request('CLUB-101-6'));
 assert.equal(inactiveCanonical.status, 200);
@@ -104,6 +148,7 @@ assert.equal(inactiveCanonical.body.isActive, false);
 assert.equal(inactiveCanonical.body.customer.isActive, false);
 assert.equal(inactiveCanonical.body.subscriptionRelation, 'historical');
 customer = { status: 'active', clubNumber: 'CLUB-101-6', name: 'Known Club Member', phone: '07827337942', uid: 'member-uid', pin: '1234' };
+customerRecords = { 'CLUB-101-6': customer };
 subscriptions = {};
 const noActiveSubscription = await json(await request('CLUB-101-6'));
 assert.equal(noActiveSubscription.status, 200);
@@ -125,6 +170,7 @@ assert.equal(writes, 0);
 role = 'manager';
 allowWrites = true;
 customer = { status: 'active', clubNumber: 'CLUB-101-6', name: 'Known Club Member', phone: '07827337942', uid: 'member-uid', pin: '1234' };
+customerRecords = { 'CLUB-101-6': customer };
 subscriptions = { subscriptionA: { clubNumber: 'CLUB-101-6', status: 'active', planName: 'Test', remainingUses: 3, totalUses: 10, expiresAt: Date.now() + 86400000 } };
 const consumeResult = await json(await post('/api/admin/club/consume', { subscriptionId: 'subscriptionA', requestId: 'consume-fixture' }));
 assert.equal(consumeResult.status, 200);
