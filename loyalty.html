@@ -1631,7 +1631,7 @@ async function redeemGift(){
     renderGiftRedeemResult(giftRedeemMatch);
     showToast('✅ تم تسليم الهدية بنجاح.');
   }catch(e){
-    const messages={GIFT_ALREADY_REDEEMED:'تم استخدام الهدية مسبقاً.',GIFT_EXPIRED:'انتهت صلاحية الهدية.',GIFT_NOT_FOUND:'الهدية غير موجودة.',RTDB_WRITE_FAILED:'تعذر حفظ تسليم الهدية في قاعدة البيانات.',FIREBASE_ETAG_CONFLICT:'تغيرت حالة الهدية، أعد البحث ثم حاول مرة أخرى.',FORBIDDEN:'لا تملك صلاحية تسليم الهدايا.',AUTH_REQUIRED:'يجب تسجيل دخول الموظف.',AUTH_INVALID:'انتهت جلسة الموظف، سجّل الدخول مجدداً.'};
+    const messages={GIFT_NOT_FOUND:'الهدية غير موجودة.',GIFT_ALREADY_REDEEMED:'تم تسليم هذه الهدية مسبقاً.',GIFT_EXPIRED:'انتهت صلاحية الهدية.',GIFT_NOT_AVAILABLE:'الهدية غير متاحة.',FORBIDDEN:'ليس لديك صلاحية تسليم الهدايا.',CONCURRENT_MODIFICATION:'تم تحديث الهدية، أعد البحث.',BACKEND_AUTH_ERROR:'تعذر الاتصال بخدمة الهدايا.',AUTH_REQUIRED:'يجب تسجيل دخول الموظف.',AUTH_INVALID:'انتهت جلسة الموظف مجدداً.'};
     showToast('❌ '+(messages[e?.code]||'تعذر تسليم الهدية حالياً.'));
   } finally { giftRedeemBusy=false; }
 }
