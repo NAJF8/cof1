@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
-    "test": "node test/loyalty-security.test.js && node test/firebase-admin.test.js && node test/static-loyalty.test.mjs && node test/club-search.test.mjs",
+    "test": "node test/loyalty-security.test.js && node test/firebase-admin.test.js && node test/static-loyalty.test.mjs && node test/club-search.test.mjs && node test/background-video.test.mjs",
     "deploy": "wrangler deploy"
   },
   "devDependencies": {

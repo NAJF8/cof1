@@ -676,8 +676,9 @@ body,.top-bar,.card,.stat-card,.main-content,.sidebar,.auth-card,.table-wrap,tab
         <h3>🎬 خلفية الفيديو (Video Background)</h3>
         <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">يعمل الفيديو تلقائياً (Autoplay + Muted + Loop + Playsinline) وبدون أزرار تحكم مع المحافظة على وضوح وقراءة النصوص.</p>
         <div class="form-group">
-          <label>رفع ملف فيديو (MP4/WebM) إلى Firebase Storage:</label>
-          <input type="file" id="bgVideoFile" accept="video/mp4,video/webm" style="margin-bottom:8px;">
+          <label>رفع ملف فيديو (MP4/WebM) إلى GitHub عبر Cloudflare:</label>
+          <input type="file" id="bgVideoFile" accept="video/mp4,video/webm" onchange="handleBackgroundVideoFileChange(event)" style="margin-bottom:8px;">
+          <div id="bgVideoStatus" role="status" aria-live="polite" style="font-size:12px;color:var(--text-muted);margin:6px 0 8px;"></div>
           <button type="button" class="btn btn-primary" onclick="uploadBgVideo()">📤 رفع وحفظ الفيديو</button>
           <button type="button" class="btn btn-danger" onclick="deleteBgAsset('video')">🗑️ حذف الفيديو</button>
         </div>
@@ -1017,6 +1018,7 @@ let currentUser  = null, currentRole = null;
 let products=[], categoriesDB=[], eventsDB=[], tablesDB=[], eventBookingsDB=[], settings={...DEFAULT_SETTINGS};
 let rewardsDB=[], bookingsDB=[], adminsData={}, pendingAdmins={}, ordersDB=[], loyaltyPendingDB=[];
 let backgroundSettings = { type: 'none', imageUrl: '', videoUrl: '', fallbackImageUrl: '', enabled: true };
+let selectedBackgroundVideoFile = null, selectedBackgroundVideoPreviewUrl = '';
 let songsDB = [], songCategoriesDB = [];
 let subscriptionPlans = {}, subscriptionRequests = [], clubRequestSnapshotCount = 0, clubCustomers = [], clubSubscriptions = [], clubCustomerIndex = new Map(), clubRequestIndex = new Map(), clubActiveSnapshotCount = 0, clubAccountClaims = [], clubSettings = {}, pendingClubPaymentRequest = null;
 const DEFAULT_ASSISTANT_NAME = 'زينة';
@@ -2068,7 +2070,7 @@ function renderBgPreview() {
   const type = document.getElementById('bgType')?.value || 'none';
   const enabled = document.getElementById('bgEnabled')?.checked !== false;
   const imgUrl = document.getElementById('bgImageUrl')?.value?.trim() || backgroundSettings.imageUrl || '';
-  const vidUrl = document.getElementById('bgVideoUrl')?.value?.trim() || backgroundSettings.videoUrl || '';
+  const vidUrl = selectedBackgroundVideoPreviewUrl || (document.getElementById('bgVideoUrl')?.value?.trim() || backgroundSettings.videoUrl || '');
   
   if (!enabled || type === 'none') {
     container.innerHTML = '<div style="width:100%;height:100%;background:linear-gradient(135deg,#3D5035,#2A3824);display:flex;align-items:center;justify-content:center;color:#FDFBF7;">الخلفية الافتراضية (101 COFFEE Green)</div>';
@@ -2105,25 +2107,58 @@ async function uploadBgImage() {
   }
 }
 
+function handleBackgroundVideoFileChange(event) {
+  if (selectedBackgroundVideoPreviewUrl) URL.revokeObjectURL(selectedBackgroundVideoPreviewUrl);
+  selectedBackgroundVideoFile = event.target.files?.[0] || null;
+  selectedBackgroundVideoPreviewUrl = selectedBackgroundVideoFile ? URL.createObjectURL(selectedBackgroundVideoFile) : '';
+  const status = document.getElementById('bgVideoStatus');
+  if (status) status.textContent = selectedBackgroundVideoFile ? `تم اختيار: ${selectedBackgroundVideoFile.name} (${(selectedBackgroundVideoFile.size / 1024 / 1024).toFixed(2)}MB)` : '';
+  renderBgPreview();
+}
+
 async function uploadBgVideo() {
-  if (currentRole !== 'super_admin' && currentRole !== 'admin') return alert('ليس لديك صلاحية.');
-  const file = document.getElementById('bgVideoFile')?.files?.[0];
+  if (!can('manage_settings')) return alert('ليس لديك صلاحية.');
+  const file = selectedBackgroundVideoFile || document.getElementById('bgVideoFile')?.files?.[0];
   if (!file) return alert('الرجاء اختيار ملف فيديو أولاً.');
+  const status = document.getElementById('bgVideoStatus');
+  const button = document.querySelector('#bgVideoCard button[onclick="uploadBgVideo()"]');
+  const setStatus = (message, color = 'var(--text-muted)') => { if (status) { status.textContent = message; status.style.color = color; } };
+  const extension = String(file.name || '').toLowerCase().split('.').pop();
+  if (!['video/mp4', 'video/webm'].includes(String(file.type || '').toLowerCase()) || !['mp4', 'webm'].includes(extension)) return setStatus('يُسمح فقط بملفات MP4 أو WebM.', '#c62828');
+  if (Number(file.size || 0) > 25 * 1024 * 1024) return setStatus('حجم الفيديو أكبر من 25MB.', '#c62828');
   try {
-    showNotif('جاري رفع الفيديو إلى Firebase Storage...', 'info');
-    const ref = storage.ref('backgrounds/bg_video_' + Date.now() + '_' + file.name);
-    const snap = await ref.put(file);
-    const url = await snap.ref.getDownloadURL();
-    document.getElementById('bgVideoUrl').value = url;
+    if (!auth.currentUser) throw Object.assign(new Error('AUTH_REQUIRED'), { code: 'AUTH_REQUIRED' });
+    if (button) button.disabled = true;
+    setStatus('جاري رفع الفيديو إلى GitHub عبر Cloudflare (0%)...', '#667085');
+    const token = await auth.currentUser.getIdToken();
+    const form = new FormData(); form.append('video', file, file.name);
+    const data = await new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', `${LOYALTY_SECURITY_ENDPOINT}/api/admin/background/upload-video`);
+      xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+      xhr.upload.addEventListener('progress', event => { if (event.lengthComputable) setStatus(`جاري رفع الفيديو إلى GitHub عبر Cloudflare (${Math.round(event.loaded / event.total * 100)}%)...`, '#667085'); });
+      xhr.addEventListener('load', () => { let payload = {}; try { payload = JSON.parse(xhr.responseText || '{}'); } catch {} if (xhr.status >= 200 && xhr.status < 300) resolve(payload); else reject(Object.assign(new Error(payload.error || 'VIDEO_UPLOAD_FAILED'), { code: payload.error || 'VIDEO_UPLOAD_FAILED' })); });
+      xhr.addEventListener('error', () => reject(Object.assign(new Error('VIDEO_UPLOAD_FAILED'), { code: 'VIDEO_UPLOAD_FAILED' })));
+      xhr.send(form);
+    });
+    if (!data.ok || !/^https:\/\//i.test(data.url || '')) throw Object.assign(new Error('VIDEO_UPLOAD_FAILED'), { code: 'VIDEO_UPLOAD_FAILED' });
+    document.getElementById('bgVideoUrl').value = data.url;
     document.getElementById('bgType').value = 'video';
     document.getElementById('bgEnabled').checked = true;
     updateBgTypeUI();
     if (!await saveBackgroundSettings()) throw new Error('تعذر حفظ إعدادات الخلفية في Firebase.');
-    showNotif('تم رفع الفيديو بنجاح!');
+    selectedBackgroundVideoFile = null;
+    if (selectedBackgroundVideoPreviewUrl) URL.revokeObjectURL(selectedBackgroundVideoPreviewUrl);
+    selectedBackgroundVideoPreviewUrl = '';
+    setStatus('تم رفع الفيديو وحفظ الرابط بنجاح.', '#2e7d32');
+    showNotif('تم رفع الفيديو وحفظه بنجاح!');
     renderBgPreview();
   } catch(e) {
-    showNotif('خطأ في الرفع: ' + e.message, 'error');
-  }
+    const messages = { VIDEO_TOO_LARGE: 'حجم الفيديو أكبر من 25MB.', VIDEO_TYPE_UNSUPPORTED: 'نوع الفيديو غير مدعوم أو التوقيع غير صحيح.', AUTH_REQUIRED: 'يجب تسجيل الدخول قبل رفع الفيديو.', AUTH_INVALID: 'انتهت جلسة الدخول، سجّل الدخول مرة أخرى.', FORBIDDEN: 'ليس لديك صلاحية إدارة خلفية الموقع.', VIDEO_STORAGE_NOT_CONFIGURED: 'رفع الفيديو غير مهيأ على الخادم.', VIDEO_UPLOAD_FAILED: 'تعذر رفع الفيديو، حاول مرة أخرى.' };
+    const message = messages[e.code || e.message] || e.message;
+    setStatus(message, '#c62828');
+    showNotif(message, 'error');
+  } finally { if (button) button.disabled = false; }
 }
 
 async function deleteBgAsset(kind) {
@@ -2132,7 +2167,7 @@ async function deleteBgAsset(kind) {
   const url = document.getElementById(field)?.value?.trim() || '';
   if (!confirm(`حذف ملف ${kind === 'video' ? 'الفيديو' : 'الصورة'} من الإعدادات؟`)) return;
   try {
-    if (url && /^https:\/\/firebasestorage\.googleapis\.com\//i.test(url)) await storage.refFromURL(url).delete().catch(() => {});
+    if (kind !== 'video' && url && /^https:\/\/firebasestorage\.googleapis\.com\//i.test(url)) await storage.refFromURL(url).delete().catch(() => {});
     document.getElementById(field).value = '';
     await saveBackgroundSettings();
   } catch(e) { showNotif('تعذر حذف الملف: ' + e.message, 'error'); }
