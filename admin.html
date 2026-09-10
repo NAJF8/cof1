@@ -2116,6 +2116,14 @@ function handleBackgroundVideoFileChange(event) {
   renderBgPreview();
 }
 
+async function verifyBackgroundVideoPublicUrl(url, setStatus) {
+  for (let attempt = 1; attempt <= 5; attempt += 1) {
+    try { const response = await fetch(url, { method: 'HEAD', cache: 'no-store' }); if (response.ok) return true; } catch {}
+    if (attempt < 5) { setStatus(`تم إنشاء commit، بانتظار GitHub Pages (${attempt}/5)...`, '#667085'); await new Promise(resolve => setTimeout(resolve, 1200)); }
+  }
+  return false;
+}
+
 async function uploadBgVideo() {
   if (!can('manage_settings')) return alert('ليس لديك صلاحية.');
   const file = selectedBackgroundVideoFile || document.getElementById('bgVideoFile')?.files?.[0];
@@ -2142,6 +2150,7 @@ async function uploadBgVideo() {
       xhr.send(form);
     });
     if (!data.ok || !/^https:\/\//i.test(data.url || '')) throw Object.assign(new Error('VIDEO_UPLOAD_FAILED'), { code: 'VIDEO_UPLOAD_FAILED' });
+    const publicReady = await verifyBackgroundVideoPublicUrl(data.url, setStatus);
     document.getElementById('bgVideoUrl').value = data.url;
     document.getElementById('bgType').value = 'video';
     document.getElementById('bgEnabled').checked = true;
@@ -2150,7 +2159,7 @@ async function uploadBgVideo() {
     selectedBackgroundVideoFile = null;
     if (selectedBackgroundVideoPreviewUrl) URL.revokeObjectURL(selectedBackgroundVideoPreviewUrl);
     selectedBackgroundVideoPreviewUrl = '';
-    setStatus('تم رفع الفيديو وحفظ الرابط بنجاح.', '#2e7d32');
+    setStatus(publicReady ? 'تم رفع الفيديو وحفظ الرابط بنجاح.' : 'تم إنشاء commit وحفظ الرابط؛ قد يحتاج GitHub Pages ثوانٍ إضافية.', '#2e7d32');
     showNotif('تم رفع الفيديو وحفظه بنجاح!');
     renderBgPreview();
   } catch(e) {
