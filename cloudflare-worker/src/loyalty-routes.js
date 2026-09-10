@@ -60,16 +60,21 @@ function safeClubSubscription(id, value) {
   if (!value || typeof value !== 'object') return null;
   return { id, planName: String(value.planName || '').slice(0, 120), planId: String(value.planId || '').slice(0, 120), status: String(value.status || '').slice(0, 40), remainingUses: Number(value.remainingUses) || 0, totalUses: Number(value.totalUses) || 0, expiresAt: value.expiresAt == null ? null : Number(value.expiresAt) || null };
 }
-function safeClubCustomer(id, value, subscriptionId, subscription) {
+function canonicalClubIsActive(value) {
+  return String(value?.status || '').trim().toLowerCase() === 'active';
+}
+function safeClubCustomer(id, value, subscriptionId, subscription, subscriptionRelation = null) {
   const customer = value || {};
-  return { customerId: id, id, clubNumber: String(customer.clubNumber || id).slice(0, 80), name: String(customer.name || customer.displayName || '').slice(0, 120), phone: String(customer.phone || customer.phoneNumber || customer.mobile || customer.mobileNumber || '').slice(0, 40), status: String(customer.status || '').slice(0, 40), uid: customer.uid ? String(customer.uid).slice(0, 180) : null, membershipNumber: customer.membershipNumber ? String(customer.membershipNumber).slice(0, 80) : null, activeSubscriptionId: customer.activeSubscriptionId ? String(customer.activeSubscriptionId).slice(0, 180) : null, subscriptionId: subscriptionId || null, subscription: subscription ? safeClubSubscription(subscriptionId, subscription) : null };
+  const relation = subscription ? subscriptionRelation : null;
+  const authoritativeSubscriptionId = relation === 'current' ? subscriptionId : null;
+  return { customerId: id, id, clubNumber: String(customer.clubNumber || id).slice(0, 80), name: String(customer.name || customer.displayName || '').slice(0, 120), phone: String(customer.phone || customer.phoneNumber || customer.mobile || customer.mobileNumber || '').slice(0, 40), status: String(customer.status || '').slice(0, 40), isActive: canonicalClubIsActive(customer), uid: customer.uid ? String(customer.uid).slice(0, 180) : null, membershipNumber: customer.membershipNumber ? String(customer.membershipNumber).slice(0, 80) : null, activeSubscriptionId: customer.activeSubscriptionId ? String(customer.activeSubscriptionId).slice(0, 180) : null, subscriptionId: authoritativeSubscriptionId || null, subscriptionRelation: relation, subscription: subscription ? safeClubSubscription(subscriptionId, subscription) : null };
 }
 function maskClubPhone(value) { const digits = normalizeIraqiPhone(value); return digits ? `${digits.slice(0, 5)}***${digits.slice(-2)}` : '[invalid]'; }
 async function findClubSubscription(env, customerId, customer) {
   const directId = String(customer?.activeSubscriptionId || '').trim();
   if (directId) {
     const direct = await firebaseAdminRequest(env, `subscriptions/${directId}`);
-    if (direct) return { id: directId, value: direct };
+    if (direct) return { id: directId, value: direct, relation: 'current' };
   }
   const subscriptions = await firebaseAdminRequest(env, 'subscriptions') || {};
   const clubNumber = normalizeClubNumber(customer?.clubNumber || customerId);
@@ -78,7 +83,7 @@ async function findClubSubscription(env, customerId, customer) {
     return normalizeClubNumber(item.clubNumber) === clubNumber || String(item.customerId || '') === customerId;
   });
   if (matches.length !== 1) return null;
-  return { id: matches[0][0], value: matches[0][1] };
+  return { id: matches[0][0], value: matches[0][1], relation: 'historical' };
 }
 async function searchClub(request, env, current) {
   console.info('[CLUB_SEARCH_ENTER]');
@@ -97,9 +102,9 @@ async function searchClub(request, env, current) {
   }
   if (!customer || typeof customer !== 'object') { console.info('[CLUB_SEARCH_NOT_FOUND]', { type: query.type }); throw Error('CLUB_MEMBER_NOT_FOUND'); }
   const related = await findClubSubscription(env, customerId, customer);
-  const result = safeClubCustomer(customerId, customer, related?.id, related?.value);
+  const result = safeClubCustomer(customerId, customer, related?.id, related?.value, related?.relation);
   console.info('[CLUB_SEARCH_FOUND]', { customerId, hasSubscription: Boolean(related) });
-  return response(request, env, { ok: true, found: true, customer: result });
+  return response(request, env, { ok: true, found: true, customer: result, isActive: result.isActive, subscription: result.subscription, subscriptionRelation: result.subscriptionRelation });
 }
 function customerBelongsTo(current, customer) { return String(customer?.uid || '') === current.uid || Boolean(current.emailVerified && current.email && normalizedEmail(customer?.email) === normalizedEmail(current.email)); }
 async function resolveLoyaltyMembership(env, current) {

@@ -15,12 +15,13 @@ const privatePem = `-----BEGIN PRIVATE KEY-----\n${Buffer.from(privateKey).toStr
 
 let role = 'manager';
 let writes = 0;
-const customer = { status: 'active', clubNumber: 'CLUB-101-14', name: 'Known Club Member', phone: '07827337942', uid: 'member-uid', pin: '1234' };
+let customer = { status: 'active', clubNumber: 'CLUB-101-14', name: 'Known Club Member', phone: '07827337942', uid: 'member-uid', pin: '1234' };
+let subscriptions = { subscriptionA: { clubNumber: 'CLUB-101-14', status: 'active', planName: 'Test', remainingUses: 3, totalUses: 10, expiresAt: Date.now() + 86400000 } };
 const database = {
   'admins/staff-uid': () => ({ role, status: 'active', permissions: {} }),
   'subscription_customers/CLUB-101-14': () => customer,
   subscription_customers: () => ({ 'CLUB-101-14': customer }),
-  subscriptions: () => ({ subscriptionA: { clubNumber: 'CLUB-101-14', status: 'active', planName: 'Test', remainingUses: 3, totalUses: 10, expiresAt: Date.now() + 86400000 } })
+  subscriptions: () => subscriptions
 };
 globalThis.fetch = async (input, options = {}) => {
   const url = String(input);
@@ -48,15 +49,39 @@ assert.equal(normalizeIraqiPhone('+9647827337942'), '9647827337942');
 assert.deepEqual(clubSearchQuery('CLUB-101-14'), { type: 'club', value: 'CLUB-101-14' });
 assert.equal(safeClubCustomer('CLUB-101-14', customer, null, null).pin, undefined);
 
+customer = { status: 'active', clubNumber: 'CLUB-101-14', name: 'Known Club Member', phone: '07827337942', uid: 'member-uid', pin: '1234' };
+subscriptions = { subscriptionA: { clubNumber: 'CLUB-101-14', status: 'cancelled', planName: 'Historical', remainingUses: 0, totalUses: 10, expiresAt: Date.now() - 86400000 } };
 for (const query of ['CLUB-101-14', '07827337942', '+9647827337942']) {
   const result = await json(await request(query));
   assert.equal(result.status, 200);
   assert.equal(result.body.found, true);
   assert.equal(result.body.customer.customerId, 'CLUB-101-14');
   assert.equal(result.body.customer.status, 'active');
+  assert.equal(result.body.isActive, true);
+  assert.equal(result.body.customer.isActive, true);
   assert.equal(result.body.customer.activeSubscriptionId, null);
+  assert.equal(result.body.customer.subscriptionId, null);
+  assert.equal(result.body.subscription.status, 'cancelled');
+  assert.equal(result.body.subscriptionRelation, 'historical');
   assert.equal(result.body.customer.pin, undefined);
 }
+customer = { status: 'inactive', clubNumber: 'CLUB-101-14', name: 'Known Club Member', phone: '07827337942', uid: 'member-uid', pin: '1234' };
+subscriptions = { subscriptionA: { clubNumber: 'CLUB-101-14', status: 'active', planName: 'Historical', remainingUses: 3, totalUses: 10, expiresAt: Date.now() + 86400000 } };
+const inactiveCanonical = await json(await request('CLUB-101-14'));
+assert.equal(inactiveCanonical.status, 200);
+assert.equal(inactiveCanonical.body.customer.status, 'inactive');
+assert.equal(inactiveCanonical.body.subscription.status, 'active');
+assert.equal(inactiveCanonical.body.isActive, false);
+assert.equal(inactiveCanonical.body.customer.isActive, false);
+assert.equal(inactiveCanonical.body.subscriptionRelation, 'historical');
+customer = { status: 'active', clubNumber: 'CLUB-101-14', name: 'Known Club Member', phone: '07827337942', uid: 'member-uid', pin: '1234' };
+subscriptions = {};
+const noActiveSubscription = await json(await request('CLUB-101-14'));
+assert.equal(noActiveSubscription.status, 200);
+assert.equal(noActiveSubscription.body.found, true);
+assert.equal(noActiveSubscription.body.isActive, true);
+assert.equal(noActiveSubscription.body.customer.activeSubscriptionId, null);
+assert.equal(noActiveSubscription.body.subscription, null);
 const missing = await json(await request('CLUB-101-999'));
 assert.equal(missing.status, 404);
 assert.equal(missing.body.error, 'CLUB_MEMBER_NOT_FOUND');
@@ -71,4 +96,6 @@ assert.equal(writes, 0);
 const loyaltySource = await readFile(new URL('../../loyalty.html', import.meta.url), 'utf8');
 const searchFlow = loyaltySource.slice(loyaltySource.indexOf('async function searchClubCust'), loyaltySource.indexOf('async function redeemClubDrink'));
 assert.equal((searchFlow.match(/db\.ref\(['"]subscriptions['"]\)\.once\(['"]value['"]\)/g) || []).length, 0);
+assert.match(searchFlow, /result\.isActive/);
+assert.match(searchFlow, /canonicalActive\?'الاشتراك فعال':'الاشتراك غير فعال'/);
 console.log('club search endpoint fixtures: PASS');
