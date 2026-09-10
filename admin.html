@@ -805,6 +805,13 @@ body,.top-bar,.card,.stat-card,.main-content,.sidebar,.auth-card,.table-wrap,tab
         </div>
         <button class="btn btn-primary" onclick="saveAIChatbotSettings()">💾 حفظ إعدادات الـ AI</button>
       </div>
+      <div class="card" id="aiPreferredProductsCard">
+        <h3>الاقتراحات المفضلة</h3>
+        <p class="muted">اختر المنتجات التي تحصل على أولوية بسيطة عند توافقها مع رغبة الزبون. المنتجات المخفية أو المتوقفة لا يقترحها المساعد.</p>
+        <div class="filter-bar"><input id="aiPreferredSearch" class="search-input" placeholder="بحث في المنتجات الحالية..." oninput="renderAIPreferredProducts()"></div>
+        <div id="aiPreferredProductsList" style="display:grid;gap:8px;max-height:420px;overflow:auto"></div>
+        <button class="btn btn-primary" type="button" onclick="saveAIPreferredProducts()">💾 حفظ الاقتراحات المفضلة</button>
+      </div>
     </section>
 
     <!-- ─── ORDER RATINGS ─── -->
@@ -1013,7 +1020,7 @@ let backgroundSettings = { type: 'none', imageUrl: '', videoUrl: '', fallbackIma
 let songsDB = [], songCategoriesDB = [];
 let subscriptionPlans = {}, subscriptionRequests = [], clubRequestSnapshotCount = 0, clubCustomers = [], clubSubscriptions = [], clubCustomerIndex = new Map(), clubRequestIndex = new Map(), clubActiveSnapshotCount = 0, clubAccountClaims = [], clubSettings = {}, pendingClubPaymentRequest = null;
 const DEFAULT_ASSISTANT_NAME = 'زينة';
-let aiConfig = { enabled: true, provider: 'smart_rules', model: 'gemini-1.5-flash', apiKey: '', assistantName: DEFAULT_ASSISTANT_NAME, welcomeAr: 'أهلاً بيك في 101 COFFEE ☕! شلون أقدر أساعدك باختيار طلبك اليوم؟', welcomeEn: 'Welcome to 101 COFFEE ☕! How can I help you choose your drink or dessert today?', systemPrompt: 'أنت باريستا ذكي وودود في مقهى 101 COFFEE...', shopInfo: 'موقعنا: النجف الأشرف' };
+let aiConfig = { enabled: true, provider: 'smart_rules', model: 'gemini-1.5-flash', apiKey: '', assistantName: DEFAULT_ASSISTANT_NAME, welcomeAr: 'أهلاً بيك في 101 COFFEE ☕! شلون أقدر أساعدك باختيار طلبك اليوم؟', welcomeEn: 'Welcome to 101 COFFEE ☕! How can I help you choose your drink or dessert today?', systemPrompt: 'أنت باريستا ذكي وودود في مقهى 101 COFFEE...', shopInfo: '', preferredProducts: {} };
 let orderRatingsDB = [];
 let candleSettings = { enabled: true, startTime: '16:00', endTime: '18:00', capacity: 10, price: 0 };
 let roomSettings={name:'غرفة الاجتماعات',desc:'',image:'',status:'open',maxPerDay:16};
@@ -2329,6 +2336,18 @@ function deleteSong(id) {
 // ══════════════════════════════════════════════════════════
 // AI CHATBOT MANAGEMENT
 // ══════════════════════════════════════════════════════════
+function renderAIPreferredProducts() {
+  const list=document.getElementById('aiPreferredProductsList'); if(!list)return;
+  const query=String(document.getElementById('aiPreferredSearch')?.value||'').trim().toLowerCase();
+  const rows=(Array.isArray(products)?products:[]).filter(p=>p&&p.id&&!p.hidden&&!p.comingSoon&&p.available!==false&&p.active!==false&&(!query||[p.name,p.nameAr,p.nameEn,p.category].filter(Boolean).some(v=>String(v).toLowerCase().includes(query))));
+  list.innerHTML=rows.length?rows.map(p=>{const id=String(p.id),pref=aiConfig.preferredProducts?.[id]||{},name=esc(p.nameAr||p.nameEn||p.name||id);return `<label style="display:flex;align-items:center;gap:10px;padding:10px;border:1px solid var(--border);border-radius:10px;background:var(--surface2)"><input type="checkbox" data-ai-preferred-id="${esc(id)}" ${pref.enabled?'checked':''}><span style="flex:1"><strong>${name}</strong><small style="display:block;color:var(--text-muted)">${esc(p.category||'')}</small></span><input type="number" min="1" max="100" value="${pref.enabled?Number(pref.priority)||1:1}" data-ai-preferred-priority="${esc(id)}" aria-label="أولوية ${name}" style="width:80px;padding:7px;border:1px solid var(--border);border-radius:8px"></label>`}).join(''):'<p class="muted">لا توجد منتجات مطابقة.</p>';
+}
+async function saveAIPreferredProducts() {
+  if (currentRole !== 'super_admin') return alert('إعدادات الـ AI متاحة لـ Super Admin فقط.');
+  const preferredProducts={};
+  document.querySelectorAll('[data-ai-preferred-id]').forEach(input=>{if(!input.checked)return;const id=String(input.dataset.aiPreferredId),priority=Math.max(1,Math.min(100,Number(document.querySelector(`[data-ai-preferred-priority="${CSS.escape(id)}"]`)?.value)||1));preferredProducts[id]={enabled:true,priority};});
+  try { await db.ref().update({'ai_config/preferredProducts':preferredProducts,'ai_public/preferredProducts':preferredProducts}); const readBack=await db.ref('ai_config/preferredProducts').once('value'); if(JSON.stringify(readBack.val()||{})!==JSON.stringify(preferredProducts))throw new Error('تعذر التحقق من حفظ الاقتراحات المفضلة.'); aiConfig={...aiConfig,preferredProducts}; renderAIPreferredProducts(); showNotif('تم حفظ الاقتراحات المفضلة بنجاح.'); } catch(e) { showNotif('خطأ: '+e.message,'error'); }
+}
 function renderAIChatbotUI() {
   const en = document.getElementById('aiEnabled'); if (en) en.checked = aiConfig.enabled !== false;
   const pr = document.getElementById('aiProvider'); if (pr && aiConfig.provider) pr.value = aiConfig.provider;
@@ -2341,6 +2360,7 @@ function renderAIChatbotUI() {
   const we = document.getElementById('aiWelcomeEn'); if (we && aiConfig.welcomeEn) we.value = aiConfig.welcomeEn;
   const sp = document.getElementById('aiSystemPrompt'); if (sp && aiConfig.systemPrompt) sp.value = aiConfig.systemPrompt;
   const si = document.getElementById('aiShopInfo'); if (si && aiConfig.shopInfo) si.value = aiConfig.shopInfo;
+  renderAIPreferredProducts();
 }
 
 function saveAIChatbotSettings() {
@@ -2363,11 +2383,12 @@ function saveAIChatbotSettings() {
     welcomeEn,
     systemPrompt,
     shopInfo,
+    preferredProducts: aiConfig.preferredProducts || {},
     updatedAt: firebase.database.ServerValue.TIMESTAMP
   };
   
   // This is customer-readable context sent to the Worker. It must never contain API keys or other secrets.
-  const publicData = { enabled, provider, model, assistantName, welcomeAr, welcomeEn, systemPrompt, shopInfo };
+  const publicData = { enabled, provider, model, assistantName, welcomeAr, welcomeEn, systemPrompt, shopInfo, preferredProducts: aiConfig.preferredProducts || {} };
   db.ref().update({ ai_config:data, ai_public:publicData }).then(async () => {
     const readBack = await db.ref('ai_public').once('value');
     const savedName = String(readBack.val()?.assistantName || '').trim();
@@ -2964,15 +2985,12 @@ function normalizeClubPhone(value){const raw=String(value||'').replace(/\D/g,'')
 function clubTemplate(text,values){return String(text||clubDefaultWhatsAppTemplate()).replace(/{{(name|planName|clubNumber|pin|totalUses|expiryDate)}}/g,(_,key)=>values[key]??'');}
 async function reserveClubPin(customerId){const result=await callLoyaltySecurity('/api/admin/club/reserve-pin',{method:'POST',body:{customerId}});if(!result.pin)throw new Error('تعذر توليد PIN فريد.');return result.pin;}
 window.confirmClubPayment=async function(){
-  const request=pendingClubPaymentRequest;if(!request||!canManageClub())return;const btn=document.getElementById('clubConfirmPaymentBtn'),phoneInput=document.getElementById('clubPaymentPhone'),phone=phoneInput?.value.trim()||'',normalized=normalizeClubPhone(phone);if(!normalized)return showNotif('أدخل رقم WhatsApp صالحاً قبل التفعيل.','error');const plan=subscriptionPlans[request.planId];if(!plan)return showNotif('الخطة غير متاحة.','error');
+  const request=pendingClubPaymentRequest;if(!request||!canManageClub())return;const btn=document.getElementById('clubConfirmPaymentBtn'),phoneInput=document.getElementById('clubPaymentPhone'),phone=phoneInput?.value.trim()||'',normalized=normalizeClubPhone(phone);if(!normalized)return showNotif('أدخل رقم WhatsApp صالحاً قبل التفعيل.','error');
   if(btn){btn.disabled=true;btn.textContent='جارٍ التفعيل...';}
-  try{const matches=clubCustomers.filter(customer=>(request.uid&&customer.uid===request.uid)||normalizeClubPhone(customer.phone)===normalized);let customer=matches[0]||null,customerId=customer?.id,clubNumber=customer?.clubNumber,pin=customer?.pin;
-    if(!customer){const counter=await db.ref('subscription_counter').transaction(value=>(Number(value)||0)+1);if(!counter.committed)throw new Error('تعذر إنشاء رقم العضوية.');clubNumber=`CLUB-101-${Number(counter.snapshot.val())}`;customerId=clubNumber;pin=await reserveClubPin(customerId);}if(!clubNumber||!pin)throw new Error('بيانات عضوية CLUB غير مكتملة.');
-    const existingId=customer?.activeSubscriptionId,existing=existingId?(await db.ref('subscriptions/'+existingId).once('value')).val():null,now=Date.now(),expiresAt=now+Number(plan.durationDays)*86400000,subRef=db.ref('subscriptions').push(),subscription={subscriptionId:subRef.key,customerId,clubNumber,uid:request.uid||'',planId:request.planId,planName:request.planName||plan.nameAr||plan.nameEn||String(request.planId||'').toUpperCase(),totalUses:Number(plan.totalUses),remainingUses:Number(plan.totalUses),startedAt:now,expiresAt,paymentStatus:'paid',status:'active',activatedAt:firebase.database.ServerValue.TIMESTAMP};
-    const customerRecord={...(customer||{}),customerId,registrationMethod:request.registrationMethod||'manual',uid:request.uid||'',email:request.email||'',name:request.name||request.customerName,phone,clubNumber,pin,createdAt:customer?.createdAt||firebase.database.ServerValue.TIMESTAMP,activatedAt:customer?.activatedAt||firebase.database.ServerValue.TIMESTAMP,status:'active',activeSubscriptionId:subRef.key,updatedAt:firebase.database.ServerValue.TIMESTAMP};
-    const updates={[`subscriptions/${subRef.key}`]:subscription,[`subscription_customers/${customerId}`]:customerRecord,[`subscription_requests/${request.id}/paymentStatus`]:'paid',[`subscription_requests/${request.id}/status`]:'activated',[`subscription_requests/${request.id}/activatedAt`]:firebase.database.ServerValue.TIMESTAMP};if(request.uid)updates[`subscription_account_index/${request.uid}`]=customerId;if(existing?.status==='active')updates[`subscriptions/${existingId}/status`]='replaced';await db.ref().update(updates);
-    const activationCheck=(await db.ref('subscription_requests/'+request.id).once('value')).val()||{};const customerCheck=(await db.ref('subscription_customers/'+customerId).once('value')).val()||{};if(activationCheck.status!=='activated'||customerCheck.status!=='active'||customerCheck.activeSubscriptionId!==subRef.key)throw new Error('تمت الكتابة لكن تعذر تأكيد حالة التفعيل.');await renderClubCustomers();renderClubRequests();const message=clubTemplate(clubSettings.whatsappActivationMessage,{name:customerRecord.name,planName:subscription.planName,clubNumber,pin,totalUses:subscription.totalUses,expiryDate:new Date(expiresAt).toLocaleDateString('ar-IQ')}),target=normalizeClubPhone(phone),url=`https://wa.me/${target}?text=${encodeURIComponent(message)}`;const popup=window.open(url,'_blank','noopener');if(!popup)document.getElementById('clubWhatsAppFallback').innerHTML=`<a class="btn btn-primary" href="${url}" target="_blank" rel="noopener">إرسال بيانات الاشتراك عبر WhatsApp</a>`;showNotif('تم تأكيد الدفع وتفعيل الاشتراك بنجاح.');if(popup)closeClubPaymentModal();
-  }catch(error){console.error('CLUB_ACTIVATION_FAILED',error);showNotif('تعذر التفعيل: '+error.message,'error');}
+  try{
+    const result=await callLoyaltySecurity('/api/admin/subscription/activate',{method:'POST',body:{requestId:request.id,phone}}),plan=subscriptionPlans[request.planId]||{},name=request.name||request.customerName||'عضو 101',planName=request.planName||plan.nameAr||plan.nameEn||String(request.planId||'').toUpperCase(),totalUses=Number(plan.totalUses||0),expiresAt=Date.now()+Number(plan.durationDays||0)*86400000;
+    await renderClubCustomers();renderClubRequests();const message=clubTemplate(clubSettings.whatsappActivationMessage,{name,planName,clubNumber:result.clubNumber,pin:result.pin,totalUses,expiryDate:new Date(expiresAt).toLocaleDateString('ar-IQ')}),target=normalizeClubPhone(phone),url=`https://wa.me/${target}?text=${encodeURIComponent(message)}`;const popup=window.open(url,'_blank','noopener');if(!popup)document.getElementById('clubWhatsAppFallback').innerHTML=`<a class="btn btn-primary" href="${url}" target="_blank" rel="noopener">إرسال بيانات الاشتراك عبر WhatsApp</a>`;showNotif(result.idempotent?'تم تفعيل الطلب مسبقاً.':'تم تأكيد الدفع وتفعيل الاشتراك بنجاح.');if(popup)closeClubPaymentModal();
+  }catch(error){console.error('CLUB_ACTIVATION_FAILED',{code:error?.code||error?.message});showNotif('تعذر التفعيل: '+(error?.code||error?.message||'SUB_ACTIVATE_FAILED'),'error');}
   finally{if(btn){btn.disabled=false;btn.textContent='تأكيد الدفع والتفعيل';}}
 };
 async function cancelClubSubscription(uid){

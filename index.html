@@ -4871,7 +4871,7 @@
             const assistantName = String(aiConfig.assistantName || DEFAULT_ASSISTANT_NAME).trim() || DEFAULT_ASSISTANT_NAME;
             const welcome = en ? (aiConfig.welcomeEn || `Hi there ♥\nHow can I help you today?`) : (aiConfig.welcomeAr || `أهلاً بك ♥\nكيف أقدر أساعدك اليوم؟`);
             const subtitle = en ? 'Ready to find your perfect cup ☕' : 'جاهزة أساعدك تختار ☕';
-            const choices = en ? [['coffee','☕ I want coffee'],['cold','🧊 I want something cold'],['dessert','🍰 I want dessert'],['pick','✨ Surprise me']] : [['coffee','☕ أريد قهوة'],['cold','🧊 أريد شي بارد'],['dessert','🍰 أريد حلى'],['pick','✨ اختارلي شي']];
+            const choices = en ? [['cold','🧊 I want something cold'],['refreshing','🌺 I want something refreshing'],['noncoffee','🚫 No coffee'],['coffee','☕ Strong coffee'],['sweet','🍯 Something sweet'],['pick','✨ Pick for me']] : [['cold','🧊 أريد شي بارد'],['refreshing','🌺 أريد شي منعش'],['noncoffee','🚫 بدون قهوة'],['coffee','☕ قهوة قوية'],['sweet','🍯 شي حلو'],['pick','✨ اختاريلي شي']];
             setText('aiChatName', assistantName);
             setText('aiChatTitle', welcome);
             setText('aiChatSubtitle', subtitle);
@@ -4942,13 +4942,16 @@
         }
         function buildChatContext() {
             const menu = products
-                .filter(product => product && !product.hidden && !product.comingSoon)
+                .filter(product => product && !product.hidden && !product.comingSoon && product.available !== false && product.active !== false)
                 .slice(0, 50)
                 .map(product => ({
+                    productId: String(product.id ?? ''),
                     name: productName(product),
                     category: productCategoryKey(product),
                     description: productDescription(product),
-                    price: Number(product.price) || 0
+                    price: Number(product.price) || 0,
+                    available: true,
+                    preferred: aiConfig.preferredProducts?.[String(product.id)] || null
                 }));
             return {
                 chatbot: {
@@ -4959,7 +4962,8 @@
                     shopInfo: aiConfig.shopInfo || ''
                 },
                 preferences: { ...chatPreferences },
-                menu
+                menu,
+                preferredProducts: aiConfig.preferredProducts || {}
             };
         }
         let aiChatRequestInFlight = false;
@@ -5282,7 +5286,7 @@
             document.getElementById('aiVoiceEnd')?.addEventListener('click', endVoiceMode);
             document.getElementById('aiChatMessages')?.addEventListener('click', event => {
                 const choice = event.target.closest('[data-ai-choice]'); if (!choice) return;
-                const prompts = { coffee: currentLang === 'en' ? 'I want coffee' : 'أريد قهوة', cold: currentLang === 'en' ? 'I want something cold' : 'أريد شي بارد', dessert: currentLang === 'en' ? 'I want dessert' : 'أريد حلى', pick: currentLang === 'en' ? 'Pick something for me' : 'اختاريلي شي' };
+                const prompts = { coffee: currentLang === 'en' ? 'I want strong coffee' : 'أريد قهوة قوية', cold: currentLang === 'en' ? 'I want something cold' : 'أريد شي بارد', refreshing: currentLang === 'en' ? 'I want something refreshing' : 'أريد شي منعش', noncoffee: currentLang === 'en' ? 'No coffee please' : 'أريد شي بدون قهوة', sweet: currentLang === 'en' ? 'I want something sweet' : 'أريد شي حلو', pick: currentLang === 'en' ? 'Pick something for me' : 'اختاريلي شي' };
                 const input = document.getElementById('aiChatInput'); if (input) { input.value = prompts[choice.dataset.aiChoice] || ''; document.getElementById('aiChatForm')?.requestSubmit(); }
             });
             document.getElementById('meetingRoomModal')?.addEventListener('click', event => { if (event.target.id === 'meetingRoomModal') closeMeetingRoomBooking(); });
