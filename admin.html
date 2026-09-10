@@ -690,6 +690,10 @@ body,.top-bar,.card,.stat-card,.main-content,.sidebar,.auth-card,.table-wrap,tab
           <label>صورة بديلة في حال فشل تشغيل الفيديو (Fallback Image):</label>
           <input type="url" id="bgFallbackImageUrl" placeholder="https://.../fallback.jpg">
         </div>
+        <div class="form-group">
+          <label>Poster تلقائي من أول Frame للفيديو:</label>
+          <input type="url" id="bgPosterUrl" placeholder="يُنشأ تلقائياً عند رفع الفيديو" readonly>
+        </div>
       </div>
 
       <div class="card">
@@ -1017,7 +1021,7 @@ async function callLoyaltySecurity(path, options = {}) {
 let currentUser  = null, currentRole = null;
 let products=[], categoriesDB=[], eventsDB=[], tablesDB=[], eventBookingsDB=[], settings={...DEFAULT_SETTINGS};
 let rewardsDB=[], bookingsDB=[], adminsData={}, pendingAdmins={}, ordersDB=[], loyaltyPendingDB=[];
-let backgroundSettings = { type: 'none', imageUrl: '', videoUrl: '', fallbackImageUrl: '', enabled: true };
+let backgroundSettings = { type: 'none', imageUrl: '', videoUrl: '', fallbackImageUrl: '', posterUrl: '', enabled: true };
 let selectedBackgroundVideoFile = null, selectedBackgroundVideoPreviewUrl = '';
 let songsDB = [], songCategoriesDB = [];
 let subscriptionPlans = {}, subscriptionRequests = [], clubRequestSnapshotCount = 0, clubCustomers = [], clubSubscriptions = [], clubCustomerIndex = new Map(), clubRequestIndex = new Map(), clubActiveSnapshotCount = 0, clubAccountClaims = [], clubSettings = {}, pendingClubPaymentRequest = null;
@@ -2137,8 +2141,15 @@ async function uploadBgVideo() {
   try {
     if (!auth.currentUser) throw Object.assign(new Error('AUTH_REQUIRED'), { code: 'AUTH_REQUIRED' });
     if (button) button.disabled = true;
-    setStatus('جاري رفع الفيديو إلى GitHub عبر Cloudflare (0%)...', '#667085');
+    setStatus('جاري استخراج Poster من أول Frame...', '#667085');
     const token = await auth.currentUser.getIdToken();
+    const posterBlob = await extractBackgroundPoster(file);
+    const posterForm = new FormData(); posterForm.append('poster', posterBlob, 'background-poster.webp');
+    const posterResponse = await fetch(`${LOYALTY_SECURITY_ENDPOINT}/api/admin/background/upload-poster`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: posterForm });
+    const posterData = await posterResponse.json().catch(() => ({}));
+    if (!posterResponse.ok || !posterData.ok || !/^https:\/\//i.test(posterData.posterUrl || '')) throw Object.assign(new Error(posterData.error || 'POSTER_UPLOAD_FAILED'), { code: posterData.error || 'POSTER_UPLOAD_FAILED' });
+    document.getElementById('bgPosterUrl').value = posterData.posterUrl;
+    setStatus('جاري رفع الفيديو إلى GitHub عبر Cloudflare (0%)...', '#667085');
     const form = new FormData(); form.append('video', file, file.name);
     const data = await new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
@@ -2163,11 +2174,30 @@ async function uploadBgVideo() {
     showNotif('تم رفع الفيديو وحفظه بنجاح!');
     renderBgPreview();
   } catch(e) {
-    const messages = { VIDEO_TOO_LARGE: 'حجم الفيديو أكبر من 25MB.', VIDEO_TYPE_UNSUPPORTED: 'نوع الفيديو غير مدعوم أو التوقيع غير صحيح.', AUTH_REQUIRED: 'يجب تسجيل الدخول قبل رفع الفيديو.', AUTH_INVALID: 'انتهت جلسة الدخول، سجّل الدخول مرة أخرى.', FORBIDDEN: 'ليس لديك صلاحية إدارة خلفية الموقع.', VIDEO_STORAGE_NOT_CONFIGURED: 'رفع الفيديو غير مهيأ على الخادم.', VIDEO_UPLOAD_FAILED: 'تعذر رفع الفيديو، حاول مرة أخرى.' };
+    const messages = { VIDEO_TOO_LARGE: 'حجم الفيديو أكبر من 25MB.', VIDEO_TYPE_UNSUPPORTED: 'نوع الفيديو غير مدعوم أو التوقيع غير صحيح.', POSTER_UPLOAD_FAILED: 'تعذر رفع Poster الفيديو.', POSTER_TOO_LARGE: 'حجم Poster أكبر من الحد المسموح.', POSTER_TYPE_UNSUPPORTED: 'Poster غير صالح.', AUTH_REQUIRED: 'يجب تسجيل الدخول قبل رفع الفيديو.', AUTH_INVALID: 'انتهت جلسة الدخول، سجّل الدخول مرة أخرى.', FORBIDDEN: 'ليس لديك صلاحية إدارة خلفية الموقع.', VIDEO_STORAGE_NOT_CONFIGURED: 'رفع الفيديو غير مهيأ على الخادم.', VIDEO_UPLOAD_FAILED: 'تعذر رفع الفيديو، حاول مرة أخرى.' };
     const message = messages[e.code || e.message] || e.message;
     setStatus(message, '#c62828');
     showNotif(message, 'error');
   } finally { if (button) button.disabled = false; }
+}
+
+async function extractBackgroundPoster(file) {
+  const source = URL.createObjectURL(file), video = document.createElement('video');
+  video.preload = 'auto'; video.muted = true; video.playsInline = true; video.src = source;
+  try {
+    await new Promise((resolve, reject) => {
+      video.addEventListener('loadeddata', resolve, { once: true });
+      video.addEventListener('error', () => reject(new Error('POSTER_EXTRACT_FAILED')), { once: true });
+    });
+    if (video.readyState < 2 || !video.videoWidth || !video.videoHeight) throw new Error('POSTER_EXTRACT_FAILED');
+    if (video.currentTime !== 0) await new Promise((resolve, reject) => { video.addEventListener('seeked', resolve, { once: true }); video.addEventListener('error', () => reject(new Error('POSTER_EXTRACT_FAILED')), { once: true }); video.currentTime = 0; });
+    const scale = Math.min(1, 1280 / Math.max(1, video.videoWidth)), canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(video.videoWidth * scale)); canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
+    canvas.getContext('2d', { alpha: false }).drawImage(video, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/webp', 0.82));
+    if (!blob) throw new Error('POSTER_EXTRACT_FAILED');
+    return blob;
+  } finally { URL.revokeObjectURL(source); video.remove(); }
 }
 
 async function deleteBgAsset(kind) {
@@ -2178,6 +2208,7 @@ async function deleteBgAsset(kind) {
   try {
     if (kind !== 'video' && url && /^https:\/\/firebasestorage\.googleapis\.com\//i.test(url)) await storage.refFromURL(url).delete().catch(() => {});
     document.getElementById(field).value = '';
+    if (kind === 'video') document.getElementById('bgPosterUrl').value = '';
     await saveBackgroundSettings();
   } catch(e) { showNotif('تعذر حذف الملف: ' + e.message, 'error'); }
 }
@@ -2189,6 +2220,7 @@ async function saveBackgroundSettings() {
   const imageUrl = document.getElementById('bgImageUrl')?.value?.trim() || '';
   const videoUrl = document.getElementById('bgVideoUrl')?.value?.trim() || '';
   const fallbackImageUrl = document.getElementById('bgFallbackImageUrl')?.value?.trim() || imageUrl;
+  const posterUrl = document.getElementById('bgPosterUrl')?.value?.trim() || backgroundSettings.posterUrl || '';
   if (enabled && type === 'video' && !/^https:\/\//i.test(videoUrl)) {
     showNotif('لا يمكن حفظ خلفية فيديو بدون رابط HTTPS عام ناتج من الرفع.','error');
     return false;
@@ -2200,13 +2232,14 @@ async function saveBackgroundSettings() {
     imageUrl,
     videoUrl,
     fallbackImageUrl,
+    posterUrl,
     updatedAt: firebase.database.ServerValue.TIMESTAMP
   };
   
   try {
     await db.ref('background').set(bgData);
     const saved = (await db.ref('background').once('value')).val() || {};
-    if (saved.type !== type || saved.imageUrl !== imageUrl || saved.videoUrl !== videoUrl || saved.fallbackImageUrl !== fallbackImageUrl) {
+    if (saved.type !== type || saved.imageUrl !== imageUrl || saved.videoUrl !== videoUrl || saved.fallbackImageUrl !== fallbackImageUrl || saved.posterUrl !== posterUrl) {
       throw new Error('تعذر التحقق من حفظ إعدادات الخلفية في Firebase.');
     }
     showNotif('تم حفظ إعدادات الخلفية بنجاح!');
@@ -2587,6 +2620,7 @@ function startFirebaseListeners(){
       const iu = document.getElementById('bgImageUrl'); if (iu) iu.value = backgroundSettings.imageUrl || '';
       const vu = document.getElementById('bgVideoUrl'); if (vu) vu.value = backgroundSettings.videoUrl || '';
       const fb = document.getElementById('bgFallbackImageUrl'); if (fb) fb.value = backgroundSettings.fallbackImageUrl || '';
+      const pu = document.getElementById('bgPosterUrl'); if (pu) pu.value = backgroundSettings.posterUrl || '';
       updateBgTypeUI();
     }
   });

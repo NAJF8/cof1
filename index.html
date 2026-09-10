@@ -2031,6 +2031,9 @@
             height: 100%;
             object-fit: cover;
         }
+        #siteBgWrap .site-bg-poster { position:absolute; inset:0; z-index:0; display:block; }
+        #siteBgWrap .site-bg-video { position:absolute; inset:0; z-index:1; opacity:0; transition:opacity 350ms ease; }
+        #siteBgWrap .site-bg-video.is-playing { opacity:1; }
         .site-bg-overlay {
             position: fixed;
             inset: 0;
@@ -3471,7 +3474,7 @@
             eventsDB = [],
             tablesDB = [],
             eventBookingsDB = [],
-            backgroundSettings = { enabled: false, type: 'none', imageUrl: '', videoUrl: '', fallbackImageUrl: '' },
+            backgroundSettings = { enabled: false, type: 'none', imageUrl: '', videoUrl: '', fallbackImageUrl: '', posterUrl: '' },
             candleSettings = { enabled: true, startTime: '16:00', endTime: '18:00', capacity: 10, price: 0 },
             DEFAULT_ASSISTANT_NAME = 'زينة',
             aiConfig = { enabled: true, provider: 'smart_rules', model: 'gemini-1.5-flash', assistantName: DEFAULT_ASSISTANT_NAME, welcomeAr: 'أهلاً بك في 101 COFFEE! ☕ كيف تحب تشرب قهوتك اليوم؟', welcomeEn: 'Welcome to 101 COFFEE! ☕ How would you like your coffee today?' },
@@ -3585,16 +3588,27 @@
             overlay.style.display = 'block';
 
             if (type === 'video' && videoUrl) {
+                const posterUrl = safeImgSrc(settings.posterUrl || settings.fallbackImageUrl || imageUrl);
                 wrap.innerHTML = '';
+                if (posterUrl) {
+                    const poster = document.createElement('img');
+                    poster.className = 'site-bg-poster'; poster.src = posterUrl; poster.alt = ''; poster.setAttribute('aria-hidden', 'true');
+                    wrap.appendChild(poster);
+                }
                 const video = document.createElement('video');
                 video.src = videoUrl;
-                video.poster = safeImgSrc(settings.fallbackImageUrl || imageUrl);
+                video.poster = posterUrl;
+                video.className = 'site-bg-video';
                 video.autoplay = true;
                 video.muted = true;
                 video.loop = true;
                 video.playsInline = true;
                 video.preload = 'auto';
                 video.addEventListener('loadeddata', () => console.info('[BACKGROUND_VIDEO_LOADED]', { src: video.currentSrc || video.src }), { once: true });
+                video.addEventListener('playing', () => {
+                    video.classList.add('is-playing');
+                    console.info('[BACKGROUND_VIDEO_PLAYING]', { src: video.currentSrc || video.src });
+                }, { once: true });
                 video.addEventListener('error', () => {
                     console.error('[BACKGROUND_VIDEO_ERROR]', { src: video.currentSrc || video.src, code: video.error?.code || 0, message: video.error?.message || '' });
                     window.handleHeroVideoError(video);
@@ -3613,19 +3627,8 @@
         }
 
         window.handleHeroVideoError = function(video) {
-            const fallback = safeImgSrc(backgroundSettings.fallbackImageUrl || backgroundSettings.imageUrl);
             if (!video?.parentElement) return;
-            if (!fallback) {
-                video.remove();
-                const staticFallback = document.querySelector('.hero-media-fallback');
-                if (staticFallback) staticFallback.style.display = '';
-                return;
-            }
-            const img = document.createElement('img');
-            img.src = fallback;
-            img.alt = '101 COFFEE';
-            img.style.cssText = 'width:100%;height:100%;object-fit:cover;';
-            video.replaceWith(img);
+            video.remove();
         };
 
         // ── CATEGORY NAVIGATION ────────────────────────────────
