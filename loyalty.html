@@ -148,7 +148,6 @@ body { font-family: 'Cairo', sans-serif; background: var(--bg-gradient); color: 
           <div style="display:flex;align-items:center;gap:8px;">
             <span class="prof-card" id="clubCustNumberDisplay">--</span>
           </div>
-          <div id="clubLoyaltyMembershipDisplay" style="margin-top:5px;font-size:12px;color:var(--text-muted);">عضوية الولاء: —</div>
         </div>
       </div>
       <div class="hearts-box">
@@ -1701,9 +1700,9 @@ function clubSubscriptionState(sub){
     if(!result.found||!found)throw Object.assign(new Error('CLUB_MEMBER_NOT_FOUND'),{code:'CLUB_MEMBER_NOT_FOUND'});
     const canonicalClubId=result.canonicalClubId||found.canonicalClubId||found.customerId||found.id, shownClubNumber=displayClubNumber(found.clubNumber||canonicalClubId);
     currentClubCustomer={...found,clubNumber:canonicalClubId,displayClubNumber:shownClubNumber,canonicalClubId}; msg.textContent='';
-    document.getElementById('clubCustNameDisplay').textContent=found.name||'—'; document.getElementById('clubCustNumberDisplay').textContent=shownClubNumber||'—'; document.getElementById('clubLoyaltyMembershipDisplay').textContent='عضوية الولاء: '+(found.membershipNumber||'—'); document.getElementById('clubPhoneDisplay').textContent=found.phone||'—'; document.getElementById('clubPinInput').value='';
+    document.getElementById('clubCustNameDisplay').textContent=found.name||'—'; document.getElementById('clubCustNumberDisplay').textContent=shownClubNumber||'—'; document.getElementById('clubPhoneDisplay').textContent=found.phone||'—'; document.getElementById('clubPinInput').value='';
     const canonicalActive=typeof result.isActive==='boolean'?result.isActive:found.status==='active'; document.getElementById('clubPlanDisplay').textContent=sub?.planName||sub?.planId||'—'; document.getElementById('clubStatusDisplay').textContent=canonicalActive?'الاشتراك فعال':'الاشتراك غير فعال'; document.getElementById('clubRemainingUsesDisplay').textContent=sub?`${Number(sub.remainingUses)||0} / ${Number(sub.totalUses)||0}`:'لا يوجد'; document.getElementById('clubExpiresDisplay').textContent=sub?.expiresAt?new Date(Number(sub.expiresAt)).toLocaleDateString('ar-IQ'):'—'; document.getElementById('clubProfile').style.display='block';
-  } catch(error) { const code=error?.code||'unknown'; console.error('[CLUB_SEARCH_FAILED]',{code}); msg.textContent=code==='CLUB_MEMBER_NOT_FOUND'?'المشترك غير موجود':code==='AUTH_REQUIRED'||code==='AUTH_INVALID'?'يرجى تسجيل الدخول':code==='FORBIDDEN'?'ليس لديك صلاحية للبحث':code==='INVALID_INPUT'?'أدخل رقم المشترك أو رقم الهاتف بشكل صحيح':code==='BACKEND_AUTH_ERROR'?'تعذر الاتصال بخدمة المشتركين':'تعذر البحث حالياً'; }
+ } catch(error) { const code=error?.code||'unknown'; console.error('[CLUB_SEARCH_FAILED]',{code}); msg.textContent=code==='CLUB_MEMBER_NOT_FOUND'?'المشترك غير موجود':code==='AUTH_REQUIRED'||code==='AUTH_INVALID'?'يرجى تسجيل الدخول':code==='FORBIDDEN'?'ليس لديك صلاحية للبحث':code==='INVALID_INPUT'?'أدخل رقم المشترك أو رقم الهاتف بشكل صحيح':code==='BACKEND_AUTH_ERROR'?'تعذر الاتصال بخدمة المشتركين':'تعذر البحث حالياً'; }
  }
 
 async function redeemClubDrink() {
