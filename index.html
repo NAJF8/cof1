@@ -3561,23 +3561,49 @@
         function renderBackground() {
             const wrap = document.getElementById('siteBgWrap');
             const overlay = document.getElementById('siteBgOverlay');
+            const staticFallback = document.querySelector('.hero-media-fallback');
             if (!wrap || !overlay) return;
 
-            if (!backgroundSettings.enabled || backgroundSettings.type === 'none') {
+            const settings = backgroundSettings || {};
+            const type = String(settings.type || '').toLowerCase();
+            const imageUrl = safeImgSrc(settings.imageUrl || (type === 'image' ? settings.url : ''));
+            const videoUrl = safeImgSrc(settings.videoUrl || (type === 'video' ? settings.url : ''));
+            const hasActiveBackground = settings.enabled !== false && (
+                (type === 'image' && imageUrl) || (type === 'video' && videoUrl)
+            );
+
+            if (!hasActiveBackground) {
                 wrap.style.display = 'none';
                 wrap.innerHTML = '';
                 overlay.style.display = 'none';
+                if (staticFallback) staticFallback.style.display = '';
                 return;
             }
 
+            if (staticFallback) staticFallback.style.display = 'none';
             wrap.style.display = 'block';
             overlay.style.display = 'block';
 
-            const imageUrl = safeImgSrc(backgroundSettings.imageUrl);
-            const videoUrl = safeImgSrc(backgroundSettings.videoUrl);
-            const fallbackUrl = safeImgSrc(backgroundSettings.fallbackImageUrl || imageUrl);
-            if (backgroundSettings.type === 'video' && videoUrl) {
-                wrap.innerHTML = `<video src="${esc(videoUrl)}" autoplay muted loop playsinline poster="${esc(fallbackUrl)}" onerror="handleHeroVideoError(this)"></video>`;
+            if (type === 'video' && videoUrl) {
+                wrap.innerHTML = '';
+                const video = document.createElement('video');
+                video.src = videoUrl;
+                video.poster = safeImgSrc(settings.fallbackImageUrl || imageUrl);
+                video.autoplay = true;
+                video.muted = true;
+                video.loop = true;
+                video.playsInline = true;
+                video.preload = 'auto';
+                video.addEventListener('loadeddata', () => console.info('[BACKGROUND_VIDEO_LOADED]', { src: video.currentSrc || video.src }), { once: true });
+                video.addEventListener('error', () => {
+                    console.error('[BACKGROUND_VIDEO_ERROR]', { src: video.currentSrc || video.src, code: video.error?.code || 0, message: video.error?.message || '' });
+                    window.handleHeroVideoError(video);
+                }, { once: true });
+                wrap.appendChild(video);
+                const playAttempt = video.play();
+                if (playAttempt && typeof playAttempt.catch === 'function') {
+                    playAttempt.catch(error => console.warn('[BACKGROUND_VIDEO_AUTOPLAY_BLOCKED]', { name: error?.name || 'unknown' }));
+                }
             } else if (imageUrl) {
                 wrap.innerHTML = `<img src="${esc(imageUrl)}" alt="Background">`;
             } else {
@@ -3588,7 +3614,13 @@
 
         window.handleHeroVideoError = function(video) {
             const fallback = safeImgSrc(backgroundSettings.fallbackImageUrl || backgroundSettings.imageUrl);
-            if (!fallback || !video?.parentElement) return;
+            if (!video?.parentElement) return;
+            if (!fallback) {
+                video.remove();
+                const staticFallback = document.querySelector('.hero-media-fallback');
+                if (staticFallback) staticFallback.style.display = '';
+                return;
+            }
             const img = document.createElement('img');
             img.src = fallback;
             img.alt = '101 COFFEE';

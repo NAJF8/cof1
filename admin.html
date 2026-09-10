@@ -2115,6 +2115,10 @@ async function uploadBgVideo() {
     const snap = await ref.put(file);
     const url = await snap.ref.getDownloadURL();
     document.getElementById('bgVideoUrl').value = url;
+    document.getElementById('bgType').value = 'video';
+    document.getElementById('bgEnabled').checked = true;
+    updateBgTypeUI();
+    if (!await saveBackgroundSettings()) throw new Error('تعذر حفظ إعدادات الخلفية في Firebase.');
     showNotif('تم رفع الفيديو بنجاح!');
     renderBgPreview();
   } catch(e) {
@@ -2141,6 +2145,10 @@ async function saveBackgroundSettings() {
   const imageUrl = document.getElementById('bgImageUrl')?.value?.trim() || '';
   const videoUrl = document.getElementById('bgVideoUrl')?.value?.trim() || '';
   const fallbackImageUrl = document.getElementById('bgFallbackImageUrl')?.value?.trim() || imageUrl;
+  if (enabled && type === 'video' && !/^https:\/\//i.test(videoUrl)) {
+    showNotif('لا يمكن حفظ خلفية فيديو بدون رابط HTTPS عام ناتج من الرفع.','error');
+    return false;
+  }
   
   const bgData = {
     enabled,
@@ -2151,8 +2159,16 @@ async function saveBackgroundSettings() {
     updatedAt: firebase.database.ServerValue.TIMESTAMP
   };
   
-  try { await db.ref('background').set(bgData); showNotif('تم حفظ إعدادات الخلفية بنجاح!'); }
-  catch(e) { showNotif('خطأ: ' + e.message, 'error'); }
+  try {
+    await db.ref('background').set(bgData);
+    const saved = (await db.ref('background').once('value')).val() || {};
+    if (saved.type !== type || saved.imageUrl !== imageUrl || saved.videoUrl !== videoUrl || saved.fallbackImageUrl !== fallbackImageUrl) {
+      throw new Error('تعذر التحقق من حفظ إعدادات الخلفية في Firebase.');
+    }
+    showNotif('تم حفظ إعدادات الخلفية بنجاح!');
+    return true;
+  }
+  catch(e) { showNotif('خطأ: ' + e.message, 'error'); return false; }
 }
 
 function resetBackgroundToDefault() {
