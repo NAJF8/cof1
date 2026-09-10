@@ -41,6 +41,66 @@ function base64Bytes(bytes) { let output = ''; for (let offset = 0; offset < byt
 async function uploadProductImage(request, env, current) { await staff(env, current, 'manage-products'); if (!consumeProductImageRate(current.uid)) throw Error('IMAGE_RATE_LIMITED'); const file = (await request.formData()).get('image'); if (!file || typeof file.arrayBuffer !== 'function') throw Error('IMAGE_REQUIRED'); if (Number(file.size) > MAX_PRODUCT_IMAGE_BYTES) throw Error('IMAGE_TOO_LARGE'); const bytes = new Uint8Array(await file.arrayBuffer()), type = String(file.type || '').toLowerCase(); if (!PRODUCT_IMAGE_TYPES.has(type) || productImageType(bytes) !== type) throw Error('IMAGE_TYPE_UNSUPPORTED'); const token = String(env.GITHUB_PRODUCT_IMAGES_TOKEN || '').trim(); if (!token) throw Error('IMAGE_STORAGE_NOT_CONFIGURED'); const extension = type === 'image/jpeg' ? 'jpg' : type.slice(6), filename = `${Date.now()}-${crypto.randomUUID().replace(/-/g, '')}.${extension}`, path = `assets/products/${filename}`; const github = await fetch(`https://api.github.com/repos/NAJF8/cof1/contents/${path}`, { method: 'PUT', headers: { Accept: 'application/vnd.github+json', Authorization: `Bearer ${token}`, 'X-GitHub-Api-Version': '2022-11-28', 'User-Agent': '101-coffee-product-image-uploader', 'Content-Type': 'application/json' }, body: JSON.stringify({ message: 'chore: upload product image', content: base64Bytes(bytes), branch: 'main' }) }); if (!github.ok) throw Error('IMAGE_UPLOAD_FAILED'); return response(request, env, { success: true, imageUrl: `https://101coffees.com/assets/products/${encodeURIComponent(filename)}`, path }); }
 async function login(request, env) { const payload = await body(request), membership = security.normalizeMembershipNumber(payload.membershipNumber), pin = String(payload.pin || ''), pepper = String(env.LOYALTY_PIN_PEPPER || ''); if (!membership || !security.validPin(pin) || !pepper) return fail(request, env, 'INVALID_CREDENTIALS', 401); const key = await security.attemptKey(membership, request.headers.get('CF-Connecting-IP') || 'unknown', pepper), state = await firebaseAdminRequest(env, `loyalty_login_attempts/${key}`) || {}, now = Date.now(); if (Number(state.lockedUntil) > now || Number(state.failedAttempts) >= security.MAX_FAILURES && now - Number(state.firstFailureAt || 0) < security.WINDOW_MS) return fail(request, env, 'RATE_LIMITED', 429); const [customer, credential] = await Promise.all([firebaseAdminRequest(env, `loyalty_customers/${membership}`), firebaseAdminRequest(env, `loyalty_credentials/${membership}`)]); let valid = await security.timingSafePinMatch(pin, credential, pepper); if (!valid && !credential && customer && security.validPin(customer.pin)) { valid = security.timingSafeEqual(new TextEncoder().encode(pin), new TextEncoder().encode(String(customer.pin))); if (valid) await firebaseAdminRequest(env, `loyalty_credentials/${membership}`, { method: 'PUT', body: await security.createCredential(pin, pepper, now) }); } if (!customer || !valid) { const within = Number(state.firstFailureAt) > 0 && now - Number(state.firstFailureAt) < security.WINDOW_MS, failures = within ? Number(state.failedAttempts || 0) + 1 : 1; await firebaseAdminRequest(env, `loyalty_login_attempts/${key}`, { method: 'PUT', body: { failedAttempts: failures, firstFailureAt: within ? Number(state.firstFailureAt) : now, lastFailureAt: now, lockedUntil: failures >= security.MAX_FAILURES ? now + security.WINDOW_MS : 0 } }); return fail(request, env, failures >= security.MAX_FAILURES ? 'RATE_LIMITED' : 'INVALID_CREDENTIALS', failures >= security.MAX_FAILURES ? 429 : 401); } await firebaseAdminRequest(env, `loyalty_login_attempts/${key}`, { method: 'DELETE' }); return response(request, env, { ok: true, token: await customToken(env, `loyalty-member:${membership}`), profile: safeCustomer(membership, customer) }); }
 function normalizedEmail(value) { return String(value || '').trim().toLowerCase(); }
+function normalizeIraqiPhone(value) {
+  let digits = String(value || '').trim().replace(/\D/g, '');
+  if (digits.startsWith('00')) digits = digits.slice(2);
+  if (digits.startsWith('0')) digits = `964${digits.slice(1)}`;
+  return /^9647\d{9}$/.test(digits) ? digits : '';
+}
+function normalizeClubNumber(value) { return String(value || '').trim().toUpperCase().replace(/[\s_]+/g, '-').replace(/-+/g, '-'); }
+function clubSearchQuery(value) {
+  const raw = String(value || '').trim();
+  const clubNumber = normalizeClubNumber(raw);
+  if (/^CLUB-101-\d+$/.test(clubNumber)) return { type: 'club', value: clubNumber };
+  const phone = normalizeIraqiPhone(raw);
+  if (phone) return { type: 'phone', value: phone };
+  throw Error('INVALID_INPUT');
+}
+function safeClubSubscription(id, value) {
+  if (!value || typeof value !== 'object') return null;
+  return { id, planName: String(value.planName || '').slice(0, 120), planId: String(value.planId || '').slice(0, 120), status: String(value.status || '').slice(0, 40), remainingUses: Number(value.remainingUses) || 0, totalUses: Number(value.totalUses) || 0, expiresAt: value.expiresAt == null ? null : Number(value.expiresAt) || null };
+}
+function safeClubCustomer(id, value, subscriptionId, subscription) {
+  const customer = value || {};
+  return { customerId: id, id, clubNumber: String(customer.clubNumber || id).slice(0, 80), name: String(customer.name || customer.displayName || '').slice(0, 120), phone: String(customer.phone || customer.phoneNumber || customer.mobile || customer.mobileNumber || '').slice(0, 40), status: String(customer.status || '').slice(0, 40), uid: customer.uid ? String(customer.uid).slice(0, 180) : null, membershipNumber: customer.membershipNumber ? String(customer.membershipNumber).slice(0, 80) : null, activeSubscriptionId: customer.activeSubscriptionId ? String(customer.activeSubscriptionId).slice(0, 180) : null, subscriptionId: subscriptionId || null, subscription: subscription ? safeClubSubscription(subscriptionId, subscription) : null };
+}
+function maskClubPhone(value) { const digits = normalizeIraqiPhone(value); return digits ? `${digits.slice(0, 5)}***${digits.slice(-2)}` : '[invalid]'; }
+async function findClubSubscription(env, customerId, customer) {
+  const directId = String(customer?.activeSubscriptionId || '').trim();
+  if (directId) {
+    const direct = await firebaseAdminRequest(env, `subscriptions/${directId}`);
+    if (direct) return { id: directId, value: direct };
+  }
+  const subscriptions = await firebaseAdminRequest(env, 'subscriptions') || {};
+  const clubNumber = normalizeClubNumber(customer?.clubNumber || customerId);
+  const matches = Object.entries(subscriptions).filter(([, value]) => {
+    const item = value || {};
+    return normalizeClubNumber(item.clubNumber) === clubNumber || String(item.customerId || '') === customerId;
+  });
+  if (matches.length !== 1) return null;
+  return { id: matches[0][0], value: matches[0][1] };
+}
+async function searchClub(request, env, current) {
+  console.info('[CLUB_SEARCH_ENTER]');
+  const actor = await staff(env, current, 'search');
+  console.info('[CLUB_SEARCH_AUTH_OK]', { hasUid: Boolean(current.uid) });
+  console.info('[CLUB_SEARCH_ROLE_OK]', { role: actor.role });
+  const query = clubSearchQuery((await body(request)).query);
+  console.info('[CLUB_SEARCH_QUERY_TYPE]', { type: query.type, value: query.type === 'phone' ? maskClubPhone(query.value) : query.value });
+  let customerId = query.type === 'club' ? query.value : '';
+  let customer = query.type === 'club' ? await firebaseAdminRequest(env, `subscription_customers/${customerId}`) : null;
+  if (query.type === 'phone') {
+    const customers = await firebaseAdminRequest(env, 'subscription_customers') || {};
+    const matches = Object.entries(customers).filter(([, value]) => normalizeIraqiPhone(value?.phone || value?.phoneNumber || value?.mobile || value?.mobileNumber) === query.value);
+    if (matches.length > 1) throw Error('INTERNAL_ERROR');
+    if (matches.length === 1) [customerId, customer] = matches[0];
+  }
+  if (!customer || typeof customer !== 'object') { console.info('[CLUB_SEARCH_NOT_FOUND]', { type: query.type }); throw Error('CLUB_MEMBER_NOT_FOUND'); }
+  const related = await findClubSubscription(env, customerId, customer);
+  const result = safeClubCustomer(customerId, customer, related?.id, related?.value);
+  console.info('[CLUB_SEARCH_FOUND]', { customerId, hasSubscription: Boolean(related) });
+  return response(request, env, { ok: true, found: true, customer: result });
+}
 function customerBelongsTo(current, customer) { return String(customer?.uid || '') === current.uid || Boolean(current.emailVerified && current.email && normalizedEmail(customer?.email) === normalizedEmail(current.email)); }
 async function resolveLoyaltyMembership(env, current) {
   const linked = security.normalizeMembershipNumber(await firebaseAdminRequest(env, `loyalty_links/${current.uid}`));
@@ -130,7 +190,44 @@ async function consume(request, env, current) { await staff(env, current, 'consu
 async function submitClaim(request, env, current) { if (!current.emailVerified || !current.email) throw Error('VERIFIED_EMAIL_REQUIRED'); const p = await body(request), clubNumber = String(p.clubNumber || '').trim().toUpperCase(), pin = String(p.pin || '').trim(); if (!/^CLUB-101-\d+$/.test(clubNumber) || !/^\d{4,8}$/.test(pin)) throw Error('INVALID_ARGUMENT'); await firebaseAdminRequest(env, `subscription_account_claims/${current.uid}`, { method: 'PUT', body: { uid: current.uid, clubNumber, pin, displayName: current.name, email: current.email, status: 'pending', createdAt: Date.now() } }); return response(request, env, { ok: true, submitted: true }); }
 async function approveClaim(request, env, current) { await staff(env, current, 'approve-claim'); const p = await body(request), uid = String(p.uid || p.claimId || '').trim(), claim = await firebaseAdminRequest(env, `subscription_account_claims/${uid}`), customers = await firebaseAdminRequest(env, 'subscription_customers') || {}; const entry = Object.entries(customers).find(([, c]) => String(c.clubNumber || '').toUpperCase() === String(claim?.clubNumber || '').toUpperCase() && String(c.pin || '') === String(claim?.pin || '')); if (!claim || claim.status !== 'pending' || !entry) throw Error('CLAIM_INVALID'); const [customerId, customer] = entry; const updates = { [`subscription_customers/${customerId}/uid`]: uid, [`subscription_customers/${customerId}/email`]: claim.email || customer.email || '', [`subscription_account_index/${uid}`]: customerId, [`subscription_account_claims/${uid}/status`]: 'approved', [`subscription_account_claims/${uid}/approvedAt`]: Date.now() }; if (customer.activeSubscriptionId) updates[`subscriptions/${customer.activeSubscriptionId}/uid`] = uid; await firebaseAdminRequest(env, '', { method: 'PATCH', body: updates }); return response(request, env, { ok: true, approved: true }); }
 async function setPin(request, env, current) { await staff(env, current, 'set-pin'); const p = await body(request), id = String(p.customerId || p.id || '').trim(), pin = String(p.pin || '').trim(); if (!id || !/^\d{4,8}$/.test(pin)) throw Error('INVALID_ARGUMENT'); await firebaseAdminRequest(env, `subscription_customers/${id}`, { method: 'PATCH', body: { pin, updatedAt: Date.now() } }); return response(request, env, { ok: true, saved: true }); }
-async function route(request, env, url) { if (!url.pathname.startsWith('/api/loyalty/') && !url.pathname.startsWith('/api/subscription/') && !url.pathname.startsWith('/api/admin/')) return null; if (request.method === 'OPTIONS') return cors(request, env) ? new Response(null, { status: 204, headers: cors(request, env) }) : fail(request, env, 'ORIGIN_NOT_ALLOWED', 403); if (!cors(request, env)) return fail(request, env, 'ORIGIN_NOT_ALLOWED', 403); try { if (url.pathname === '/api/loyalty/login' && request.method === 'POST') return await login(request, env); const current = await auth(request); const path = url.pathname; if (path === '/api/loyalty/profile' && ['GET', 'POST'].includes(request.method)) return await profile(request, env, current); if (path === '/api/loyalty/reveal-pin' && request.method === 'POST') return await revealPin(request, env, current); if (path === '/api/loyalty/provision-google') return await provision(request, env, current); if (path === '/api/admin/provision-super-admin') { await staff(env, current, 'provision-super-admin'); return await provision(request, env, current, true); } if (path === '/api/subscription/claim') return await submitClaim(request, env, current); if (path === '/api/admin/loyalty/activate-pending') return await activatePending(request, env, current); if (path === '/api/admin/loyalty/change-membership') return await changeMembership(request, env, current); if (path === '/api/admin/loyalty/search') return await search(request, env, current); if (path === '/api/admin/loyalty/delete') return await deleteCustomer(request, env, current); if (path === '/api/admin/loyalty/adjust-hearts') return await adjustHearts(request, env, current); if (path === '/api/admin/loyalty/redeem') return await redeem(request, env, current); if (path === '/api/admin/gift/orders' && request.method === 'GET') return await listGiftOrders(request, env, current); if (path === '/api/admin/gift/approve' && request.method === 'POST') return await decideGift(request, env, current, 'approve'); if (path === '/api/admin/gift/reject' && request.method === 'POST') return await decideGift(request, env, current, 'reject'); if (path === '/api/admin/gift/redeem' && request.method === 'POST') return await redeemGift(request, env, current); if (path === '/api/admin/club/consume') return await consume(request, env, current); if (path === '/api/admin/club/reserve-pin') return await reservePin(request, env, current); if (path === '/api/admin/subscription/set-pin') return await setPin(request, env, current); if (path === '/api/admin/subscription/approve-claim') return await approveClaim(request, env, current); return fail(request, env, 'NOT_FOUND', 404); } catch (error) { if (url.pathname === '/api/loyalty/reveal-pin') console.error('[PIN_BACKEND_FAIL]', { code: String(error?.message || 'UNKNOWN').slice(0, 80) }); console.error('[LOYALTY_ROUTE_FAILED]', { path: url.pathname, code: String(error?.message || 'UNKNOWN').slice(0, 80) }); const code = ['AUTH_REQUIRED', 'AUTH_INVALID', 'INVALID_CONTENT_TYPE', 'PAYLOAD_TOO_LARGE', 'FORBIDDEN', 'NOT_FOUND', 'ALREADY_EXISTS', 'GIFT_NOT_FOUND', 'GIFT_ALREADY_REDEEMED', 'GIFT_EXPIRED', 'GIFT_NOT_AVAILABLE', 'GIFT_ALREADY_DECIDED', 'GIFT_NOT_PENDING', 'INVALID_ARGUMENT', 'INVALID_MEMBERSHIP', 'INVALID_PENDING', 'INSUFFICIENT_HEARTS', 'HEARTS_OUT_OF_RANGE', 'CLUB_UNAVAILABLE', 'CLAIM_INVALID', 'PIN_RESERVATION_FAILED', 'VERIFIED_EMAIL_REQUIRED', 'PROFILE_NOT_FOUND', 'PROFILE_LINK_CONFLICT'].includes(error.message) ? error.message : 'REQUEST_FAILED'; const status = ['AUTH_REQUIRED', 'AUTH_INVALID'].includes(code) ? 401 : code === 'FORBIDDEN' ? 403 : ['GIFT_NOT_FOUND', 'NOT_FOUND', 'PROFILE_NOT_FOUND'].includes(code) ? 404 : code === 'PROFILE_LINK_CONFLICT' ? 409 : code === 'INVALID_CONTENT_TYPE' ? 415 : code === 'PAYLOAD_TOO_LARGE' ? 413 : 400; return fail(request, env, code, status); } }
+async function route(request, env, url) {
+  if (!url.pathname.startsWith('/api/loyalty/') && !url.pathname.startsWith('/api/subscription/') && !url.pathname.startsWith('/api/admin/')) return null;
+  if (request.method === 'OPTIONS') return cors(request, env) ? new Response(null, { status: 204, headers: cors(request, env) }) : fail(request, env, 'ORIGIN_NOT_ALLOWED', 403);
+  if (!cors(request, env)) return fail(request, env, 'ORIGIN_NOT_ALLOWED', 403);
+  try {
+    if (url.pathname === '/api/loyalty/login' && request.method === 'POST') return await login(request, env);
+    const current = await auth(request), path = url.pathname;
+    if (path === '/api/admin/club/search' && request.method === 'POST') return await searchClub(request, env, current);
+    if (path === '/api/loyalty/profile' && ['GET', 'POST'].includes(request.method)) return await profile(request, env, current);
+    if (path === '/api/loyalty/reveal-pin' && request.method === 'POST') return await revealPin(request, env, current);
+    if (path === '/api/loyalty/provision-google') return await provision(request, env, current);
+    if (path === '/api/admin/provision-super-admin') { await staff(env, current, 'provision-super-admin'); return await provision(request, env, current, true); }
+    if (path === '/api/subscription/claim') return await submitClaim(request, env, current);
+    if (path === '/api/admin/loyalty/activate-pending') return await activatePending(request, env, current);
+    if (path === '/api/admin/loyalty/change-membership') return await changeMembership(request, env, current);
+    if (path === '/api/admin/loyalty/search') return await search(request, env, current);
+    if (path === '/api/admin/loyalty/delete') return await deleteCustomer(request, env, current);
+    if (path === '/api/admin/loyalty/adjust-hearts') return await adjustHearts(request, env, current);
+    if (path === '/api/admin/loyalty/redeem') return await redeem(request, env, current);
+    if (path === '/api/admin/gift/orders' && request.method === 'GET') return await listGiftOrders(request, env, current);
+    if (path === '/api/admin/gift/approve' && request.method === 'POST') return await decideGift(request, env, current, 'approve');
+    if (path === '/api/admin/gift/reject' && request.method === 'POST') return await decideGift(request, env, current, 'reject');
+    if (path === '/api/admin/gift/redeem' && request.method === 'POST') return await redeemGift(request, env, current);
+    if (path === '/api/admin/club/consume') return await consume(request, env, current);
+    if (path === '/api/admin/club/reserve-pin') return await reservePin(request, env, current);
+    if (path === '/api/admin/subscription/set-pin') return await setPin(request, env, current);
+    if (path === '/api/admin/subscription/approve-claim') return await approveClaim(request, env, current);
+    return fail(request, env, 'NOT_FOUND', 404);
+  } catch (error) {
+    if (url.pathname === '/api/loyalty/reveal-pin') console.error('[PIN_BACKEND_FAIL]', { code: String(error?.message || 'UNKNOWN').slice(0, 80) });
+    if (url.pathname === '/api/admin/club/search') console.error('[CLUB_SEARCH_FAIL]', { code: String(error?.message || 'UNKNOWN').slice(0, 80) });
+    console.error('[LOYALTY_ROUTE_FAILED]', { path: url.pathname, code: String(error?.message || 'UNKNOWN').slice(0, 80) });
+    const rawCode = String(error?.message || '');
+    const code = ['AUTH_REQUIRED', 'AUTH_INVALID', 'INVALID_CONTENT_TYPE', 'PAYLOAD_TOO_LARGE', 'FORBIDDEN', 'NOT_FOUND', 'ALREADY_EXISTS', 'GIFT_NOT_FOUND', 'GIFT_ALREADY_REDEEMED', 'GIFT_EXPIRED', 'GIFT_NOT_AVAILABLE', 'GIFT_ALREADY_DECIDED', 'GIFT_NOT_PENDING', 'INVALID_ARGUMENT', 'INVALID_INPUT', 'INVALID_MEMBERSHIP', 'INVALID_PENDING', 'INSUFFICIENT_HEARTS', 'HEARTS_OUT_OF_RANGE', 'CLUB_UNAVAILABLE', 'CLUB_MEMBER_NOT_FOUND', 'CLAIM_INVALID', 'PIN_RESERVATION_FAILED', 'VERIFIED_EMAIL_REQUIRED', 'PROFILE_NOT_FOUND', 'PROFILE_LINK_CONFLICT', 'BACKEND_AUTH_ERROR', 'INTERNAL_ERROR'].includes(rawCode) ? rawCode : rawCode.startsWith('FIREBASE_') ? (rawCode.includes('401') || rawCode.includes('403') ? 'BACKEND_AUTH_ERROR' : 'INTERNAL_ERROR') : 'REQUEST_FAILED';
+    const status = ['AUTH_REQUIRED', 'AUTH_INVALID'].includes(code) ? 401 : code === 'FORBIDDEN' ? 403 : ['CLUB_MEMBER_NOT_FOUND', 'NOT_FOUND', 'PROFILE_NOT_FOUND'].includes(code) ? 404 : ['BACKEND_AUTH_ERROR', 'INTERNAL_ERROR'].includes(code) ? 500 : code === 'PROFILE_LINK_CONFLICT' ? 409 : code === 'INVALID_CONTENT_TYPE' ? 415 : code === 'PAYLOAD_TOO_LARGE' ? 413 : 400;
+    return fail(request, env, code, status);
+  }
+}
 async function handleProductImageRoute(request, env, url) {
   if (url.pathname !== '/api/admin/products/upload-image') return null;
   if (request.method === 'OPTIONS') return cors(request, env) ? new Response(null, { status: 204, headers: cors(request, env) }) : fail(request, env, 'ORIGIN_NOT_ALLOWED', 403);
@@ -144,4 +241,4 @@ async function handleProductImageRoute(request, env, url) {
   }
 }
 async function handleLoyaltyRoutes(request, env, url) { return await handleProductImageRoute(request, env, url) || route(request, env, url); }
-export { handleLoyaltyRoutes };
+export { handleLoyaltyRoutes, clubSearchQuery, normalizeIraqiPhone, safeClubCustomer };

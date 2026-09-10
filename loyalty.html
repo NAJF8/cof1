@@ -461,9 +461,9 @@ const auth = firebase.auth();
 const db = firebase.database();
 const LOYALTY_SECURITY_ENDPOINT = 'https://coffee-101-ai-chat.coffee101.workers.dev';
 async function callLoyaltySecurity(path, options = {}) {
-  const headers = {'Content-Type':'application/json', ...(options.headers || {})};
-  if (auth.currentUser) headers.Authorization = `Bearer ${await auth.currentUser.getIdToken()}`;
-  const response = await fetch(`${LOYALTY_SECURITY_ENDPOINT}${path}`, {...options, headers, body: options.body && typeof options.body !== 'string' ? JSON.stringify(options.body) : options.body});
+  const {forceRefresh = false, ...requestOptions} = options, headers = {'Content-Type':'application/json', ...(requestOptions.headers || {})};
+  if (auth.currentUser) headers.Authorization = `Bearer ${await auth.currentUser.getIdToken(forceRefresh)}`;
+  const response = await fetch(`${LOYALTY_SECURITY_ENDPOINT}${path}`, {...requestOptions, headers, body: requestOptions.body && typeof requestOptions.body !== 'string' ? JSON.stringify(requestOptions.body) : requestOptions.body});
   const data = await response.json().catch(() => ({}));
   if (!response.ok) { const error = new Error(data.error || 'LOYALTY_SECURITY_FAILED'); error.code = data.error || 'LOYALTY_SECURITY_FAILED'; throw error; }
   return data;
@@ -1689,30 +1689,17 @@ function clubSubscriptionState(sub){
   if(Number(sub.remainingUses)<=0)return {label:'الرصيد منتهي',active:false};
   return {label:'فعال',active:true};
 }
-async function searchClubCust() {
-  const q=document.getElementById('clubSearchQ').value.trim(), searchType=detectSearchType(q), normalizedQuery=searchType==='phone'?normalizeIraqiPhone(q):searchType==='club'?normalizeClubNumber(q):searchType==='membership'?normalizeMembershipNumber(q):normalizeSearchText(q), msg=document.getElementById('clubSearchMsg');
+ async function searchClubCust() {
+  const q=document.getElementById('clubSearchQ').value.trim(), msg=document.getElementById('clubSearchMsg');
   msg.textContent=''; document.getElementById('clubProfile').style.display='none'; if(!q)return; msg.textContent='جارٍ البحث...';
-  console.info('[CLUB_SEARCH_QUERY]',{queryType:searchType}); console.info('[CLUB_SEARCH_TYPE]',{type:searchType}); console.info('[CLUB_SEARCH_NORMALIZED_QUERY]',{type:searchType,value:searchType==='phone'?'[redacted]':normalizedQuery});
   try {
-    const [subscriptionsSnap,requestsSnap,customersSnap,loyaltySnap]=await Promise.all([db.ref('subscriptions').once('value'),db.ref('subscription_requests').once('value'),db.ref('subscription_customers').once('value'),db.ref('loyalty_customers').once('value')]);
-    const subscriptions=[],requests=[],customers=[],loyalty=[];
-    requestsSnap.forEach(c=>{const value=c.val()||{};clubSourceSchema('subscription_requests',c.key,value);requests.push({id:c.key,...value});});
-    customersSnap.forEach(c=>{const value=c.val()||{};clubSourceSchema('subscription_customers',c.key,value);customers.push({id:c.key,...value});});
-    subscriptionsSnap.forEach(c=>{const value=c.val()||{};clubSourceSchema('subscriptions',c.key,value);subscriptions.push({...value,subscriptionId:c.key});});
-    loyaltySnap.forEach(c=>{const value=c.val()||{};clubSourceSchema('loyalty_customers',c.key,value);loyalty.push({id:c.key,...value});});
-    console.info('[CLUB_SEARCH_SOURCE_COUNTS]',{customers:customers.length,subscriptions:subscriptions.length,requests:requests.length,loyalty:loyalty.length});
-    const matches=[];
-    for(const sub of subscriptions){
-      const record=buildClubSearchRecord(sub,{requests,customers,loyalty}), nameMatched=searchType==='text'&&record.normalizedName.includes(normalizedQuery), phoneMatched=searchType==='phone'&&Boolean(record.normalizedPhone)&&record.normalizedPhone===normalizedQuery, clubMatched=searchType==='club'&&Boolean(record.normalizedClubNumber)&&record.normalizedClubNumber===normalizedQuery, membershipMatched=searchType==='membership'&&Boolean(record.normalizedMembershipNumber)&&record.normalizedMembershipNumber===normalizedQuery;
-      console.info('[CLUB_SEARCH_MATCH_DECISION]',{subscriptionId:record.subscriptionId,nameMatched,phoneMatched,clubMatched,membershipMatched}); if(nameMatched||phoneMatched||clubMatched||membershipMatched)matches.push(record);
-    }
-    console.info('[CLUB_SEARCH_CANDIDATES]',{count:subscriptions.length}); console.info('[CLUB_SEARCH_MATCHES]',{count:matches.length});
-    const found=matches.sort((a,b)=>Number(clubSubscriptionState(b).active)-Number(clubSubscriptionState(a).active))[0]; if(!found){msg.textContent='❌ لم يتم العثور على مشترك 101 CLUB بهذا الرقم أو الاسم.';return;}
-    console.info('[CLUB_SEARCH_SUBSCRIPTION_ID]',{subscriptionId:found.subscriptionId}); currentClubCustomer=found; msg.textContent='';
+    const result=await callLoyaltySecurity('/api/admin/club/search',{method:'POST',body:{query:q},forceRefresh:true}), found=result.customer, sub=found?.subscription||null;
+    if(!result.found||!found)throw Object.assign(new Error('CLUB_MEMBER_NOT_FOUND'),{code:'CLUB_MEMBER_NOT_FOUND'});
+    currentClubCustomer=found; msg.textContent='';
     document.getElementById('clubCustNameDisplay').textContent=found.name||'—'; document.getElementById('clubCustNumberDisplay').textContent=found.clubNumber||'—'; document.getElementById('clubLoyaltyMembershipDisplay').textContent='عضوية الولاء: '+(found.membershipNumber||'—'); document.getElementById('clubPhoneDisplay').textContent=found.phone||'—'; document.getElementById('clubPinInput').value='';
-    const sub=(await db.ref('subscriptions/'+found.subscriptionId).once('value')).val(),state=clubSubscriptionState(sub); document.getElementById('clubPlanDisplay').textContent=sub?.planName||sub?.planId||'—'; document.getElementById('clubStatusDisplay').textContent=state.label; document.getElementById('clubRemainingUsesDisplay').textContent=sub?`${Number(sub.remainingUses)||0} / ${Number(sub.totalUses)||0}`:'لا يوجد'; document.getElementById('clubExpiresDisplay').textContent=sub?.expiresAt?new Date(Number(sub.expiresAt)).toLocaleDateString('ar-IQ'):'—'; document.getElementById('clubProfile').style.display='block';
-  } catch(error) { console.error('[CLUB_SEARCH_FAILED]',{code:error?.code||'unknown'}); msg.textContent='❌ تعذر البحث عن مشترك 101 CLUB.'; }
-}
+    const state=clubSubscriptionState(sub); document.getElementById('clubPlanDisplay').textContent=sub?.planName||sub?.planId||'—'; document.getElementById('clubStatusDisplay').textContent=found.status==='active'&&!sub?'فعال':state.label; document.getElementById('clubRemainingUsesDisplay').textContent=sub?`${Number(sub.remainingUses)||0} / ${Number(sub.totalUses)||0}`:'لا يوجد'; document.getElementById('clubExpiresDisplay').textContent=sub?.expiresAt?new Date(Number(sub.expiresAt)).toLocaleDateString('ar-IQ'):'—'; document.getElementById('clubProfile').style.display='block';
+  } catch(error) { const code=error?.code||'unknown'; console.error('[CLUB_SEARCH_FAILED]',{code}); msg.textContent=code==='CLUB_MEMBER_NOT_FOUND'?'المشترك غير موجود':code==='AUTH_REQUIRED'||code==='AUTH_INVALID'?'يرجى تسجيل الدخول':code==='FORBIDDEN'?'ليس لديك صلاحية للبحث':code==='INVALID_INPUT'?'أدخل رقم المشترك أو رقم الهاتف بشكل صحيح':code==='BACKEND_AUTH_ERROR'?'تعذر الاتصال بخدمة المشتركين':'تعذر البحث حالياً'; }
+ }
 
 async function redeemClubDrink() {
   if(!currentClubCustomer) return;
