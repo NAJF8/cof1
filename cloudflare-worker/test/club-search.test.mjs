@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { webcrypto } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
-import { handleLoyaltyRoutes, clubSearchQuery, normalizeIraqiPhone, safeClubCustomer } from '../src/loyalty-routes.js';
+import { handleLoyaltyRoutes, clubSearchQuery, normalizeIraqiPhone, normalizeClubMembership, safeClubCustomer } from '../src/loyalty-routes.js';
 
 globalThis.crypto ||= webcrypto;
 const encoder = new TextEncoder();
@@ -15,21 +15,38 @@ const privatePem = `-----BEGIN PRIVATE KEY-----\n${Buffer.from(privateKey).toStr
 
 let role = 'manager';
 let writes = 0;
-let customer = { status: 'active', clubNumber: 'CLUB-101-14', name: 'Known Club Member', phone: '07827337942', uid: 'member-uid', pin: '1234' };
-let subscriptions = { subscriptionA: { clubNumber: 'CLUB-101-14', status: 'active', planName: 'Test', remainingUses: 3, totalUses: 10, expiresAt: Date.now() + 86400000 } };
+let allowWrites = false;
+let customer = { status: 'active', clubNumber: 'CLUB-101-6', name: 'Known Club Member', phone: '07827337942', uid: 'member-uid', pin: '1234' };
+let subscriptions = { subscriptionA: { clubNumber: 'CLUB-101-6', status: 'active', planName: 'Test', remainingUses: 3, totalUses: 10, expiresAt: Date.now() + 86400000 } };
+const applyRootUpdate = (root, path, value) => {
+  const parts = path.split('/').filter(Boolean);
+  let target = root;
+  for (const part of parts.slice(0, -1)) target = target[part] ||= {};
+  if (value === null) delete target[parts.at(-1)];
+  else target[parts.at(-1)] = value;
+};
 const database = {
   'admins/staff-uid': () => ({ role, status: 'active', permissions: {} }),
-  'subscription_customers/CLUB-101-14': () => customer,
-  subscription_customers: () => ({ 'CLUB-101-14': customer }),
+  'subscription_customers/CLUB-101-6': () => customer,
+  subscription_customers: () => ({ 'CLUB-101-6': customer }),
   subscriptions: () => subscriptions
 };
+const databaseRoot = () => ({ admins: { 'staff-uid': { role, status: 'active', permissions: {} } }, subscription_customers: { 'CLUB-101-6': customer }, subscriptions, subscription_pin_index: {} });
 globalThis.fetch = async (input, options = {}) => {
   const url = String(input);
   if (url.includes('service_accounts/v1/jwk')) return Response.json({ keys: [publicJwk] });
   if (url === 'https://oauth2.googleapis.com/token') return Response.json({ access_token: 'fixture-service-token', expires_in: 3600 });
   if (url.includes('coffee-30fa7-default-rtdb.firebaseio.com')) {
-    if (options.method && options.method !== 'GET') { writes += 1; return Response.json({ error: 'write not expected' }, { status: 500 }); }
+    if (options.method && options.method !== 'GET') {
+      writes += 1;
+      if (!allowWrites) return Response.json({ error: 'write not expected' }, { status: 500 });
+      const updates = JSON.parse(options.body || '{}'), root = databaseRoot();
+      Object.entries(updates).forEach(([path, value]) => applyRootUpdate(root, path, value));
+      if (root.subscriptions) subscriptions = root.subscriptions;
+      return Response.json(updates);
+    }
     const path = new URL(url).pathname.replace(/^\//, '').replace(/\.json$/, '');
+    if (!path) return Response.json(databaseRoot(), { headers: { ETag: 'fixture-etag' } });
     return Response.json(database[path]?.() ?? null);
   }
   throw new Error(`unexpected fetch ${url}`);
@@ -41,21 +58,31 @@ async function idToken() {
   return `${header}.${payload}.${base64url(signature)}`;
 }
 const env = { ALLOWED_ORIGINS: 'https://najf8.github.io', FIREBASE_SERVICE_ACCOUNT_EMAIL: 'fixture@example.com', FIREBASE_SERVICE_ACCOUNT_PRIVATE_KEY: privatePem, FIREBASE_DATABASE_URL: 'https://coffee-30fa7-default-rtdb.firebaseio.com' };
-const request = async (query, token) => { const auth = token === null ? null : (token || await idToken()); return handleLoyaltyRoutes(new Request('https://worker.test/api/admin/club/search', { method: 'POST', headers: { Origin: 'https://najf8.github.io', 'Content-Type': 'application/json', ...(auth ? { Authorization: `Bearer ${auth}` } : {}) }, body: JSON.stringify({ query }) }), env, new URL('https://worker.test/api/admin/club/search')); };
+const post = async (path, payload, token) => { const auth = token === null ? null : (token || await idToken()); return handleLoyaltyRoutes(new Request(`https://worker.test${path}`, { method: 'POST', headers: { Origin: 'https://najf8.github.io', 'Content-Type': 'application/json', ...(auth ? { Authorization: `Bearer ${auth}` } : {}) }, body: JSON.stringify(payload) }), env, new URL(`https://worker.test${path}`)); };
+const request = async (query, token) => post('/api/admin/club/search', { query }, token);
 const json = async response => ({ status: response.status, body: await response.json() });
 
 assert.equal(normalizeIraqiPhone('07827337942'), '9647827337942');
+assert.equal(normalizeIraqiPhone('7827337942'), '9647827337942');
+assert.equal(normalizeIraqiPhone('9647827337942'), '9647827337942');
 assert.equal(normalizeIraqiPhone('+9647827337942'), '9647827337942');
-assert.deepEqual(clubSearchQuery('CLUB-101-14'), { type: 'club', value: 'CLUB-101-14' });
-assert.equal(safeClubCustomer('CLUB-101-14', customer, null, null).pin, undefined);
+assert.deepEqual(normalizeClubMembership('101-6'), { displayMembership: '101-6', canonicalClubId: 'CLUB-101-6' });
+assert.deepEqual(normalizeClubMembership('CLUB-101-6'), { displayMembership: '101-6', canonicalClubId: 'CLUB-101-6' });
+assert.deepEqual(clubSearchQuery('101-6'), { type: 'club', value: 'CLUB-101-6', displayMembership: '101-6', canonicalClubId: 'CLUB-101-6' });
+assert.deepEqual(clubSearchQuery('CLUB-101-6'), { type: 'club', value: 'CLUB-101-6', displayMembership: '101-6', canonicalClubId: 'CLUB-101-6' });
+assert.equal(safeClubCustomer('CLUB-101-6', customer, null, null).pin, undefined);
 
-customer = { status: 'active', clubNumber: 'CLUB-101-14', name: 'Known Club Member', phone: '07827337942', uid: 'member-uid', pin: '1234' };
-subscriptions = { subscriptionA: { clubNumber: 'CLUB-101-14', status: 'cancelled', planName: 'Historical', remainingUses: 0, totalUses: 10, expiresAt: Date.now() - 86400000 } };
-for (const query of ['CLUB-101-14', '07827337942', '+9647827337942']) {
+customer = { status: 'active', clubNumber: 'CLUB-101-6', name: 'Known Club Member', phone: '07827337942', uid: 'member-uid', pin: '1234' };
+subscriptions = { subscriptionA: { clubNumber: 'CLUB-101-6', status: 'cancelled', planName: 'Historical', remainingUses: 0, totalUses: 10, expiresAt: Date.now() - 86400000 } };
+let firstCustomer = null;
+for (const query of ['101-6', 'CLUB-101-6', '07827337942', '7827337942', '9647827337942', '+9647827337942']) {
   const result = await json(await request(query));
   assert.equal(result.status, 200);
   assert.equal(result.body.found, true);
-  assert.equal(result.body.customer.customerId, 'CLUB-101-14');
+  assert.equal(result.body.customer.customerId, 'CLUB-101-6');
+  assert.equal(result.body.canonicalClubId, 'CLUB-101-6');
+  assert.equal(result.body.customer.canonicalClubId, 'CLUB-101-6');
+  assert.equal(result.body.customer.clubNumber, '101-6');
   assert.equal(result.body.customer.status, 'active');
   assert.equal(result.body.isActive, true);
   assert.equal(result.body.customer.isActive, true);
@@ -64,19 +91,21 @@ for (const query of ['CLUB-101-14', '07827337942', '+9647827337942']) {
   assert.equal(result.body.subscription.status, 'cancelled');
   assert.equal(result.body.subscriptionRelation, 'historical');
   assert.equal(result.body.customer.pin, undefined);
+  firstCustomer ||= result.body.customer;
+  assert.deepEqual(result.body.customer, firstCustomer);
 }
-customer = { status: 'inactive', clubNumber: 'CLUB-101-14', name: 'Known Club Member', phone: '07827337942', uid: 'member-uid', pin: '1234' };
-subscriptions = { subscriptionA: { clubNumber: 'CLUB-101-14', status: 'active', planName: 'Historical', remainingUses: 3, totalUses: 10, expiresAt: Date.now() + 86400000 } };
-const inactiveCanonical = await json(await request('CLUB-101-14'));
+customer = { status: 'inactive', clubNumber: 'CLUB-101-6', name: 'Known Club Member', phone: '07827337942', uid: 'member-uid', pin: '1234' };
+subscriptions = { subscriptionA: { clubNumber: 'CLUB-101-6', status: 'active', planName: 'Historical', remainingUses: 3, totalUses: 10, expiresAt: Date.now() + 86400000 } };
+const inactiveCanonical = await json(await request('CLUB-101-6'));
 assert.equal(inactiveCanonical.status, 200);
 assert.equal(inactiveCanonical.body.customer.status, 'inactive');
 assert.equal(inactiveCanonical.body.subscription.status, 'active');
 assert.equal(inactiveCanonical.body.isActive, false);
 assert.equal(inactiveCanonical.body.customer.isActive, false);
 assert.equal(inactiveCanonical.body.subscriptionRelation, 'historical');
-customer = { status: 'active', clubNumber: 'CLUB-101-14', name: 'Known Club Member', phone: '07827337942', uid: 'member-uid', pin: '1234' };
+customer = { status: 'active', clubNumber: 'CLUB-101-6', name: 'Known Club Member', phone: '07827337942', uid: 'member-uid', pin: '1234' };
 subscriptions = {};
-const noActiveSubscription = await json(await request('CLUB-101-14'));
+const noActiveSubscription = await json(await request('CLUB-101-6'));
 assert.equal(noActiveSubscription.status, 200);
 assert.equal(noActiveSubscription.body.found, true);
 assert.equal(noActiveSubscription.body.isActive, true);
@@ -93,9 +122,20 @@ const forbidden = await json(await request('CLUB-101-14'));
 assert.equal(forbidden.status, 403);
 assert.equal(forbidden.body.error, 'FORBIDDEN');
 assert.equal(writes, 0);
+role = 'manager';
+allowWrites = true;
+customer = { status: 'active', clubNumber: 'CLUB-101-6', name: 'Known Club Member', phone: '07827337942', uid: 'member-uid', pin: '1234' };
+subscriptions = { subscriptionA: { clubNumber: 'CLUB-101-6', status: 'active', planName: 'Test', remainingUses: 3, totalUses: 10, expiresAt: Date.now() + 86400000 } };
+const consumeResult = await json(await post('/api/admin/club/consume', { subscriptionId: 'subscriptionA', requestId: 'consume-fixture' }));
+assert.equal(consumeResult.status, 200);
+assert.equal(consumeResult.body.remainingUses, 2);
+const reserveResult = await json(await post('/api/admin/club/reserve-pin', { customerId: 'CLUB-101-6' }));
+assert.equal(reserveResult.status, 200);
+assert.match(reserveResult.body.pin, /^\d{4}$/);
 const loyaltySource = await readFile(new URL('../../loyalty.html', import.meta.url), 'utf8');
 const searchFlow = loyaltySource.slice(loyaltySource.indexOf('async function searchClubCust'), loyaltySource.indexOf('async function redeemClubDrink'));
 assert.equal((searchFlow.match(/db\.ref\(['"]subscriptions['"]\)\.once\(['"]value['"]\)/g) || []).length, 0);
 assert.match(searchFlow, /result\.isActive/);
+assert.match(searchFlow, /canonicalClubId/);
 assert.match(searchFlow, /canonicalActive\?'الاشتراك فعال':'الاشتراك غير فعال'/);
 console.log('club search endpoint fixtures: PASS');

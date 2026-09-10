@@ -42,16 +42,28 @@ async function uploadProductImage(request, env, current) { await staff(env, curr
 async function login(request, env) { const payload = await body(request), membership = security.normalizeMembershipNumber(payload.membershipNumber), pin = String(payload.pin || ''), pepper = String(env.LOYALTY_PIN_PEPPER || ''); if (!membership || !security.validPin(pin) || !pepper) return fail(request, env, 'INVALID_CREDENTIALS', 401); const key = await security.attemptKey(membership, request.headers.get('CF-Connecting-IP') || 'unknown', pepper), state = await firebaseAdminRequest(env, `loyalty_login_attempts/${key}`) || {}, now = Date.now(); if (Number(state.lockedUntil) > now || Number(state.failedAttempts) >= security.MAX_FAILURES && now - Number(state.firstFailureAt || 0) < security.WINDOW_MS) return fail(request, env, 'RATE_LIMITED', 429); const [customer, credential] = await Promise.all([firebaseAdminRequest(env, `loyalty_customers/${membership}`), firebaseAdminRequest(env, `loyalty_credentials/${membership}`)]); let valid = await security.timingSafePinMatch(pin, credential, pepper); if (!valid && !credential && customer && security.validPin(customer.pin)) { valid = security.timingSafeEqual(new TextEncoder().encode(pin), new TextEncoder().encode(String(customer.pin))); if (valid) await firebaseAdminRequest(env, `loyalty_credentials/${membership}`, { method: 'PUT', body: await security.createCredential(pin, pepper, now) }); } if (!customer || !valid) { const within = Number(state.firstFailureAt) > 0 && now - Number(state.firstFailureAt) < security.WINDOW_MS, failures = within ? Number(state.failedAttempts || 0) + 1 : 1; await firebaseAdminRequest(env, `loyalty_login_attempts/${key}`, { method: 'PUT', body: { failedAttempts: failures, firstFailureAt: within ? Number(state.firstFailureAt) : now, lastFailureAt: now, lockedUntil: failures >= security.MAX_FAILURES ? now + security.WINDOW_MS : 0 } }); return fail(request, env, failures >= security.MAX_FAILURES ? 'RATE_LIMITED' : 'INVALID_CREDENTIALS', failures >= security.MAX_FAILURES ? 429 : 401); } await firebaseAdminRequest(env, `loyalty_login_attempts/${key}`, { method: 'DELETE' }); return response(request, env, { ok: true, token: await customToken(env, `loyalty-member:${membership}`), profile: safeCustomer(membership, customer) }); }
 function normalizedEmail(value) { return String(value || '').trim().toLowerCase(); }
 function normalizeIraqiPhone(value) {
-  let digits = String(value || '').trim().replace(/\D/g, '');
+  const cleaned = String(value || '').trim().replace(/[\s()-]/g, '');
+  let digits = cleaned.startsWith('+') ? cleaned.slice(1) : cleaned;
+  if (!/^\d+$/.test(digits)) return '';
   if (digits.startsWith('00')) digits = digits.slice(2);
   if (digits.startsWith('0')) digits = `964${digits.slice(1)}`;
+  if (/^7\d{9}$/.test(digits)) digits = `964${digits}`;
   return /^9647\d{9}$/.test(digits) ? digits : '';
 }
 function normalizeClubNumber(value) { return String(value || '').trim().toUpperCase().replace(/[\s_]+/g, '-').replace(/-+/g, '-'); }
+function normalizeClubMembership(value) {
+  const normalized = normalizeClubNumber(value);
+  if (/^CLUB-101-\d+$/.test(normalized)) {
+    const displayMembership = normalized.slice(5);
+    return { displayMembership, canonicalClubId: `CLUB-${displayMembership}` };
+  }
+  if (/^101-\d+$/.test(normalized)) return { displayMembership: normalized, canonicalClubId: `CLUB-${normalized}` };
+  return null;
+}
 function clubSearchQuery(value) {
   const raw = String(value || '').trim();
-  const clubNumber = normalizeClubNumber(raw);
-  if (/^CLUB-101-\d+$/.test(clubNumber)) return { type: 'club', value: clubNumber };
+  const membership = normalizeClubMembership(raw);
+  if (membership) return { type: 'club', value: membership.canonicalClubId, displayMembership: membership.displayMembership, canonicalClubId: membership.canonicalClubId };
   const phone = normalizeIraqiPhone(raw);
   if (phone) return { type: 'phone', value: phone };
   throw Error('INVALID_INPUT');
@@ -67,7 +79,10 @@ function safeClubCustomer(id, value, subscriptionId, subscription, subscriptionR
   const customer = value || {};
   const relation = subscription ? subscriptionRelation : null;
   const authoritativeSubscriptionId = relation === 'current' ? subscriptionId : null;
-  return { customerId: id, id, clubNumber: String(customer.clubNumber || id).slice(0, 80), name: String(customer.name || customer.displayName || '').slice(0, 120), phone: String(customer.phone || customer.phoneNumber || customer.mobile || customer.mobileNumber || '').slice(0, 40), status: String(customer.status || '').slice(0, 40), isActive: canonicalClubIsActive(customer), uid: customer.uid ? String(customer.uid).slice(0, 180) : null, membershipNumber: customer.membershipNumber ? String(customer.membershipNumber).slice(0, 80) : null, activeSubscriptionId: customer.activeSubscriptionId ? String(customer.activeSubscriptionId).slice(0, 180) : null, subscriptionId: authoritativeSubscriptionId || null, subscriptionRelation: relation, subscription: subscription ? safeClubSubscription(subscriptionId, subscription) : null };
+  const membership = normalizeClubMembership(customer.clubNumber || id);
+  const canonicalClubId = membership?.canonicalClubId || String(id || '').slice(0, 80);
+  const displayMembership = membership?.displayMembership || String(customer.clubNumber || id).slice(0, 80);
+  return { customerId: canonicalClubId, id: canonicalClubId, canonicalClubId, clubNumber: displayMembership, name: String(customer.name || customer.displayName || '').slice(0, 120), phone: String(customer.phone || customer.phoneNumber || customer.mobile || customer.mobileNumber || '').slice(0, 40), status: String(customer.status || '').slice(0, 40), isActive: canonicalClubIsActive(customer), uid: customer.uid ? String(customer.uid).slice(0, 180) : null, membershipNumber: customer.membershipNumber ? String(customer.membershipNumber).slice(0, 80) : null, activeSubscriptionId: customer.activeSubscriptionId ? String(customer.activeSubscriptionId).slice(0, 180) : null, subscriptionId: authoritativeSubscriptionId || null, subscriptionRelation: relation, subscription: subscription ? safeClubSubscription(subscriptionId, subscription) : null };
 }
 function maskClubPhone(value) { const digits = normalizeIraqiPhone(value); return digits ? `${digits.slice(0, 5)}***${digits.slice(-2)}` : '[invalid]'; }
 async function findClubSubscription(env, customerId, customer) {
@@ -77,10 +92,10 @@ async function findClubSubscription(env, customerId, customer) {
     if (direct) return { id: directId, value: direct, relation: 'current' };
   }
   const subscriptions = await firebaseAdminRequest(env, 'subscriptions') || {};
-  const clubNumber = normalizeClubNumber(customer?.clubNumber || customerId);
+  const clubNumber = normalizeClubMembership(customer?.clubNumber || customerId)?.canonicalClubId || normalizeClubNumber(customer?.clubNumber || customerId);
   const matches = Object.entries(subscriptions).filter(([, value]) => {
     const item = value || {};
-    return normalizeClubNumber(item.clubNumber) === clubNumber || String(item.customerId || '') === customerId;
+    return (normalizeClubMembership(item.clubNumber)?.canonicalClubId || normalizeClubNumber(item.clubNumber)) === clubNumber || String(item.customerId || '') === customerId;
   });
   if (matches.length !== 1) return null;
   return { id: matches[0][0], value: matches[0][1], relation: 'historical' };
@@ -104,7 +119,7 @@ async function searchClub(request, env, current) {
   const related = await findClubSubscription(env, customerId, customer);
   const result = safeClubCustomer(customerId, customer, related?.id, related?.value, related?.relation);
   console.info('[CLUB_SEARCH_FOUND]', { customerId, hasSubscription: Boolean(related) });
-  return response(request, env, { ok: true, found: true, customer: result, isActive: result.isActive, subscription: result.subscription, subscriptionRelation: result.subscriptionRelation });
+  return response(request, env, { ok: true, found: true, customer: result, canonicalClubId: result.canonicalClubId, isActive: result.isActive, subscription: result.subscription, subscriptionRelation: result.subscriptionRelation });
 }
 function customerBelongsTo(current, customer) { return String(customer?.uid || '') === current.uid || Boolean(current.emailVerified && current.email && normalizedEmail(customer?.email) === normalizedEmail(current.email)); }
 async function resolveLoyaltyMembership(env, current) {
@@ -246,4 +261,4 @@ async function handleProductImageRoute(request, env, url) {
   }
 }
 async function handleLoyaltyRoutes(request, env, url) { return await handleProductImageRoute(request, env, url) || route(request, env, url); }
-export { handleLoyaltyRoutes, clubSearchQuery, normalizeIraqiPhone, safeClubCustomer };
+export { handleLoyaltyRoutes, clubSearchQuery, normalizeIraqiPhone, normalizeClubMembership, safeClubCustomer };
