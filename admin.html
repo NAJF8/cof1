@@ -1912,14 +1912,22 @@ function loadLoyaltyData() {
     let todayHearts = 0;
     let redeemed = 0;
     let waCount = 0;
-    const startOfToday = new Date().setHours(0,0,0,0);
+    const baghdadDateKey = value => {
+      const numeric = Number(value);
+      if (!Number.isFinite(numeric) || numeric <= 0) return '';
+      const timestamp = numeric < 1e12 ? numeric * 1000 : numeric;
+      const parts = new Intl.DateTimeFormat('en-US', { timeZone:'Asia/Baghdad', year:'numeric', month:'2-digit', day:'2-digit' }).formatToParts(new Date(timestamp));
+      const get = type => parts.find(part => part.type === type)?.value || '';
+      return `${get('year')}-${get('month')}-${get('day')}`;
+    };
+    const todayBaghdad = baghdadDateKey(Date.now());
     
     snap.forEach(c => {
       const lg = c.val();
       if(lg.deleted) return;
       _loyaltyLogs.push(lg);
-      if (lg.timestamp >= startOfToday) todayOps++;
-      if (lg.timestamp >= startOfToday && (lg.type === 'HEART_ADDED' || lg.type === 'ADD_HEART')) todayHearts += Number(lg.amount) || Math.max(0, (Number(lg.newHearts)||0) - (Number(lg.oldHearts)||0));
+      if (baghdadDateKey(lg.timestamp) === todayBaghdad) todayOps++;
+      if (baghdadDateKey(lg.timestamp) === todayBaghdad && (lg.type === 'HEART_ADDED' || lg.type === 'ADD_HEART')) todayHearts += Number(lg.amount) || Math.max(0, (Number(lg.newHearts)||0) - (Number(lg.oldHearts)||0));
       if (lg.type === 'REWARD_REDEEMED' || lg.type === 'REDEEM_REWARD') redeemed++;
       if (lg.waStatus) waCount++;
     });

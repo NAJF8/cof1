@@ -827,7 +827,15 @@ async function playLoyaltySong(id) {
 }
 function renderStats() {
   const put=(id,v)=>{const el=document.getElementById(id);if(el)el.textContent=v;};
-  const isToday=t => Number(t) && new Date(Number(t)).toDateString() === new Date().toDateString();
+  const baghdadDateKey = value => {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric) || numeric <= 0) return '';
+    const timestamp = numeric < 1e12 ? numeric * 1000 : numeric;
+    const parts = new Intl.DateTimeFormat('en-US', { timeZone:'Asia/Baghdad', year:'numeric', month:'2-digit', day:'2-digit' }).formatToParts(new Date(timestamp));
+    const get = type => parts.find(part => part.type === type)?.value || '';
+    return `${get('year')}-${get('month')}-${get('day')}`;
+  };
+  const isToday=t => baghdadDateKey(t) === baghdadDateKey(Date.now());
   const customerOnly=customers; // Show all including Super Admin
   const visibleLogs=logs.filter(l=>!l.deleted);
   put('statCustomers', customerOnly.length);
