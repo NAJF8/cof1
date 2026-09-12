@@ -4139,6 +4139,18 @@
             openEventBooking(ev.id, ev);
         };
 
+        function renderEventBookingTableOptions(ev, sourceTables = tablesDB) {
+            const tableSel = document.getElementById("eventBookingTable");
+            if (!tableSel || !ev) return;
+            const activeTables = sourceTables.filter(t => t && t.isActive !== false);
+            tableSel.innerHTML = activeTables.length ?
+                activeTables.map(t => {
+                    const taken = eventBookingsDB.some(b => b.eventId === ev.id && b.date === ev.date && b.tableId === t.id && b.status !== 'cancelled');
+                    return `<option value="${esc(t.id)}" ${taken ? 'disabled' : ''}>${esc(t.name)}${taken ? ' — محجوز / غير متاح' : ''}</option>`;
+                }).join('') :
+                `<option value="general">طاولة عامة</option>`;
+        }
+
         function openEventBooking(eventId, customEvent = null) {
             const ev = customEvent || eventsDB.find(x => x.id === eventId);
             if (!ev) return showToast(currentLang === 'en' ? 'Event details are not available yet.' : 'تفاصيل الفعالية غير متاحة حاليًا.', 'error');
@@ -4151,22 +4163,17 @@
             document.getElementById("eventBookingDate").value = ev.date || "-";
             document.getElementById("eventBookingTime").value = `${ev.startTime || "-"}${ev.endTime ? " - " + ev.endTime : ""}`;
             
-            const tableSel = document.getElementById("eventBookingTable");
-            if (tableSel) {
-                const activeTables = tablesDB.filter(t => t && t.isActive !== false);
-                tableSel.innerHTML = activeTables.length ?
-                    activeTables.map(t => {
-                        const taken = eventBookingsDB.some(b => b.eventId === ev.id && b.date === ev.date && b.tableId === t.id && b.status !== 'cancelled');
-                        return `<option value="${esc(t.id)}" ${taken ? 'disabled' : ''}>${esc(t.name)}${taken ? ' — محجوز / غير متاح' : ''}</option>`;
-                    }).join('') :
-                    `<option value="general">طاولة عامة</option>`;
-            }
+            renderEventBookingTableOptions(ev);
 
             const sum = document.getElementById("eventBookingSummary");
             if (sum) {
                 sum.innerHTML = `<div class="summary-line"><span>${currentLang === 'en' ? 'Price per person:' : 'السعر للشخص:'}</span><strong>${Number(ev.price) === 0 ? (currentLang === 'en' ? 'Free' : 'مجاني') : money(ev.price)}</strong></div>`;
             }
             setModalOpen(modal, true);
+            fetch(`${firebaseConfig.databaseURL}/tables.json?eventBooking=${Date.now()}`, { cache: 'no-store' })
+                .then(response => response.ok ? response.json() : Promise.reject(new Error(`HTTP_${response.status}`)))
+                .then(raw => renderEventBookingTableOptions(ev, raw ? Object.entries(raw).map(([id, table]) => ({ id, ...table })) : []))
+                .catch(error => console.warn('[EVENT_TABLES_REFRESH_FAILED]', error?.code || error?.message));
         }
 
         function bookingKey(...parts) {
@@ -5446,15 +5453,7 @@
                 if (currentCat === 'events') renderEventsCatalog();
             });
 
-            // 6. Tables listener
-            db.ref('tables').on('value', snap => {
-                tablesDB = [];
-                if (snap.exists()) {
-                    snap.forEach(c => tablesDB.push({ id: c.key, ...c.val() }));
-                }
-            });
-
-            // 7. Event Bookings listener
+            // 6. Event Bookings listener
             db.ref('eventBookings').on('value', snap => {
                 eventBookingsDB = [];
                 if (snap.exists()) {
@@ -5463,7 +5462,7 @@
                 if (currentCat === 'events') renderEventsCatalog();
             });
 
-            // 8. Meeting Room Bookings listener
+            // 7. Meeting Room Bookings listener
             db.ref('bookings').on('value', snap => {
                 bookings = [];
                 if (snap.exists()) {
