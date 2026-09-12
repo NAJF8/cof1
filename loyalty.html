@@ -1664,7 +1664,7 @@ function startLoyaltyLogsListener() {
   loyaltyLogsValueCallback = snap => {
     loyaltyLogsRetryAttempt = 0;
     logs = [];
-    snap.forEach(c => logs.push({id:c.key,...c.val()}));
+    snap.forEach(c => { logs.push({id:c.key,...c.val()}); });
     logs.sort((a,b)=>(b.timestamp||0)-(a.timestamp||0));
     renderLogs();
     renderStats();
