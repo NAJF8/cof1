@@ -483,6 +483,13 @@ let currentCustomer = null;
 let rewardRules = [];
 let currentCustomerRef = null;
 let customers = [], staff = [], logs = [];
+let loyaltyLogsRef = null;
+let loyaltyLogsValueCallback = null;
+let loyaltyLogsErrorCallback = null;
+let loyaltyLogsRetryTimer = null;
+let loyaltyLogsRetryAttempt = 0;
+let loyaltyLogsConnectionRef = null;
+let loyaltyLogsConnectionCallback = null;
 const SUPER_ADMIN_EMAIL = 'mohameadalhaear100@gmail.com';
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
 function can(action) {
@@ -589,6 +596,7 @@ async function bootstrapLoyaltyRole(user){
 }
 auth.onAuthStateChanged(async user=>{
   console.log('[LOYALTY_AUTH_STATE]',{signedIn:Boolean(user),hasCurrentUser:Boolean(auth.currentUser),currentUserMatches:Boolean(user&&auth.currentUser&&user.uid===auth.currentUser.uid)});
+  stopLoyaltyLogsListener();
   if(!user){
     currentCashier=null;
     const giftRequestsTab=document.getElementById('giftRequestsNav');if(giftRequestsTab)giftRequestsTab.style.display='none';
@@ -698,7 +706,7 @@ function loadDashboardData() {
         updateStaff();
     });
   }
-  db.ref('loyalty_logs').limitToLast(250).on('value', snap => { logs=[]; snap.forEach(c=>logs.push({id:c.key,...c.val()})); logs.sort((a,b)=>(b.timestamp||0)-(a.timestamp||0)); renderLogs(); renderStats(); });
+  startLoyaltyLogsListener();
   db.ref('song_categories').on('value', snap => {
     songCategories = [];
     if (snap.exists()) {
@@ -1359,20 +1367,34 @@ async function modifyPoints(delta, isExact = false, exactVal = 0) {
           }
           
           const logId = db.ref('loyalty_logs').push().key;
-          await db.ref('loyalty_logs/' + logId).set({
-            type: delta > 0 ? 'HEART_ADDED' : (delta < 0 ? 'HEART_REMOVED' : 'EDIT_HEARTS'),
-            customerId: custId,
-            cardId: custId,
-            customerName: snapVal.name,
-            cashierId: currentCashier?.uid || '',
-            cashierName: currentCashier ? currentCashier.name : 'كاشير',
-            cashierEmail: auth.currentUser?.email || '',
-            cashierRole: currentCashier ? currentCashier.role : 'cashier',
-            timestamp: firebase.database.ServerValue.TIMESTAMP,
-            oldHearts: oldH,
-            newHearts: newH,
-            amount: actualDelta
-          });
+          const logPath = 'loyalty_logs/' + logId;
+          const logType = delta > 0 ? 'HEART_ADDED' : (delta < 0 ? 'HEART_REMOVED' : 'EDIT_HEARTS');
+          try {
+            await db.ref(logPath).set({
+              type: logType,
+              customerId: custId,
+              cardId: custId,
+              customerName: snapVal.name,
+              cashierId: currentCashier?.uid || '',
+              cashierName: currentCashier ? currentCashier.name : 'كاشير',
+              cashierEmail: auth.currentUser?.email || '',
+              cashierRole: currentCashier ? currentCashier.role : 'cashier',
+              timestamp: firebase.database.ServerValue.TIMESTAMP,
+              oldHearts: oldH,
+              newHearts: newH,
+              amount: actualDelta
+            });
+          } catch (logError) {
+            logError.loyaltyLogWriteFailed = true;
+            console.error('[LOYALTY_LOG_WRITE_FAILED]', {
+              path: logPath,
+              type: logType,
+              customerId: custId,
+              code: logError?.code,
+              message: logError?.message
+            });
+            throw logError;
+          }
           for (const r of rewardRules.filter(r=>r.isActive!==false)) {
             const need = Number(r.heartsRequired || r.hearts)||5;
             if (actualDelta > 0 && need && oldH < need && newH >= need) {
@@ -1396,7 +1418,9 @@ async function modifyPoints(delta, isExact = false, exactVal = 0) {
       }
   } catch (e) {
       console.error('[LOYALTY_HEART_FAILED]', {operation:'transaction-or-audit', path:`loyalty_customers/${custId}`, code:e?.code, message:e?.message});
-      showToast('❌ حدث خطأ أثناء تحديث النقاط: ' + e.message);
+      showToast(e?.loyaltyLogWriteFailed
+        ? '⚠️ تم تحديث الرصيد، لكن فشل تسجيل العملية: ' + e.message
+        : '❌ حدث خطأ أثناء تحديث النقاط: ' + e.message);
   }
 }
 
@@ -1603,6 +1627,61 @@ function giftDeliveryState(current, expectedGift) {
   giftDeliveryDiagnostics('ALREADY_USED', { alreadyUsed });
   giftDeliveryDiagnostics('ID_MATCH', { idMatch });
   return { status, expired, alreadyUsed, idMatch };
+}
+
+function stopLoyaltyLogsListener() {
+  if (loyaltyLogsRetryTimer) { clearTimeout(loyaltyLogsRetryTimer); loyaltyLogsRetryTimer = null; }
+  if (loyaltyLogsRef && loyaltyLogsValueCallback) {
+    loyaltyLogsRef.off('value', loyaltyLogsValueCallback);
+  }
+  loyaltyLogsRef = null;
+  loyaltyLogsValueCallback = null;
+  loyaltyLogsErrorCallback = null;
+  loyaltyLogsRetryAttempt = 0;
+}
+
+function scheduleLoyaltyLogsRetry() {
+  if (loyaltyLogsRetryTimer || !currentCashier || !auth.currentUser || loyaltyLogsRetryAttempt >= 5) return;
+  const delay = Math.min(8000, 500 * (2 ** loyaltyLogsRetryAttempt++));
+  loyaltyLogsRetryTimer = setTimeout(() => {
+    loyaltyLogsRetryTimer = null;
+    if (currentCashier && auth.currentUser) startLoyaltyLogsListener();
+  }, delay);
+}
+
+function startLoyaltyLogsListener() {
+  if (!currentCashier || !auth.currentUser || loyaltyLogsRef) return;
+  if (!loyaltyLogsConnectionRef) {
+    loyaltyLogsConnectionRef = db.ref('.info/connected');
+    loyaltyLogsConnectionCallback = snap => {
+      if (snap.val() === true && !loyaltyLogsRef && currentCashier && auth.currentUser) {
+        startLoyaltyLogsListener();
+      }
+    };
+    loyaltyLogsConnectionRef.on('value', loyaltyLogsConnectionCallback);
+  }
+  loyaltyLogsRef = db.ref('loyalty_logs').limitToLast(250);
+  loyaltyLogsValueCallback = snap => {
+    loyaltyLogsRetryAttempt = 0;
+    logs = [];
+    snap.forEach(c => logs.push({id:c.key,...c.val()}));
+    logs.sort((a,b)=>(b.timestamp||0)-(a.timestamp||0));
+    renderLogs();
+    renderStats();
+  };
+  loyaltyLogsErrorCallback = error => {
+    console.error('[LOYALTY_LOGS_READ_FAILED]', {
+      code: error?.code,
+      message: error?.message,
+      path: 'loyalty_logs'
+    });
+    const failedRef = loyaltyLogsRef;
+    if (failedRef && loyaltyLogsValueCallback) failedRef.off('value', loyaltyLogsValueCallback);
+    loyaltyLogsRef = null;
+    loyaltyLogsValueCallback = null;
+    scheduleLoyaltyLogsRetry();
+  };
+  loyaltyLogsRef.on('value', loyaltyLogsValueCallback, loyaltyLogsErrorCallback);
 }
 let giftRequests = [];
 const giftRequestStatusLabel = { pending: '⏳ بانتظار الموافقة', approved: '✅ تمت الموافقة', rejected: '❌ مرفوضة', redeemed: '🎁 تم التسليم', expired: '⌛ منتهية' };
