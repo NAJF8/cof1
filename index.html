@@ -665,16 +665,23 @@
         }
         
         .badge {
-            position: absolute;
-            top: 10px;
-            right: 10px;
             background: var(--surface);
             color: var(--primary);
             border-radius: 8px;
-            padding: 4px 8px;
-            font-size: 10px;
+            padding: 3px 6px;
+            font-size: 9px;
             font-weight: 800;
             box-shadow: var(--shadow-sm);
+            flex: 0 0 auto;
+            white-space: nowrap;
+        }
+
+        .product-title-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            min-width: 0;
         }
         
         .product-info {
@@ -683,14 +690,17 @@
         
         .product-info h3 {
             font-size: 13px;
-            margin: 0 0 3px;
+            margin: 0;
             font-weight: 800;
             color: var(--text);
             line-height: 1.3;
+            flex: 1 1 auto;
+            min-width: 0;
             display: -webkit-box;
             -webkit-box-orient: vertical;
             -webkit-line-clamp: 2;
             overflow: hidden;
+            text-overflow: ellipsis;
             min-height: 2.6em;
         }
         
@@ -3689,9 +3699,12 @@
             const bHtml = badge ? `<span class="badge ${isSoon?'coming-soon-badge':''}" aria-label="${badge}">${badge}</span>` : "";
             const role = inList ? 'role="listitem"' : '';
             return `<article class="product-card${isSoon?' coming-soon-card':''}" data-id="${esc(String(p.id))}" ${role} tabindex="0">
-              <div class="product-img">${imgH(p)}${bHtml}</div>
+              <div class="product-img">${imgH(p)}</div>
               <div class="product-info">
-                <h3>${esc(productName(p))}</h3>
+                <div class="product-title-row">
+                  <h3>${esc(productName(p))}</h3>
+                  ${bHtml}
+                </div>
                 <p>${esc(productDescription(p))}</p>
                 <div class="price-row">
                   <div class="price">${old}<strong>${isSoon?(currentLang==='en'?"Soon":"قريباً جداً"):money(p.price)}</strong></div>

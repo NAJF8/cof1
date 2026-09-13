@@ -1,0 +1,534 @@
+[
+  {
+    "productId": "1",
+    "productName": "قهوة مقطرة",
+    "sourceJpg": "1789197060126-2ad568b95bf149a49fbb798d61746c5c.jpg",
+    "transparentSourcePng": "1789197060126-2ad568b95bf149a49fbb798d61746c5c.png",
+    "finalPngFilename": "product-1-1789265928320-ff46f30b91cd498fb2de956fb74ff0a2.png",
+    "finalPngPath": "assets/products/product-1-1789265928320-ff46f30b91cd498fb2de956fb74ff0a2.png",
+    "status": "ready",
+    "dimensions": {
+      "width": 1254,
+      "height": 1254
+    },
+    "size": 1469266
+  },
+  {
+    "productId": "2",
+    "productName": "أيروبريس",
+    "sourceJpg": "1789197326432-3f08dc714134408c9cb35b82df14265d.jpg",
+    "transparentSourcePng": "1789197326432-3f08dc714134408c9cb35b82df14265d.png",
+    "finalPngFilename": "product-2-1789266252641-8b7ac29f8ce0edb3039307eab8fcd16b.png",
+    "finalPngPath": "assets/products/product-2-1789266252641-8b7ac29f8ce0edb3039307eab8fcd16b.png",
+    "status": "ready",
+    "dimensions": {
+      "width": 1254,
+      "height": 1254
+    },
+    "size": 1469266
+  },
+  {
+    "productId": "3",
+    "productName": "كولد برو",
+    "sourceJpg": "1789197312197-39a78b69dfa04289ad35f41a4ce0460b.jpg",
+    "transparentSourcePng": "1789197312197-39a78b69dfa04289ad35f41a4ce0460b.png",
+    "finalPngFilename": "product-3-1789266252641-8b78b619d62c419d7fa91aa6c8ba09a2.png",
+    "finalPngPath": "assets/products/product-3-1789266252641-8b78b619d62c419d7fa91aa6c8ba09a2.png",
+    "status": "ready",
+    "dimensions": {
+      "width": 1254,
+      "height": 1254
+    },
+    "size": 1469266
+  },
+  {
+    "productId": "4",
+    "productName": "اسبرسو سنكل",
+    "sourceJpg": "1789204906452-ef93a7beeff24b8b9fd0efb63e40575c.jpg",
+    "transparentSourcePng": "1789204906452-ef93a7beeff24b8b9fd0efb63e40575c.png",
+    "finalPngFilename": "product-4-1789266252641-dcc211fbfb06a3d40d11774020f4c6cf.png",
+    "finalPngPath": "assets/products/product-4-1789266252641-dcc211fbfb06a3d40d11774020f4c6cf.png",
+    "status": "ready",
+    "dimensions": {
+      "width": 1254,
+      "height": 1254
+    },
+    "size": 883619
+  },
+  {
+    "productId": "6",
+    "productName": "أمريكانو",
+    "sourceJpg": "1789205408144-1cb838822d134159bd1f14ab9597e193.jpg",
+    "transparentSourcePng": "1789205408144-1cb838822d134159bd1f14ab9597e193.png",
+    "finalPngFilename": "product-6-1789266252641-683e03af752e310ec4966074c7ecc6a8.png",
+    "finalPngPath": "assets/products/product-6-1789266252641-683e03af752e310ec4966074c7ecc6a8.png",
+    "status": "ready",
+    "dimensions": {
+      "width": 1199,
+      "height": 1312
+    },
+    "size": 1454255
+  },
+  {
+    "productId": "7",
+    "productName": "لاتيه كلاسيك",
+    "sourceJpg": "1789196659349-6a5b55c926714dac9a74628fe3424bc7.jpg",
+    "transparentSourcePng": "1789196659349-6a5b55c926714dac9a74628fe3424bc7.png",
+    "finalPngFilename": "product-7-1789266252641-bde06f69dcc454d414e34ab89c4f46a7.png",
+    "finalPngPath": "assets/products/product-7-1789266252641-bde06f69dcc454d414e34ab89c4f46a7.png",
+    "status": "ready",
+    "dimensions": {
+      "width": 1254,
+      "height": 1254
+    },
+    "size": 1293668
+  },
+  {
+    "productId": "8",
+    "productName": "سبانيش لاتيه",
+    "sourceJpg": "1789196829418-8903e1a0a29e499c81a2d0c1bdfd5b7e.jpg",
+    "transparentSourcePng": "1789196829418-8903e1a0a29e499c81a2d0c1bdfd5b7e.png",
+    "finalPngFilename": "product-8-1789266252641-53e1e43f06b30f2c4e61ff8235577077.png",
+    "finalPngPath": "assets/products/product-8-1789266252641-53e1e43f06b30f2c4e61ff8235577077.png",
+    "status": "ready",
+    "dimensions": {
+      "width": 1254,
+      "height": 1254
+    },
+    "size": 1293668
+  },
+  {
+    "productId": "10",
+    "productName": "لاتيه جوز الهند",
+    "sourceJpg": "1789196687757-ecfd38b74d48419a8f51d1ed30cd833a.jpg",
+    "transparentSourcePng": "1789196687757-ecfd38b74d48419a8f51d1ed30cd833a.png",
+    "finalPngFilename": "product-10-1789266252641-bf37bb75fbaa1b00afb5c013dab937ca.png",
+    "finalPngPath": "assets/products/product-10-1789266252641-bf37bb75fbaa1b00afb5c013dab937ca.png",
+    "status": "ready",
+    "dimensions": {
+      "width": 1254,
+      "height": 1254
+    },
+    "size": 1293668
+  },
+  {
+    "productId": "11",
+    "productName": "لاتيه فانيلا",
+    "sourceJpg": "1789196716664-50a8bdd09cc94a39b7ea717cf267e68f.jpg",
+    "transparentSourcePng": "1789196716664-50a8bdd09cc94a39b7ea717cf267e68f.png",
+    "finalPngFilename": "product-11-1789266252641-cd343131bdc48a396e769f90005e329b.png",
+    "finalPngPath": "assets/products/product-11-1789266252641-cd343131bdc48a396e769f90005e329b.png",
+    "status": "ready",
+    "dimensions": {
+      "width": 1254,
+      "height": 1254
+    },
+    "size": 1293668
+  },
+  {
+    "productId": "12",
+    "productName": "لاتيه بندق",
+    "sourceJpg": "1789196728006-8f13b0ab296d4524939ee2619446670c.jpg",
+    "transparentSourcePng": "1789196728006-8f13b0ab296d4524939ee2619446670c.png",
+    "finalPngFilename": "product-12-1789266252641-95b33311f1a02ad6eb4226ec400190f1.png",
+    "finalPngPath": "assets/products/product-12-1789266252641-95b33311f1a02ad6eb4226ec400190f1.png",
+    "status": "ready",
+    "dimensions": {
+      "width": 1254,
+      "height": 1254
+    },
+    "size": 1293668
+  },
+  {
+    "productId": "14",
+    "productName": "فلات وايت",
+    "sourceJpg": "1789197576097-0f8ef7dabfec4e1a96af5cf4b117cfd3.jpg",
+    "transparentSourcePng": "1789197576097-0f8ef7dabfec4e1a96af5cf4b117cfd3.png",
+    "finalPngFilename": "product-14-1789266252641-52861de07e7de19cb58ea925dd2d4a85.png",
+    "finalPngPath": "assets/products/product-14-1789266252641-52861de07e7de19cb58ea925dd2d4a85.png",
+    "status": "ready",
+    "dimensions": {
+      "width": 1254,
+      "height": 1254
+    },
+    "size": 1293668
+  },
+  {
+    "productId": "15",
+    "productName": "كورتادو",
+    "sourceJpg": "1789208064280-3ac8a85f7ad84d33881f3cca841b2809.jpg",
+    "transparentSourcePng": "1789208064280-3ac8a85f7ad84d33881f3cca841b2809.png",
+    "finalPngFilename": "product-15-1789266252641-56f649b8bcb232ecd62e1716fe75a6c4.png",
+    "finalPngPath": "assets/products/product-15-1789266252641-56f649b8bcb232ecd62e1716fe75a6c4.png",
+    "status": "ready",
+    "dimensions": {
+      "width": 1254,
+      "height": 1254
+    },
+    "size": 1513781
+  },
+  {
+    "productId": "16",
+    "productName": "موكا",
+    "sourceJpg": "1789197184270-435417d1aae341269455b3467975d908.jpg",
+    "transparentSourcePng": "1789197184270-435417d1aae341269455b3467975d908.png",
+    "finalPngFilename": "product-16-1789266252641-9f0665216f58a016e8dd75d7b8ac8ef1.png",
+    "finalPngPath": "assets/products/product-16-1789266252641-9f0665216f58a016e8dd75d7b8ac8ef1.png",
+    "status": "ready",
+    "dimensions": {
+      "width": 1254,
+      "height": 1254
+    },
+    "size": 1347173
+  },
+  {
+    "productId": "21",
+    "productName": "هوت شوكليت",
+    "sourceJpg": "1789205422408-30f0bc416c194f558ac0988eca5328d3.jpg",
+    "transparentSourcePng": "1789205422408-30f0bc416c194f558ac0988eca5328d3.png",
+    "finalPngFilename": "product-21-1789266252641-7ef8299afcc3aaef132b2ed7fc1d5750.png",
+    "finalPngPath": "assets/products/product-21-1789266252641-7ef8299afcc3aaef132b2ed7fc1d5750.png",
+    "status": "ready",
+    "dimensions": {
+      "width": 1254,
+      "height": 1254
+    },
+    "size": 1347173
+  },
+  {
+    "productId": "22",
+    "productName": "آيس لاتيه كلاسيك",
+    "sourceJpg": "1789197504727-6cd77ca792d94bc890ba95660795146d.jpg",
+    "transparentSourcePng": "1789197504727-6cd77ca792d94bc890ba95660795146d.png",
+    "finalPngFilename": "product-22-1789266252641-32b011dbb78eb8f2accd0e3961b6fe0a.png",
+    "finalPngPath": "assets/products/product-22-1789266252641-32b011dbb78eb8f2accd0e3961b6fe0a.png",
+    "status": "ready",
+    "dimensions": {
+      "width": 1155,
+      "height": 1362
+    },
+    "size": 1339433
+  },
+  {
+    "productId": "23",
+    "productName": "آيس سبانيش لاتيه",
+    "sourceJpg": "1789197521696-fc89297dfd424b218bda3a7b07632417.jpg",
+    "transparentSourcePng": "1789197521696-fc89297dfd424b218bda3a7b07632417.png",
+    "finalPngFilename": "product-23-1789266252641-868b4bd74ab33ec3670ccd8a77ee4936.png",
+    "finalPngPath": "assets/products/product-23-1789266252641-868b4bd74ab33ec3670ccd8a77ee4936.png",
+    "status": "ready",
+    "dimensions": {
+      "width": 1155,
+      "height": 1362
+    },
+    "size": 1339433
+  },
+  {
+    "productId": "24",
+    "productName": "لاتيه بنكهات",
+    "sourceJpg": "1789197592139-42029d2672d446628de7fb4e694d5753.jpg",
+    "transparentSourcePng": "1789197592139-42029d2672d446628de7fb4e694d5753.png",
+    "finalPngFilename": "product-24-1789266252641-52f55ab8800e96ea8e70bc797a2b610c.png",
+    "finalPngPath": "assets/products/product-24-1789266252641-52f55ab8800e96ea8e70bc797a2b610c.png",
+    "status": "ready",
+    "dimensions": {
+      "width": 1155,
+      "height": 1362
+    },
+    "size": 1339433
+  },
+  {
+    "productId": "25",
+    "productName": "لاتيه فستق",
+    "sourceJpg": "1789197607709-f6067165d92f453ab9e66c1f86161b6f.jpg",
+    "transparentSourcePng": "1789197607709-f6067165d92f453ab9e66c1f86161b6f.png",
+    "finalPngFilename": "product-25-1789266252641-dbbb3b5adaaa0c15b4c057b426ada64e.png",
+    "finalPngPath": "assets/products/product-25-1789266252641-dbbb3b5adaaa0c15b4c057b426ada64e.png",
+    "status": "ready",
+    "dimensions": {
+      "width": 1155,
+      "height": 1362
+    },
+    "size": 1339433
+  },
+  {
+    "productId": "26",
+    "productName": "آيس موكا",
+    "sourceJpg": "1789198048963-559f47a6179c488dbd0a7297ba7571ba.jpg",
+    "transparentSourcePng": "1789198048963-559f47a6179c488dbd0a7297ba7571ba.png",
+    "finalPngFilename": "product-26-1789266252641-0ecbe373caf259c128b5dde2fa91067a.png",
+    "finalPngPath": "assets/products/product-26-1789266252641-0ecbe373caf259c128b5dde2fa91067a.png",
+    "status": "ready",
+    "dimensions": {
+      "width": 1254,
+      "height": 1254
+    },
+    "size": 1258559
+  },
+  {
+    "productId": "27",
+    "productName": "ماتشا",
+    "sourceJpg": "1789196845143-54005ead81034a26a762d4e5cbbee6fe.jpg",
+    "transparentSourcePng": "1789196845143-54005ead81034a26a762d4e5cbbee6fe.png",
+    "finalPngFilename": "product-27-1789266252641-45e6d3e9ba33d7c57598965f9be94451.png",
+    "finalPngPath": "assets/products/product-27-1789266252641-45e6d3e9ba33d7c57598965f9be94451.png",
+    "status": "ready",
+    "dimensions": {
+      "width": 1254,
+      "height": 1254
+    },
+    "size": 1393062
+  },
+  {
+    "productId": "28",
+    "productName": "سموذي",
+    "sourceJpg": "1789196573290-473b28644628420284c40d474b8d42c7.jpg",
+    "transparentSourcePng": "1789196573290-473b28644628420284c40d474b8d42c7.png",
+    "finalPngFilename": "product-28-1789266252641-64c6802b161a6f46e9cedde1bf7bd15f.png",
+    "finalPngPath": "assets/products/product-28-1789266252641-64c6802b161a6f46e9cedde1bf7bd15f.png",
+    "status": "ready",
+    "dimensions": {
+      "width": 1254,
+      "height": 1254
+    },
+    "size": 1427569
+  },
+  {
+    "productId": "29",
+    "productName": "ميلك شيك",
+    "sourceJpg": "1789198827695-dedc8d29e41342a7bde0c79abad35369.jpg",
+    "transparentSourcePng": "1789198827695-dedc8d29e41342a7bde0c79abad35369.png",
+    "finalPngFilename": "product-29-1789266252641-3f683c025dc9b2ecc4c5283ebbc8f42e.png",
+    "finalPngPath": "assets/products/product-29-1789266252641-3f683c025dc9b2ecc4c5283ebbc8f42e.png",
+    "status": "ready",
+    "dimensions": {
+      "width": 1247,
+      "height": 1261
+    },
+    "size": 1450186
+  },
+  {
+    "productId": "30",
+    "productName": "آيس تي",
+    "sourceJpg": "1789197114067-600d4696d49f4b0696a567da16a4dbe8.jpg",
+    "transparentSourcePng": "1789197114067-600d4696d49f4b0696a567da16a4dbe8.png",
+    "finalPngFilename": "product-30-1789266252641-820963972b833b8667f6e64cffafe3dd.png",
+    "finalPngPath": "assets/products/product-30-1789266252641-820963972b833b8667f6e64cffafe3dd.png",
+    "status": "ready",
+    "dimensions": {
+      "width": 1254,
+      "height": 1254
+    },
+    "size": 1587027
+  },
+  {
+    "productId": "31",
+    "productName": "آيس أمريكانو",
+    "sourceJpg": "1789197534965-a4cab054b2e24c13a477cbc57e72ebc8.jpg",
+    "transparentSourcePng": "1789197534965-a4cab054b2e24c13a477cbc57e72ebc8.png",
+    "finalPngFilename": "product-31-1789266252641-8cc66897266c33e37b4c0a3e1651ebe2.png",
+    "finalPngPath": "assets/products/product-31-1789266252641-8cc66897266c33e37b4c0a3e1651ebe2.png",
+    "status": "ready",
+    "dimensions": {
+      "width": 1254,
+      "height": 1254
+    },
+    "size": 1469266
+  },
+  {
+    "productId": "32",
+    "productName": "عصير برتقال",
+    "sourceJpg": "1789195623786-40dc7e15ee07426da88a3255d7d8fc14.jpg",
+    "transparentSourcePng": "1789195623786-40dc7e15ee07426da88a3255d7d8fc14.png",
+    "finalPngFilename": "product-32-1789266252641-68f4ff5beee76a23595c48151337f5f2.png",
+    "finalPngPath": "assets/products/product-32-1789266252641-68f4ff5beee76a23595c48151337f5f2.png",
+    "status": "ready",
+    "dimensions": {
+      "width": 1254,
+      "height": 1254
+    },
+    "size": 1420823
+  },
+  {
+    "productId": "33",
+    "productName": "ليمون بالنعناع",
+    "sourceJpg": "1789204785403-2737d8bfc7cd472980ba6c4af68cd1f7.jpg",
+    "transparentSourcePng": "1789204785403-2737d8bfc7cd472980ba6c4af68cd1f7.png",
+    "finalPngFilename": "product-33-1789266252641-47f8ecea709c87f36ed28ce7e3c7f925.png",
+    "finalPngPath": "assets/products/product-33-1789266252641-47f8ecea709c87f36ed28ce7e3c7f925.png",
+    "status": "ready",
+    "dimensions": {
+      "width": 1254,
+      "height": 1254
+    },
+    "size": 1164760
+  },
+  {
+    "productId": "34",
+    "productName": "حليب بالموز",
+    "sourceJpg": "1789204809641-003b968d64b34755ab412646443c57d1.jpg",
+    "transparentSourcePng": "1789204809641-003b968d64b34755ab412646443c57d1.png",
+    "finalPngFilename": "product-34-1789266252641-6c8283384799870713ca294c936232f6.png",
+    "finalPngPath": "assets/products/product-34-1789266252641-6c8283384799870713ca294c936232f6.png",
+    "status": "ready",
+    "dimensions": {
+      "width": 1254,
+      "height": 1254
+    },
+    "size": 1164760
+  },
+  {
+    "productId": "35",
+    "productName": "كركديه",
+    "sourceJpg": "1789196356242-5a19abdd95a14d6aa22b8fdd7a42518a.jpg",
+    "transparentSourcePng": "1789196356242-5a19abdd95a14d6aa22b8fdd7a42518a.png",
+    "finalPngFilename": "product-35-1789266252641-512cf54f5b8893ba62a1af26e3734f6b.png",
+    "finalPngPath": "assets/products/product-35-1789266252641-512cf54f5b8893ba62a1af26e3734f6b.png",
+    "status": "ready",
+    "dimensions": {
+      "width": 1254,
+      "height": 1254
+    },
+    "size": 1724990
+  },
+  {
+    "productId": "36",
+    "productName": "موهيتو",
+    "sourceJpg": "1789204768899-aade68991bc741158a7fba8b41a7a978.jpg",
+    "transparentSourcePng": "1789204768899-aade68991bc741158a7fba8b41a7a978.png",
+    "finalPngFilename": "product-36-1789266252641-314c2481bc413ffafaf136801d719e13.png",
+    "finalPngPath": "assets/products/product-36-1789266252641-314c2481bc413ffafaf136801d719e13.png",
+    "status": "ready",
+    "dimensions": {
+      "width": 1024,
+      "height": 1536
+    },
+    "size": 2024341
+  },
+  {
+    "productId": "38",
+    "productName": "سكنجر 101",
+    "sourceJpg": "1789196032687-bd70c4c4c5af47089998245f361dee4d.jpg",
+    "transparentSourcePng": "1789196032687-bd70c4c4c5af47089998245f361dee4d.png",
+    "finalPngFilename": "product-38-1789266252641-25589719535f1d0f2ab1a6ca0a131b26.png",
+    "finalPngPath": "assets/products/product-38-1789266252641-25589719535f1d0f2ab1a6ca0a131b26.png",
+    "status": "ready",
+    "dimensions": {
+      "width": 1254,
+      "height": 1254
+    },
+    "size": 1420823
+  },
+  {
+    "productId": "42",
+    "productName": "براوني",
+    "sourceJpg": "1789207240024-f87315c864c74ca6b3c36cceb8be88e1.jpg",
+    "transparentSourcePng": "1789207240024-f87315c864c74ca6b3c36cceb8be88e1.png",
+    "finalPngFilename": "product-42-1789266252641-c927fe395f9be86394d022179c0f06a3.png",
+    "finalPngPath": "assets/products/product-42-1789266252641-c927fe395f9be86394d022179c0f06a3.png",
+    "status": "ready",
+    "dimensions": {
+      "width": 500,
+      "height": 333
+    },
+    "size": 279326
+  },
+  {
+    "productId": "43",
+    "productName": "براوني مع آيس كريم",
+    "sourceJpg": "1789206871164-0bd8b6bc2795421c88d4d760484b5160.jpg",
+    "transparentSourcePng": "1789206871164-0bd8b6bc2795421c88d4d760484b5160.png",
+    "finalPngFilename": "product-43-1789266252641-86e87f01c3f7b9e539875de40c60b863.png",
+    "finalPngPath": "assets/products/product-43-1789266252641-86e87f01c3f7b9e539875de40c60b863.png",
+    "status": "ready",
+    "dimensions": {
+      "width": 1254,
+      "height": 1254
+    },
+    "size": 2239686
+  },
+  {
+    "productId": "45",
+    "productName": "تشيز كيك",
+    "sourceJpg": "1789206461432-d34229543c0049bb8531f09a2ba33dae.jpg",
+    "transparentSourcePng": "1789206461432-d34229543c0049bb8531f09a2ba33dae.png",
+    "finalPngFilename": "product-45-1789266252641-2dd39c667f2ba94662a14f78ed12795e.png",
+    "finalPngPath": "assets/products/product-45-1789266252641-2dd39c667f2ba94662a14f78ed12795e.png",
+    "status": "ready",
+    "dimensions": {
+      "width": 1086,
+      "height": 1448
+    },
+    "size": 1090073
+  },
+  {
+    "productId": "46",
+    "productName": "موس كيك",
+    "sourceJpg": "1789206610681-620ea79e0322401f8d27b30a35164adc.jpg",
+    "transparentSourcePng": "1789206610681-620ea79e0322401f8d27b30a35164adc.png",
+    "finalPngFilename": "product-46-1789266252641-ef1fd8f55b2780cd28dcca661f9ee760.png",
+    "finalPngPath": "assets/products/product-46-1789266252641-ef1fd8f55b2780cd28dcca661f9ee760.png",
+    "status": "ready",
+    "dimensions": {
+      "width": 1536,
+      "height": 1024
+    },
+    "size": 631730
+  },
+  {
+    "productId": "47",
+    "productName": "سان أوريجينال",
+    "sourceJpg": "1789207263438-23043e13fa954570a61b3ef03669ba7d.jpg",
+    "transparentSourcePng": "1789207263438-23043e13fa954570a61b3ef03669ba7d.png",
+    "finalPngFilename": "product-47-1789266252641-c38b269b1fe08c98c3882dc018a61d11.png",
+    "finalPngPath": "assets/products/product-47-1789266252641-c38b269b1fe08c98c3882dc018a61d11.png",
+    "status": "ready",
+    "dimensions": {
+      "width": 1024,
+      "height": 1536
+    },
+    "size": 1721232
+  },
+  {
+    "productId": "49",
+    "productName": "مافن",
+    "sourceJpg": "1789207778854-b5a0da4dadce45a6b62e3b60ed037170.jpg",
+    "transparentSourcePng": "1789207778854-b5a0da4dadce45a6b62e3b60ed037170.png",
+    "finalPngFilename": "product-49-1789266252641-b7547877e369dd12662c58798f621437.png",
+    "finalPngPath": "assets/products/product-49-1789266252641-b7547877e369dd12662c58798f621437.png",
+    "status": "ready",
+    "dimensions": {
+      "width": 1221,
+      "height": 1289
+    },
+    "size": 1375538
+  },
+  {
+    "productId": "1789206822713",
+    "productName": "تشيز كيك لوتس",
+    "sourceJpg": "1789206719951-15e50741d82c4948ae222f31001c1e7f.jpg",
+    "transparentSourcePng": "1789206719951-15e50741d82c4948ae222f31001c1e7f.png",
+    "finalPngFilename": "product-1789206822713-1789266252641-2551d0f45377450d6737069e4bfa24a6.png",
+    "finalPngPath": "assets/products/product-1789206822713-1789266252641-2551d0f45377450d6737069e4bfa24a6.png",
+    "status": "ready",
+    "dimensions": {
+      "width": 1536,
+      "height": 1024
+    },
+    "size": 1280271
+  },
+  {
+    "productId": "1789207418893",
+    "productName": "كيك ترامسيو",
+    "sourceJpg": "1789207361037-a22600f8484744baa273971e3498921f.jpg",
+    "transparentSourcePng": "1789207361037-a22600f8484744baa273971e3498921f.png",
+    "finalPngFilename": "product-1789207418893-1789266252641-2c6764689c155f2c40e2254c63a2650e.png",
+    "finalPngPath": "assets/products/product-1789207418893-1789266252641-2c6764689c155f2c40e2254c63a2650e.png",
+    "status": "ready",
+    "dimensions": {
+      "width": 1374,
+      "height": 1145
+    },
+    "size": 2705081
+  }
+]
