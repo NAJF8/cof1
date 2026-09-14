@@ -377,6 +377,7 @@ async function activateSubscription(request, env, current) {
     const updatedRequest = { ...clubRequest, requestId: clubRequest.requestId || requestIdValue, phone: normalizedPhone, status: 'activated', paymentStatus: 'paid', customerId, subscriptionId, clubNumber, activatedAt: now, updatedAt: now };
     stage('PAYLOAD_BUILD');
     const updates = { [`subscription_requests/${requestIdValue}`]: updatedRequest, [`subscription_customers/${customerId}`]: customer, [`subscriptions/${subscriptionId}`]: subscription, [`subscription_activation_logs/${requestIdValue}`]: { type: 'subscription_activated', requestId: requestIdValue, subscriptionId, customerId, uid: current.uid, role: actor.role, createdAt: now } };
+    if (customer.uid) updates[`subscription_account_index/${customer.uid}`] = customerId;
     if (!existingId) { updates.subscription_counter = counter; updates[`subscription_pin_index/${pin}`] = customerId; }
     stage('PAYLOAD_OK');
     stage('ATOMIC_PATCH');
