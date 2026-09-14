@@ -24,7 +24,7 @@ function fail(request, env, error, status) { return response(request, env, { ok:
 function giftDiagnostic(marker, details = {}) { console.info(marker, details); }
 function giftId(value) { const id = String(value || '').trim(); return /^[A-Za-z0-9_-]{1,160}$/.test(id) ? id : ''; }
 function firebaseHttpStatus(error) { const match = String(error?.message || '').match(/^FIREBASE_(\d{3})$/); return match ? Number(match[1]) : null; }
-const SUBSCRIPTION_DIAGNOSTIC_STAGES = new Set(['START', 'AUTH_START', 'AUTH_OK', 'ROLE_START', 'ROLE_OK', 'REQUEST_READ_START', 'REQUEST_READ_OK', 'REQUEST_VALIDATE_START', 'REQUEST_VALIDATE_OK', 'PLAN_READ_START', 'PLAN_READ_OK', 'PLAN_VALIDATE_START', 'PLAN_VALIDATE_OK', 'PHONE_VALIDATE_START', 'PHONE_VALIDATE_OK', 'UID_RESOLVE_START', 'UID_RESOLVE_OK', 'ROOT_READ_START', 'ROOT_READ_OK', 'ETAG_OK', 'COUNTER_READ_OK', 'CLUB_NUMBER_OK', 'PIN_GENERATE_OK', 'CREDENTIAL_PREPARE_START', 'CREDENTIAL_PEPPER_OK', 'CREDENTIAL_HASH_START', 'CREDENTIAL_HASH_OK', 'CUSTOMER_BUILD_OK', 'SUBSCRIPTION_BUILD_OK', 'INDEX_BUILD_OK', 'ROOT_MERGE_OK', 'ATOMIC_PUT_START', 'ATOMIC_PUT_OK', 'RESPONSE_BUILD_OK']);
+const SUBSCRIPTION_DIAGNOSTIC_STAGES = new Set(['START', 'AUTH_START', 'AUTH_OK', 'ROLE_START', 'ROLE_OK', 'REQUEST_READ_START', 'REQUEST_READ_OK', 'REQUEST_VALIDATE_START', 'REQUEST_VALIDATE_OK', 'PLAN_READ_START', 'PLAN_READ_OK', 'PLAN_VALIDATE_START', 'PLAN_VALIDATE_OK', 'PHONE_VALIDATE_START', 'PHONE_VALIDATE_OK', 'UID_RESOLVE_START', 'UID_RESOLVE_OK', 'ROOT_READ_START', 'ROOT_READ_OK', 'ETAG_OK', 'COUNTER_READ_OK', 'CLUB_NUMBER_OK', 'PIN_GENERATE_OK', 'CREDENTIAL_PREPARE_START', 'CREDENTIAL_PEPPER_OK', 'CREDENTIAL_HASH_START', 'CREDENTIAL_HASH_OK', 'CRED_RANDOM_START', 'CRED_RANDOM_OK', 'CRED_SALT_ENCODE_START', 'CRED_SALT_ENCODE_OK', 'CRED_IMPORT_KEY_START', 'CRED_IMPORT_KEY_OK', 'CRED_SALT_DECODE_START', 'CRED_SALT_DECODE_OK', 'CRED_DERIVE_START', 'CRED_DERIVE_OK', 'CRED_HASH_ENCODE_START', 'CRED_HASH_ENCODE_OK', 'CRED_OBJECT_BUILD_START', 'CRED_OBJECT_BUILD_OK', 'CUSTOMER_BUILD_OK', 'SUBSCRIPTION_BUILD_OK', 'INDEX_BUILD_OK', 'ROOT_MERGE_OK', 'ATOMIC_PUT_START', 'ATOMIC_PUT_OK', 'RESPONSE_BUILD_OK']);
 const SUBSCRIPTION_SAFE_CODES = new Set(['AUTH_FAILED', 'ROLE_FAILED', 'REQUEST_READ_FAILED', 'REQUEST_INVALID', 'PLAN_READ_FAILED', 'PLAN_INVALID', 'PHONE_INVALID', 'UID_RESOLVE_FAILED', 'ROOT_READ_FAILED', 'ETAG_MISSING', 'PIN_HASH_FAILED', 'ATOMIC_PUT_FAILED', 'UNKNOWN']);
 function subscriptionDiagnosticStage(stage) { return SUBSCRIPTION_DIAGNOSTIC_STAGES.has(stage) ? stage : 'START'; }
 function subscriptionDiagnosticCode(stage, error) {
@@ -39,7 +39,7 @@ function subscriptionDiagnosticCode(stage, error) {
   if (stage.startsWith('PHONE_VALIDATE')) return 'PHONE_INVALID';
   if (stage.startsWith('UID_RESOLVE')) return 'UID_RESOLVE_FAILED';
   if (stage === 'ROOT_READ_START') return 'ROOT_READ_FAILED';
-  if (stage.startsWith('PIN_') || stage === 'CREDENTIAL_HASH_OK') return 'PIN_HASH_FAILED';
+  if (stage.startsWith('PIN_') || stage === 'CREDENTIAL_HASH_OK' || stage.startsWith('CRED_')) return 'PIN_HASH_FAILED';
   if (stage.startsWith('ATOMIC_PUT') || raw === 'FIREBASE_ETAG_CONFLICT') return 'ATOMIC_PUT_FAILED';
   return SUBSCRIPTION_SAFE_CODES.has(raw) ? raw : 'UNKNOWN';
 }
@@ -465,7 +465,8 @@ async function activateSubscription(request, env, current) {
     if (!pepper) throw Error('INTERNAL_ERROR');
     stage('CREDENTIAL_PEPPER_OK');
     stage('CREDENTIAL_HASH_START');
-    const generatedCredential = await security.createCredential(pin, pepper, now);
+    const credentialStage = name => { stage(name); };
+    const generatedCredential = await security.createCredential(pin, pepper, now, credentialStage);
     const credential = { pinHash: generatedCredential.pinHash, salt: generatedCredential.salt, algorithm: generatedCredential.algorithm, iterations: generatedCredential.iterations, version: generatedCredential.version };
     stage('CREDENTIAL_HASH_OK');
     const updatedRequest = { ...clubRequest, requestId: clubRequest.requestId || requestIdValue, phone: normalizedPhone, status: 'activated', paymentStatus: 'paid', customerId, subscriptionId, clubNumber, activatedAt: now, updatedAt: now };
