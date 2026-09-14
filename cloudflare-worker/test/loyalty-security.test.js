@@ -17,13 +17,20 @@ assert.deepEqual(stages, [
   'CRED_OBJECT_BUILD_START', 'CRED_OBJECT_BUILD_OK'
 ]);
 const originalDeriveBits = crypto.subtle.deriveBits;
-const failedStages = [];
-crypto.subtle.deriveBits = async () => { throw Error('DERIVE_BITS_FIXTURE_FAILURE'); };
-try {
-  await assert.rejects(() => security.createCredential('1234', pepper, 123, stage => failedStages.push(stage)), /DERIVE_BITS_FIXTURE_FAILURE/);
-  assert.equal(failedStages.at(-1), 'CRED_DERIVE_START');
-} finally {
-  crypto.subtle.deriveBits = originalDeriveBits;
+for (const [name, expected] of [['OperationError', 'OperationError'], ['Error', 'UnknownError']]) {
+  const failedStages = [];
+  crypto.subtle.deriveBits = async () => { const error = Error('secret text'); error.name = name; throw error; };
+  try {
+    await assert.rejects(() => security.createCredential('1234', pepper, 123, stage => failedStages.push(stage)), error => {
+      assert.equal(error.stage, 'CRED_DERIVE_START');
+      assert.equal(error.code, 'PIN_HASH_FAILED');
+      assert.equal(error.cryptoErrorName, expected);
+      return true;
+    });
+    assert.equal(failedStages.at(-1), 'CRED_DERIVE_START');
+  } finally {
+    crypto.subtle.deriveBits = originalDeriveBits;
+  }
 }
 assert.equal(security.normalizeMembershipNumber(' 101-42 '), '101-42');
 assert.equal(security.normalizeMembershipNumber('42'), null);

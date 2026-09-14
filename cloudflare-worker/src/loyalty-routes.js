@@ -47,6 +47,7 @@ function subscriptionActivationFailure(request, env, stage, error) {
   const safeStage = subscriptionDiagnosticStage(stage);
   const safeCode = subscriptionDiagnosticCode(safeStage, error);
   const diagnostic = { ok: false, error: 'INTERNAL_SERVER_ERROR', stage: safeStage, code: safeCode };
+  if (safeStage === 'CRED_DERIVE_START' || error?.cryptoErrorName) diagnostic.cryptoErrorName = security.safeCredentialCryptoErrorName(error?.cryptoErrorName);
   if (error?.firebaseOp === 'GET' || error?.firebaseOp === 'PUT') diagnostic.firebaseOp = error.firebaseOp;
   if (Number.isInteger(error?.firebaseStatus)) diagnostic.firebaseStatus = error.firebaseStatus;
   return response(request, env, diagnostic, 500);
