@@ -605,6 +605,7 @@ body,.top-bar,.card,.stat-card,.main-content,.sidebar,.auth-card,.table-wrap,tab
         </label>
         <button class="btn btn-primary" id="clubConfirmPaymentBtn" type="button" onclick="confirmClubPayment()">تأكيد الدفع والتفعيل</button>
         <div id="clubWhatsAppFallback" style="margin-top:10px"></div>
+        <pre id="clubActivationDebug" hidden aria-live="polite" style="margin-top:10px;padding:12px;border:1px solid #b06a00;border-radius:8px;background:#fff8e8;color:#5c3500;white-space:pre-wrap;direction:ltr;text-align:left"></pre>
       </div>
     </div>
 
@@ -1018,6 +1019,8 @@ async function callLoyaltySecurity(path, options = {}) {
     const error = new Error(data.error || 'LOYALTY_SECURITY_FAILED');
     error.code = data.error || 'LOYALTY_SECURITY_FAILED';
     error.safeDiagnostics = {
+      error: data.error || null,
+      status: response.status,
       stage: data.stage || null,
       code: data.code || null,
       firebaseOp: data.firebaseOp || null,
@@ -3107,13 +3110,14 @@ window.saveClubSettings=async function(){if(!canManageClub())return showNotif('�
 function normalizeClubPhone(value){const raw=String(value||'').replace(/\D/g,'');if(raw.length<8||raw.length>15)return '';return raw.startsWith('0')?'964'+raw.slice(1):raw;}
 function clubTemplate(text,values){return String(text||clubDefaultWhatsAppTemplate()).replace(/{{(name|planName|clubNumber|pin|totalUses|expiryDate)}}/g,(_,key)=>values[key]??'');}
 function clubActivationErrorMessage(error){const code=String(error?.code||error?.message||'SUB_ACTIVATE_FAILED');const messages={AUTH_REQUIRED:'انتهت الجلسة. سجّل الدخول مرة أخرى.',AUTH_INVALID:'انتهت الجلسة. سجّل الدخول مرة أخرى.',FORBIDDEN:'غير مخول لتفعيل الاشتراكات.',SUB_REQUEST_NOT_FOUND:'طلب الاشتراك غير موجود.',SUB_REQUEST_NOT_PENDING:'الطلب مفعّل أو غير قابل للتفعيل مرة أخرى.',SUB_PLAN_NOT_FOUND:'خطة الاشتراك غير موجودة أو غير متاحة.',SUB_CUSTOMER_ALREADY_ACTIVE:'العميل لديه اشتراك فعّال مسبقاً.',SUB_CUSTOMER_DATA_INCOMPLETE:'بيانات العميل ناقصة ولا يمكن التفعيل بأمان.',INVALID_ARGUMENT:'بيانات التفعيل غير صحيحة.',BACKEND_AUTH_ERROR:'تعذر اعتماد الكتابة في Firebase.',INTERNAL_ERROR:'حدث خطأ داخلي في السيرفر.',REQUEST_FAILED:'حدث خطأ من السيرفر.'};return messages[code]||'تعذر تفعيل الاشتراك حالياً.';}
+function showClubActivationDiagnostics(data){const debugEl=document.getElementById('clubActivationDebug');if(!debugEl)return;if(currentRole!=='super_admin'){debugEl.hidden=true;debugEl.textContent='';return;}debugEl.hidden=false;debugEl.textContent=['CLUB Activation Debug',`HTTP: ${data?.status ?? 'N/A'}`,`ERROR: ${data?.error ?? 'N/A'}`,`STAGE: ${data?.stage ?? 'N/A'}`,`SAFE CODE: ${data?.code ?? 'N/A'}`,`FIREBASE OP: ${data?.firebaseOp ?? 'N/A'}`,`FIREBASE STATUS: ${data?.firebaseStatus ?? 'N/A'}`].join('\n');}
 window.confirmClubPayment=async function(){
   const request=pendingClubPaymentRequest;if(!request||!canManageClub())return;const btn=document.getElementById('clubConfirmPaymentBtn'),phoneInput=document.getElementById('clubPaymentPhone'),phone=phoneInput?.value.trim()||'',normalized=normalizeClubPhone(phone);if(!normalized)return showNotif('أدخل رقم WhatsApp صالحاً قبل التفعيل.','error');
   if(btn){btn.disabled=true;btn.textContent='جارٍ التفعيل...';}
   try{
     const result=await callLoyaltySecurity('/api/admin/subscription/activate',{method:'POST',body:{requestId:request.id,phone}}),plan=subscriptionPlans[request.planId]||{},name=request.name||request.customerName||'عضو 101',planName=request.planName||plan.nameAr||plan.nameEn||String(request.planId||'').toUpperCase(),totalUses=Number(plan.totalUses||0),expiresAt=Date.now()+Number(plan.durationDays||0)*86400000;
     await renderClubCustomers();renderClubRequests();if(!result.pin){showNotif('تم تفعيل الطلب مسبقاً. PIN تم إنشاؤه سابقاً ولا يمكن عرضه مرة أخرى.');closeClubPaymentModal();return;}const message=clubTemplate(clubSettings.whatsappActivationMessage,{name,planName,clubNumber:result.clubNumber,pin:result.pin,totalUses,expiryDate:new Date(expiresAt).toLocaleDateString('ar-IQ')}),fallback=document.getElementById('clubWhatsAppFallback');if(fallback)fallback.textContent=`${message}\n\nلا يمكن إعادة عرض PIN بعد مغادرة هذه الشاشة.`;showNotif('تم تفعيل الاشتراك. تم عرض PIN مرة واحدة للمشرف دون حفظه أو وضعه في رابط.');
-  }catch(error){const code=error?.code||error?.message||'SUB_ACTIVATE_FAILED';console.error('CLUB_ACTIVATION_FAILED',{code});if(error?.safeDiagnostics){const data=error.safeDiagnostics;console.error('[CLUB ACTIVATE DEBUG]','stage=',data?.stage??null,'code=',data?.code??null,'firebaseOp=',data?.firebaseOp??null,'firebaseStatus=',data?.firebaseStatus??null);}showNotif(clubActivationErrorMessage(error),'error');}
+  }catch(error){const code=error?.code||error?.message||'SUB_ACTIVATE_FAILED';console.error('CLUB_ACTIVATION_FAILED',{code});showClubActivationDiagnostics(error?.safeDiagnostics);showNotif(clubActivationErrorMessage(error),'error');}
   finally{if(btn){btn.disabled=false;btn.textContent='تأكيد الدفع والتفعيل';}}
 };
 async function cancelClubSubscription(uid){
