@@ -110,21 +110,6 @@ async function firebaseAdminReadWithEtag(env, path = '') {
   if (!etag) throw new Error('FIREBASE_ETAG_MISSING');
   return { data, etag };
 }
-async function firebaseAdminConditionalPatch(env, updates, etag, retry = 0, options = {}) {
-  const base = String(env.FIREBASE_DATABASE_URL || 'https://coffee-30fa7-default-rtdb.firebaseio.com').replace(/\/$/, '');
-  const response = await fetch(`${base}/.json`, { method: 'PATCH', headers: { Authorization: `Bearer ${await serviceAccountToken(env)}`, 'Content-Type': 'application/json', Accept: 'application/json', 'If-Match': etag }, body: JSON.stringify(updates) });
-  const text = await response.text();
-  console.info({ tag: 'FIREBASE_ROOT_PATCH', status: response.status, retry });
-  if (response.status === 412) {
-    console.error({ tag: 'FIREBASE_ROOT_PATCH_FAILED', status: response.status, firebaseErrorBody: text, stage: options.stage || 'ATOMIC_PATCH', requestId: options.requestId || null });
-    throw new Error('FIREBASE_ETAG_CONFLICT');
-  }
-  if (!response.ok) {
-    console.error({ tag: 'FIREBASE_ROOT_PATCH_FAILED', status: response.status, firebaseErrorBody: text, stage: options.stage || 'ATOMIC_PATCH', requestId: options.requestId || null });
-    throw new Error(`FIREBASE_${response.status}`);
-  }
-  return text ? JSON.parse(text) : null;
-}
 async function firebaseAdminConditionalPut(env, path, body, etag) {
   const base = String(env.FIREBASE_DATABASE_URL || 'https://coffee-30fa7-default-rtdb.firebaseio.com').replace(/\/$/, '');
   const response = await fetch(`${base}/${String(path).replace(/^\//, '')}.json`, { method: 'PUT', headers: { Authorization: `Bearer ${await serviceAccountToken(env)}`, 'Content-Type': 'application/json', Accept: 'application/json', 'If-Match': etag }, body: JSON.stringify(body) });
@@ -133,10 +118,62 @@ async function firebaseAdminConditionalPut(env, path, body, etag) {
   if (!response.ok) throw new Error(`FIREBASE_${response.status}`);
   return text ? JSON.parse(text) : null;
 }
+function cloneJsonValue(value) { return JSON.parse(JSON.stringify(value)); }
+function setMergedPath(root, path, value) {
+  const parts = String(path).split('/').filter(Boolean);
+  if (!parts.length) throw new Error('FIREBASE_PAYLOAD_INVALID');
+  let target = root;
+  for (const part of parts.slice(0, -1)) {
+    if (!target[part] || typeof target[part] !== 'object') target[part] = {};
+    target = target[part];
+  }
+  const leaf = parts.at(-1);
+  if (value === null) delete target[leaf]; else target[leaf] = cloneJsonValue(value);
+}
+function mergeFirebaseUpdates(rootSnapshot, updates) {
+  const mergedRoot = rootSnapshot === null ? {} : cloneJsonValue(rootSnapshot);
+  if (!mergedRoot || typeof mergedRoot !== 'object' || Array.isArray(mergedRoot)) throw new Error('FIREBASE_ROOT_INVALID');
+  for (const [path, value] of Object.entries(updates)) setMergedPath(mergedRoot, path, value);
+  return mergedRoot;
+}
+function validateMergedRoot(rootSnapshot, mergedRoot, updates, maxRootBytes) {
+  if (!mergedRoot || typeof mergedRoot !== 'object' || Array.isArray(mergedRoot)) throw new Error('FIREBASE_ROOT_INVALID');
+  const originalKeys = rootSnapshot && typeof rootSnapshot === 'object' && !Array.isArray(rootSnapshot) ? Object.keys(rootSnapshot) : [];
+  const explicitTopLevelDeletes = new Set(Object.entries(updates).filter(([path, value]) => value === null && !path.includes('/')).map(([path]) => path));
+  const mergedKeys = new Set(Object.keys(mergedRoot));
+  if (originalKeys.some(key => !mergedKeys.has(key) && !explicitTopLevelDeletes.has(key))) throw new Error('FIREBASE_ROOT_GUARD_FAILED');
+  let serialized;
+  try {
+    serialized = JSON.stringify(mergedRoot);
+    if (typeof serialized !== 'string') throw new Error('root serialization returned no string');
+    JSON.parse(serialized);
+  } catch {
+    throw new Error('FIREBASE_ROOT_SERIALIZATION_FAILED');
+  }
+  const bytes = new TextEncoder().encode(serialized).byteLength;
+  console.info({ tag: 'FIREBASE_ROOT_SIZE', bytes, megabytes: Number((bytes / 1024 / 1024).toFixed(3)) });
+  if (Number.isFinite(maxRootBytes) && bytes > maxRootBytes) throw new Error('FIREBASE_ROOT_TOO_LARGE');
+  return serialized;
+}
 async function firebaseAdminAtomicPatch(env, plan, options = {}) {
   const attempts = Math.max(1, Math.min(Number(options.attempts) || 8, 20));
   const read = options.read || ((currentEnv) => firebaseAdminReadWithEtag(currentEnv, ''));
-  const write = options.write || ((currentEnv, updates, etag, retry, writeOptions) => firebaseAdminConditionalPatch(currentEnv, updates, etag, retry, writeOptions));
+  const maxRootBytes = Number.isFinite(Number(options.maxRootBytes)) ? Number(options.maxRootBytes) : 10 * 1024 * 1024;
+  const write = options.write || (async (currentEnv, mergedRoot, etag, retry, writeOptions) => {
+    const base = String(currentEnv.FIREBASE_DATABASE_URL || 'https://coffee-30fa7-default-rtdb.firebaseio.com').replace(/\/$/, '');
+    const response = await fetch(`${base}/.json`, { method: 'PUT', headers: { Authorization: `Bearer ${await serviceAccountToken(currentEnv)}`, 'Content-Type': 'application/json', Accept: 'application/json', 'If-Match': etag }, body: JSON.stringify(mergedRoot) });
+    const text = await response.text();
+    console.info({ tag: 'FIREBASE_ROOT_PUT', status: response.status, retry });
+    if (response.status === 412) {
+      console.error({ tag: 'FIREBASE_ROOT_PUT_CONFLICT', status: response.status, retry, stage: writeOptions.stage || 'ATOMIC_PATCH', requestId: writeOptions.requestId || null });
+      throw new Error('FIREBASE_ETAG_CONFLICT');
+    }
+    if (!response.ok) {
+      console.error({ tag: 'FIREBASE_ROOT_PUT_FAILED', status: response.status, ...firebaseErrorDetails(text, `FIREBASE_${response.status}`), stage: writeOptions.stage || 'ATOMIC_PATCH', requestId: writeOptions.requestId || null });
+      throw new Error(`FIREBASE_${response.status}`);
+    }
+    return text ? JSON.parse(text) : null;
+  });
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     const snapshot = await read(env);
     const decision = await plan(snapshot.data || {});
@@ -145,8 +182,10 @@ async function firebaseAdminAtomicPatch(env, plan, options = {}) {
     const diagnostics = firebasePayloadDiagnostics(decision.updates);
     console.info({ tag: 'FIREBASE_PAYLOAD_DIAGNOSTICS', requestId: options.requestId || null, stage: options.stage || 'PAYLOAD_OK', paths: Object.fromEntries(Object.entries(decision.updates).map(([path, value]) => [path, value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value])), ...diagnostics });
     if (diagnostics.invalidPaths.length || diagnostics.parentChildCollisions.length || diagnostics.serialization.status !== 'PASS' || Object.values(diagnostics.counts).some(Number)) throw Error('FIREBASE_PAYLOAD_INVALID');
+    const mergedRoot = mergeFirebaseUpdates(snapshot.data, decision.updates);
+    const serializedRoot = validateMergedRoot(snapshot.data, mergedRoot, decision.updates, maxRootBytes);
     try {
-      await write(env, decision.updates, snapshot.etag, attempt, options);
+      await write(env, options.write ? mergedRoot : JSON.parse(serializedRoot), snapshot.etag, attempt, options);
       return decision.result;
     } catch (error) {
       if (error?.message !== 'FIREBASE_ETAG_CONFLICT' || attempt === attempts - 1) throw error;
@@ -154,4 +193,4 @@ async function firebaseAdminAtomicPatch(env, plan, options = {}) {
   }
   throw new Error('FIREBASE_ETAG_CONFLICT');
 }
-export { firebaseAdminRequest, firebaseAdminReadWithEtag, firebaseAdminConditionalPatch, firebaseAdminConditionalPut, firebaseAdminAtomicPatch, firebasePayloadDiagnostics, serviceAccountToken };
+export { firebaseAdminRequest, firebaseAdminReadWithEtag, firebaseAdminConditionalPut, firebaseAdminAtomicPatch, firebasePayloadDiagnostics, serviceAccountToken };

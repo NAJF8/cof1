@@ -15,10 +15,10 @@ function memoryTransport(initial) {
   let root = clone(initial), revision = 0;
   return {
     read: async () => ({ data: clone(root), etag: `"${revision}"` }),
-    write: async (_env, updates, etag) => {
+    write: async (_env, mergedRoot, etag) => {
       await new Promise(resolve => setImmediate(resolve));
       if (etag !== `"${revision}"`) throw Error('FIREBASE_ETAG_CONFLICT');
-      applyUpdates(root, updates); revision += 1;
+      root = clone(mergedRoot); revision += 1;
     },
     value: () => clone(root)
   };

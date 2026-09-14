@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { webcrypto } from 'node:crypto';
-import { serviceAccountToken, firebaseAdminConditionalPut, firebaseAdminConditionalPatch, firebasePayloadDiagnostics } from '../src/firebase-admin.js';
+import { serviceAccountToken, firebaseAdminConditionalPut, firebaseAdminAtomicPatch, firebasePayloadDiagnostics } from '../src/firebase-admin.js';
 
 globalThis.crypto ??= webcrypto;
 const pair = await crypto.subtle.generateKey({ name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' }, true, ['sign', 'verify']);
@@ -40,16 +40,57 @@ assert.equal(invalidReport.invalidPaths.length, 1);
 assert.equal(invalidReport.parentChildCollisions.length, 1);
 assert.deepEqual(invalidReport.counts, { undefined: 1, nan: 1, infinity: 1, bigint: 1, dateObjects: 1, otherInvalidTypes: 2 });
 assert.equal(invalidReport.serialization.status, 'FAIL');
-let patchFailureLog;
-const originalConsoleError = console.error;
-console.error = value => { patchFailureLog = value; };
-globalThis.fetch = async (url, options) => {
-  if (String(url).includes('oauth2.googleapis.com')) return new Response(JSON.stringify({ access_token: 'fixture-access-token', expires_in: 3600 }), { status: 200 });
-  assert.equal(options.method, 'PATCH');
-  return new Response('Invalid data; fixture body', { status: 400 });
+globalThis.fetch = originalFetch;
+const runMerge = async (root, updates) => {
+  let written;
+  const result = await firebaseAdminAtomicPatch({}, () => ({ updates, result: 'ok' }), {
+    read: async () => ({ data: JSON.parse(JSON.stringify(root)), etag: 'fixture-etag' }),
+    write: async (_env, merged, etag) => { written = { merged, etag }; }
+  });
+  assert.equal(result, 'ok');
+  return written;
 };
-await assert.rejects(() => firebaseAdminConditionalPatch(env, { 'a/b': 1 }, 'fixture-etag', 0, { stage: 'ATOMIC_PATCH', requestId: 'fixture-request' }), /FIREBASE_400/);
-console.error = originalConsoleError;
-assert.deepEqual(patchFailureLog, { tag: 'FIREBASE_ROOT_PATCH_FAILED', status: 400, firebaseErrorBody: 'Invalid data; fixture body', stage: 'ATOMIC_PATCH', requestId: 'fixture-request' });
+assert.deepEqual((await runMerge({ a: { x: 1 }, b: { y: 2 } }, { 'a/x': 5 })).merged, { a: { x: 5 }, b: { y: 2 } });
+assert.deepEqual((await runMerge({ a: { b: { c: 1 } } }, { 'a/b/c': 2 })).merged, { a: { b: { c: 2 } } });
+assert.deepEqual((await runMerge({ a: {} }, { 'a/new/path': 3 })).merged, { a: { new: { path: 3 } } });
+assert.deepEqual((await runMerge({ a: { x: 1, y: 2 }, b: 3 }, { 'a/x': null })).merged, { a: { y: 2 }, b: 3 });
+assert.deepEqual((await runMerge({ a: [1, 2], keep: true }, { 'a/1': 9 })).merged, { a: [1, 9], keep: true });
+let atomicCalls = [];
+globalThis.fetch = async (_url, options) => {
+  atomicCalls.push({ method: options.method || 'GET', headers: options.headers, body: options.body ? JSON.parse(options.body) : undefined });
+  if (atomicCalls.length === 1) return new Response(JSON.stringify({ a: { x: 1 }, untouched: true }), { status: 200, headers: { ETag: '"one"' } });
+  if (atomicCalls.length === 2) return new Response('conflict', { status: 412 });
+  if (atomicCalls.length === 3) return new Response(JSON.stringify({ a: { x: 1 }, untouched: true }), { status: 200, headers: { ETag: '"two"' } });
+  return new Response('{}', { status: 200 });
+};
+await firebaseAdminAtomicPatch(env, root => ({ updates: { 'a/x': root.a.x + 1 }, result: root.a.x + 1 }), { attempts: 2 });
+assert.equal(atomicCalls.length, 4);
+assert.equal(atomicCalls[0].method, 'GET');
+assert.equal(atomicCalls[1].method, 'PUT');
+assert.equal(atomicCalls[1].headers['If-Match'], '"one"');
+assert.deepEqual(atomicCalls[1].body, { a: { x: 2 }, untouched: true });
+assert.equal(atomicCalls[2].method, 'GET');
+assert.equal(atomicCalls[3].method, 'PUT');
+assert.deepEqual(atomicCalls[3].body, { a: { x: 2 }, untouched: true });
+let retryReads = 0;
+await assert.rejects(() => firebaseAdminAtomicPatch({}, () => ({ updates: { 'a/x': 1 }, result: true }), {
+  attempts: 2,
+  read: async () => { retryReads += 1; return { data: { a: { x: retryReads } }, etag: String(retryReads) }; },
+  write: async () => { throw new Error('FIREBASE_ETAG_CONFLICT'); }
+}), /FIREBASE_ETAG_CONFLICT/);
+assert.equal(retryReads, 2);
+let failedPutCalls = 0;
+await assert.rejects(() => firebaseAdminAtomicPatch({}, () => ({ updates: { 'a/x': 1 }, result: true }), {
+  read: async () => ({ data: { a: {} }, etag: 'one' }),
+  write: async () => { failedPutCalls += 1; throw new Error('FIREBASE_500'); }
+}), /FIREBASE_500/);
+assert.equal(failedPutCalls, 1);
+let oversizedPutCalls = 0;
+await assert.rejects(() => firebaseAdminAtomicPatch({}, () => ({ updates: { 'a/x': 1 }, result: true }), {
+  maxRootBytes: 5,
+  read: async () => ({ data: { a: {} }, etag: 'one' }),
+  write: async () => { oversizedPutCalls += 1; }
+}), /FIREBASE_ROOT_TOO_LARGE/);
+assert.equal(oversizedPutCalls, 0);
 globalThis.fetch = originalFetch;
 console.log('service-account JWT/OAuth fixture: PASS');
