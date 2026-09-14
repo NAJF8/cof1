@@ -1,5 +1,6 @@
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const DATABASE_SCOPES = 'https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/firebase.database';
+const DATABASE_SCOPE_FLAGS = { firebaseDatabase: DATABASE_SCOPES.includes('https://www.googleapis.com/auth/firebase.database'), userinfoEmail: DATABASE_SCOPES.includes('https://www.googleapis.com/auth/userinfo.email') };
 let tokenCache = { accessToken: '', expiresAt: 0 };
 
 function base64Url(bytes) { let value = ''; for (const byte of bytes) value += String.fromCharCode(byte); return btoa(value).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, ''); }
@@ -7,7 +8,10 @@ function jsonPart(value) { return base64Url(new TextEncoder().encode(JSON.string
 function privateKeyBytes(value) { const normalized = String(value || '').replace(/-----BEGIN PRIVATE KEY-----|-----END PRIVATE KEY-----|\s+/g, ''); const binary = atob(normalized); return Uint8Array.from(binary, c => c.charCodeAt(0)); }
 async function serviceAccountToken(env) {
   const now = Math.floor(Date.now() / 1000);
-  if (tokenCache.accessToken && tokenCache.expiresAt > now + 60) return tokenCache.accessToken;
+  if (tokenCache.accessToken && tokenCache.expiresAt > now + 60) {
+    console.info({ tag: 'FIREBASE_OAUTH_TOKEN', created: false, cached: true, scopes: DATABASE_SCOPE_FLAGS });
+    return tokenCache.accessToken;
+  }
   const email = String(env.FIREBASE_SERVICE_ACCOUNT_EMAIL || '').trim();
   const privateKey = String(env.FIREBASE_SERVICE_ACCOUNT_PRIVATE_KEY || '');
   if (!email || !privateKey) throw new Error('FIREBASE_SERVICE_ACCOUNT_NOT_CONFIGURED');
@@ -20,7 +24,17 @@ async function serviceAccountToken(env) {
   const data = await response.json().catch(() => ({}));
   if (!response.ok || !data.access_token) throw new Error('FIREBASE_OAUTH_TOKEN_FAILED');
   tokenCache = { accessToken: String(data.access_token), expiresAt: now + Math.min(Number(data.expires_in) || 3600, 3600) };
+  console.info({ tag: 'FIREBASE_OAUTH_TOKEN', created: true, cached: false, scopes: DATABASE_SCOPE_FLAGS });
   return tokenCache.accessToken;
+}
+function firebaseErrorDetails(text, fallbackCode) {
+  try {
+    const value = JSON.parse(text || '{}');
+    const raw = typeof value?.error === 'object' ? value.error : value;
+    return { firebaseErrorCode: raw?.code || fallbackCode || null, firebaseErrorMessage: typeof raw?.message === 'string' ? raw.message.slice(0, 160) : null };
+  } catch {
+    return { firebaseErrorCode: fallbackCode || null, firebaseErrorMessage: null };
+  }
 }
 async function firebaseAdminRequest(env, path, options = {}) {
   const base = String(env.FIREBASE_DATABASE_URL || 'https://coffee-30fa7-default-rtdb.firebaseio.com').replace(/\/$/, '');
@@ -33,17 +47,28 @@ async function firebaseAdminReadWithEtag(env, path = '') {
   const base = String(env.FIREBASE_DATABASE_URL || 'https://coffee-30fa7-default-rtdb.firebaseio.com').replace(/\/$/, '');
   const response = await fetch(`${base}/${String(path).replace(/^\//, '')}.json`, { headers: { Authorization: `Bearer ${await serviceAccountToken(env)}`, Accept: 'application/json', 'X-Firebase-ETag': 'true' } });
   const text = await response.text(); let data = null; try { data = text ? JSON.parse(text) : null; } catch { data = text; }
-  if (!response.ok) throw new Error(`FIREBASE_${response.status}`);
   const etag = response.headers.get('ETag');
+  console.info({ tag: 'FIREBASE_ROOT_READ', status: response.status, hasEtag: Boolean(etag) });
+  if (!response.ok) {
+    console.error({ tag: 'FIREBASE_ROOT_READ_FAILED', status: response.status, ...firebaseErrorDetails(text, `FIREBASE_${response.status}`) });
+    throw new Error(`FIREBASE_${response.status}`);
+  }
   if (!etag) throw new Error('FIREBASE_ETAG_MISSING');
   return { data, etag };
 }
-async function firebaseAdminConditionalPatch(env, updates, etag) {
+async function firebaseAdminConditionalPatch(env, updates, etag, retry = 0) {
   const base = String(env.FIREBASE_DATABASE_URL || 'https://coffee-30fa7-default-rtdb.firebaseio.com').replace(/\/$/, '');
   const response = await fetch(`${base}/.json`, { method: 'PATCH', headers: { Authorization: `Bearer ${await serviceAccountToken(env)}`, 'Content-Type': 'application/json', Accept: 'application/json', 'If-Match': etag }, body: JSON.stringify(updates) });
   const text = await response.text();
-  if (response.status === 412) throw new Error('FIREBASE_ETAG_CONFLICT');
-  if (!response.ok) throw new Error(`FIREBASE_${response.status}`);
+  console.info({ tag: 'FIREBASE_ROOT_PATCH', status: response.status, retry });
+  if (response.status === 412) {
+    console.error({ tag: 'FIREBASE_ROOT_PATCH_FAILED', status: response.status, retry, firebaseErrorCode: 'FIREBASE_ETAG_CONFLICT', firebaseErrorMessage: 'ETag conflict' });
+    throw new Error('FIREBASE_ETAG_CONFLICT');
+  }
+  if (!response.ok) {
+    console.error({ tag: 'FIREBASE_ROOT_PATCH_FAILED', status: response.status, retry, ...firebaseErrorDetails(text, `FIREBASE_${response.status}`) });
+    throw new Error(`FIREBASE_${response.status}`);
+  }
   return text ? JSON.parse(text) : null;
 }
 async function firebaseAdminConditionalPut(env, path, body, etag) {
@@ -57,14 +82,14 @@ async function firebaseAdminConditionalPut(env, path, body, etag) {
 async function firebaseAdminAtomicPatch(env, plan, options = {}) {
   const attempts = Math.max(1, Math.min(Number(options.attempts) || 8, 20));
   const read = options.read || ((currentEnv) => firebaseAdminReadWithEtag(currentEnv, ''));
-  const write = options.write || ((currentEnv, updates, etag) => firebaseAdminConditionalPatch(currentEnv, updates, etag));
+  const write = options.write || ((currentEnv, updates, etag, retry) => firebaseAdminConditionalPatch(currentEnv, updates, etag, retry));
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     const snapshot = await read(env);
     const decision = await plan(snapshot.data || {});
     if (decision?.replay) return decision.result;
     if (!decision?.updates || typeof decision.result === 'undefined') throw new Error('FIREBASE_ATOMIC_PLAN_INVALID');
     try {
-      await write(env, decision.updates, snapshot.etag);
+      await write(env, decision.updates, snapshot.etag, attempt);
       return decision.result;
     } catch (error) {
       if (error?.message !== 'FIREBASE_ETAG_CONFLICT' || attempt === attempts - 1) throw error;

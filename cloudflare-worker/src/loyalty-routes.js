@@ -308,12 +308,28 @@ async function activatePending(request, env, current) { await staff(env, current
 function normalizeActivationPhone(value) { return normalizeIraqiPhone(value); }
 function subscriptionActivationResult(requestId, subscriptionId, customerId, customer, pin, idempotent = false) { return { ok: true, requestId, subscriptionId, customerId, clubNumber: customer.clubNumber, pin, idempotent }; }
 async function activateSubscription(request, env, current) {
-  console.info('[SUB_ACTIVATE_ENTER]');
-  const actor = await staff(env, current, 'activate-subscription');
-  console.info('[SUB_ACTIVATE_AUTH_OK]', { hasUid: Boolean(current.uid), role: actor.role });
-  const payload = await body(request), requestIdValue = String(payload.requestId || payload.id || '').trim(), suppliedPhone = String(payload.phone || '').trim();
-  if (!requestIdValue) throw Error('INVALID_ARGUMENT');
-  const result = await atomicPlan(env, root => {
+  let activationStage = 'START';
+  let requestIdValue = '';
+  let planId = '';
+  let hasCustomer = false;
+  let safePhoneSuffix = '';
+  const stage = (next, extra = {}) => {
+    activationStage = next;
+    console.info({ tag: 'SUB_ACTIVATE_STAGE', stage: activationStage, requestId: requestIdValue || null, hasCustomer, planId: planId || null, safePhoneSuffix: safePhoneSuffix || null, ...extra });
+  };
+  try {
+    stage('START');
+    const actor = await staff(env, current, 'activate-subscription');
+    stage('AUTH_OK');
+    const payload = await body(request);
+    stage('REQUEST_READ');
+    requestIdValue = String(payload.requestId || payload.id || '').trim();
+    const suppliedPhone = String(payload.phone || '').trim();
+    if (!requestIdValue) throw Error('INVALID_ARGUMENT');
+    stage('REQUEST_OK');
+    stage('ROOT_READ');
+    const result = await atomicPlan(env, root => {
+    stage('ROOT_READ_OK');
     const clubRequest = root.subscription_requests?.[requestIdValue];
     if (!clubRequest) throw Error('SUB_REQUEST_NOT_FOUND');
     if ((clubRequest.status === 'activated' || clubRequest.paymentStatus === 'paid') && clubRequest.subscriptionId) {
@@ -323,36 +339,57 @@ async function activateSubscription(request, env, current) {
       if (subscription && customer) return { replay: true, result: subscriptionActivationResult(requestIdValue, clubRequest.subscriptionId, customerId, customer, customer.pin || subscription.pin || '', true) };
     }
     if (clubRequest.status !== 'pending') throw Error('SUB_REQUEST_NOT_PENDING');
-    const plan = root.subscription_plans?.[clubRequest.planId];
+    planId = String(clubRequest.planId || '');
+    stage('PLAN_READ');
+    const plan = root.subscription_plans?.[planId];
     if (!plan || plan.enabled === false) throw Error('SUB_PLAN_NOT_FOUND');
+    stage('PLAN_OK');
     const normalizedPhone = normalizeActivationPhone(suppliedPhone || clubRequest.phone);
     if (!normalizedPhone) throw Error('INVALID_ARGUMENT');
+    safePhoneSuffix = normalizedPhone.slice(-4);
+    stage('PHONE_OK');
     const customers = root.subscription_customers || {}, subscriptions = root.subscriptions || {};
+    stage('CUSTOMER_LOOKUP');
     const existingEntry = Object.entries(customers).find(([id, value]) => (clubRequest.uid && String(value?.uid || '') === String(clubRequest.uid)) || normalizeActivationPhone(value?.phone) === normalizedPhone);
     const existingId = existingEntry?.[0] || '';
     const existingCustomer = existingEntry?.[1] || null;
+    hasCustomer = Boolean(existingCustomer);
+    stage('CUSTOMER_OK');
     if (existingCustomer?.activeSubscriptionId && subscriptions[existingCustomer.activeSubscriptionId]?.status === 'active') throw Error('SUB_CUSTOMER_ALREADY_ACTIVE');
+    stage('CLUB_ALLOCATION');
     let customerId = existingId, clubNumber = existingCustomer?.clubNumber || '', counter = Number(root.subscription_counter) || 0;
     if (existingId && (!clubNumber || !existingCustomer?.pin)) throw Error('SUB_CUSTOMER_DATA_INCOMPLETE');
     if (!customerId) {
       do { counter += 1; clubNumber = `CLUB-101-${counter}`; customerId = clubNumber; } while (customers[customerId]);
     }
+    stage('CLUB_OK');
     let pin = existingCustomer?.pin || '';
+    stage('PIN_PREPARE');
     if (!pin) {
       const usedPins = new Set(Object.keys(root.subscription_pin_index || {}));
       do { pin = String(Math.floor(1000 + Math.random() * 9000)); } while (usedPins.has(pin));
     }
+    stage('PIN_OK');
     const now = Date.now(), subscriptionId = `sub_${requestIdValue}`, totalUses = Number(plan.totalUses), durationDays = Number(plan.durationDays);
     if (!Number.isInteger(totalUses) || totalUses < 1 || !Number.isInteger(durationDays) || durationDays < 1) throw Error('SUB_PLAN_NOT_FOUND');
     const customer = { ...(existingCustomer || {}), customerId, name: String(clubRequest.name || clubRequest.customerName || existingCustomer?.name || 'عضو 101').slice(0, 120), phone: normalizedPhone, email: String(clubRequest.email || existingCustomer?.email || '').slice(0, 180), ...(clubRequest.uid ? { uid: String(clubRequest.uid).slice(0, 180) } : {}), clubNumber, pin, status: 'active', activeSubscriptionId: subscriptionId, createdAt: Number(existingCustomer?.createdAt) || now, updatedAt: now };
     const subscription = { subscriptionId, requestId: requestIdValue, customerId, uid: customer.uid || '', name: customer.name, phone: normalizedPhone, clubNumber, pin, planId: String(clubRequest.planId), planName: String(clubRequest.planName || plan.nameAr || plan.nameEn || clubRequest.planId), price: Number(clubRequest.price || plan.price || 0), status: 'active', paymentStatus: 'paid', totalUses, remainingUses: totalUses, startedAt: now, activatedAt: now, expiresAt: now + durationDays * 86400000, createdAt: Number(clubRequest.createdAt) || now };
     const updatedRequest = { ...clubRequest, requestId: clubRequest.requestId || requestIdValue, phone: normalizedPhone, status: 'activated', paymentStatus: 'paid', customerId, subscriptionId, clubNumber, activatedAt: now, updatedAt: now };
+    stage('PAYLOAD_BUILD');
     const updates = { [`subscription_requests/${requestIdValue}`]: updatedRequest, [`subscription_customers/${customerId}`]: customer, [`subscriptions/${subscriptionId}`]: subscription, [`subscription_activation_logs/${requestIdValue}`]: { type: 'subscription_activated', requestId: requestIdValue, subscriptionId, customerId, uid: current.uid, role: actor.role, createdAt: now } };
     if (!existingId) { updates.subscription_counter = counter; updates[`subscription_pin_index/${pin}`] = customerId; }
+    stage('PAYLOAD_OK');
+    stage('ATOMIC_PATCH');
     return { updates, result: subscriptionActivationResult(requestIdValue, subscriptionId, customerId, customer, pin, false) };
-  });
-  console.info('[SUB_ACTIVATE_WRITE_OK]', { requestId: requestIdValue, idempotent: Boolean(result.idempotent) });
-  return response(request, env, result);
+    });
+    stage('ATOMIC_PATCH_OK');
+    stage('DONE');
+    return response(request, env, result);
+  } catch (err) {
+    const stackTop = String(err?.stack || '').split('\n').map(line => line.trim()).find(Boolean) || null;
+    console.error({ tag: 'SUB_ACTIVATE_FAILED', stage: activationStage, requestId: requestIdValue || null, errorName: err?.name || null, errorMessage: String(err?.message || err).slice(0, 200), errorCode: err?.code || null, stackTop });
+    return fail(request, env, 'INTERNAL_SERVER_ERROR', 500);
+  }
 }
 async function changeMembership(request, env, current) { await staff(env, current, 'change-membership'); const p = await body(request), oldId = security.normalizeMembershipNumber(p.oldId), newId = security.normalizeMembershipNumber(p.newId), id = requestId(p); if (!oldId || !newId || oldId === newId) throw Error('INVALID_MEMBERSHIP'); const result = await atomicPlan(env, (root) => { const replay = replayOrPlan(root, 'membership-change', id); if (replay) return replay; const customer = root.loyalty_customers?.[oldId]; if (!customer) throw Error('NOT_FOUND'); if (root.loyalty_customers?.[newId]) throw Error('ALREADY_EXISTS'); const outcome = { ok: true, membershipNumber: newId }; const updates = { [`loyalty_customers/${newId}`]: customer, [`loyalty_customers/${oldId}`]: null, ...(customer.uid ? { [`loyalty_links/${customer.uid}`]: newId } : {}) }; if (id) updates[operationPath('membership-change', id)] = { result: outcome, createdAt: Date.now() }; return { updates, result: outcome }; }); return response(request, env, result); }
 async function search(request, env, current) { await staff(env, current, 'search'); const p = await body(request), q = String(p.query || '').trim().toLowerCase(), all = await firebaseAdminRequest(env, 'loyalty_customers') || {}; const found = Object.entries(all).map(([membership, customer]) => ({ membership, customer })).find(({ membership, customer }) => !q || [membership, customer.name, customer.email, customer.phone].some(v => String(v || '').toLowerCase().includes(q))); return response(request, env, { ok: true, customer: found ? safeCustomer(found.membership, found.customer) : null }); }
