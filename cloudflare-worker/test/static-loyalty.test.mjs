@@ -13,6 +13,8 @@ const [index, loyalty, admin, rules] = await Promise.all([
 assert.match(index, /\/api\/loyalty\/login/);
 assert.match(index, /\/api\/loyalty\/profile/);
 assert.match(index, /\/api\/loyalty\/provision-google/);
+assert.match(index, /\/api\/subscription\/me/);
+assert.doesNotMatch(index, /subscription_customers['"]\.orderByChild\(['"]uid/);
 assert.match(index, /mobileAuthTrace\('AUTH_START'/);
 assert.match(index, /mobileAuthTrace\('REDIRECT_RETURN'/);
 assert.match(index, /mobileAuthTrace\('REDIRECT_RESULT'/);
@@ -36,6 +38,9 @@ assert.match(worker, /ownsLinkedProfile/);
 assert.match(worker, /LEGACY_PIN_BACKFILL_MEMBERSHIP/);
 assert.match(worker, /PIN_BACKFILL_MISSING/);
 assert.match(worker, /firebaseAdminConditionalPut/);
+assert.match(worker, /async function subscriptionMe/);
+assert.match(worker, /\/api\/subscription\/me/);
+assert.match(worker, /safeSubscriptionMe/);
 const giftRedeem = worker.match(/async function redeemGift[\s\S]*?async function listGiftOrders/)[0];
 assert.match(giftRedeem, /firebaseAdminReadWithEtag\(env, `gift_orders\/\$\{id\}`\)/);
 assert.match(giftRedeem, /firebaseAdminConditionalPut\(env, `gift_orders\/\$\{id\}`/);

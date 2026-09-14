@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { webcrypto } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
-import { handleLoyaltyRoutes, clubSearchQuery, normalizeIraqiPhone, normalizeClubMembership, safeClubCustomer } from '../src/loyalty-routes.js';
+import { handleLoyaltyRoutes, clubSearchQuery, normalizeIraqiPhone, normalizeClubMembership, safeClubCustomer, safeSubscriptionMe } from '../src/loyalty-routes.js';
 
 globalThis.crypto ||= webcrypto;
 const encoder = new TextEncoder();
@@ -19,6 +19,7 @@ let allowWrites = false;
 let customer = { status: 'active', clubNumber: 'CLUB-101-6', name: 'Known Club Member', phone: '07827337942', uid: 'member-uid', pin: '1234' };
 let customerRecords = { 'CLUB-101-6': customer };
 let subscriptions = { subscriptionA: { clubNumber: 'CLUB-101-6', status: 'active', planName: 'Test', remainingUses: 3, totalUses: 10, expiresAt: Date.now() + 86400000 } };
+let plans = { small: { nameAr: 'Small', totalUses: 5, durationDays: 30 } };
 const applyRootUpdate = (root, path, value) => {
   const parts = path.split('/').filter(Boolean);
   let target = root;
@@ -30,9 +31,12 @@ const database = {
   'admins/staff-uid': () => ({ role, status: 'active', permissions: {} }),
   'subscription_customers/CLUB-101-6': () => customer,
   subscription_customers: () => customerRecords,
-  subscriptions: () => subscriptions
+  subscriptions: () => subscriptions,
+  'subscription_plans/small': () => plans.small,
+  subscription_plans: () => plans,
+  'subscription_account_index/staff-uid': () => 'stale-customer'
 };
-const databaseRoot = () => ({ admins: { 'staff-uid': { role, status: 'active', permissions: {} } }, subscription_customers: customerRecords, subscriptions, subscription_pin_index: {} });
+const databaseRoot = () => ({ admins: { 'staff-uid': { role, status: 'active', permissions: {} } }, subscription_customers: customerRecords, subscriptions, subscription_plans: plans, subscription_account_index: { 'staff-uid': 'stale-customer' }, subscription_pin_index: {} });
 globalThis.fetch = async (input, options = {}) => {
   const url = String(input);
   if (url.includes('service_accounts/v1/jwk')) return Response.json({ keys: [publicJwk] });
@@ -53,15 +57,16 @@ globalThis.fetch = async (input, options = {}) => {
   }
   throw new Error(`unexpected fetch ${url}`);
 };
-async function idToken() {
+async function idToken(uid = 'staff-uid') {
   const header = jsonPart({ alg: 'RS256', typ: 'JWT', kid: publicJwk.kid });
-  const payload = jsonPart({ sub: 'staff-uid', aud: 'coffee-30fa7', iss: 'https://securetoken.google.com/coffee-30fa7', iat: Math.floor(Date.now() / 1000) - 5, exp: Math.floor(Date.now() / 1000) + 3600, email: 'staff@example.com', email_verified: true });
+  const payload = jsonPart({ sub: uid, aud: 'coffee-30fa7', iss: 'https://securetoken.google.com/coffee-30fa7', iat: Math.floor(Date.now() / 1000) - 5, exp: Math.floor(Date.now() / 1000) + 3600, email: `${uid}@example.com`, email_verified: true });
   const signature = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', keyPair.privateKey, encoder.encode(`${header}.${payload}`));
   return `${header}.${payload}.${base64url(signature)}`;
 }
 const env = { ALLOWED_ORIGINS: 'https://najf8.github.io', FIREBASE_SERVICE_ACCOUNT_EMAIL: 'fixture@example.com', FIREBASE_SERVICE_ACCOUNT_PRIVATE_KEY: privatePem, FIREBASE_DATABASE_URL: 'https://coffee-30fa7-default-rtdb.firebaseio.com' };
 const post = async (path, payload, token) => { const auth = token === null ? null : (token || await idToken()); return handleLoyaltyRoutes(new Request(`https://worker.test${path}`, { method: 'POST', headers: { Origin: 'https://najf8.github.io', 'Content-Type': 'application/json', ...(auth ? { Authorization: `Bearer ${auth}` } : {}) }, body: JSON.stringify(payload) }), env, new URL(`https://worker.test${path}`)); };
 const request = async (query, token) => post('/api/admin/club/search', { query }, token);
+const get = async (path, uid = 'staff-uid') => handleLoyaltyRoutes(new Request(`https://worker.test${path}`, { method: 'GET', headers: { Origin: 'https://najf8.github.io', Authorization: `Bearer ${await idToken(uid)}` } }), env, new URL(`https://worker.test${path}`));
 const json = async response => ({ status: response.status, body: await response.json() });
 const phoneFixture = async (records, expectedStatus, expectedClub = null) => {
   customerRecords = records;
@@ -82,6 +87,14 @@ assert.deepEqual(normalizeClubMembership('CLUB-101-6'), { displayMembership: '10
 assert.deepEqual(clubSearchQuery('101-6'), { type: 'club', value: 'CLUB-101-6', displayMembership: '101-6', canonicalClubId: 'CLUB-101-6' });
 assert.deepEqual(clubSearchQuery('CLUB-101-6'), { type: 'club', value: 'CLUB-101-6', displayMembership: '101-6', canonicalClubId: 'CLUB-101-6' });
 assert.equal(safeClubCustomer('CLUB-101-6', customer, null, null).pin, undefined);
+const safeMe = safeSubscriptionMe('CLUB-101-6', { uid: 'private-uid', status: 'active', clubNumber: 'CLUB-101-6', pin: '1234', email: 'private@example.com' }, 'sub-safe', { planId: 'small', status: 'active', remainingUses: 0, expiresAt: Date.now() + 86400000 }, { id: 'small', nameAr: 'Small', totalUses: 5, durationDays: 30 });
+assert.equal(safeMe.customer.clubNumber, 'CLUB-101-6');
+assert.equal(safeMe.subscription.remainingUses, 0);
+assert.equal(safeMe.subscription.totalUses, 5);
+assert.equal(safeMe.plan.id, 'small');
+assert.equal('uid' in safeMe.customer, false);
+assert.equal('pin' in safeMe, false);
+assert.equal('email' in safeMe, false);
 
 await phoneFixture({ normal: { status: 'active', clubNumber: 'CLUB-101-12', name: 'String Phone', phone: '07827337942' } }, 200, '101-12');
 await phoneFixture({ numeric: { status: 'active', clubNumber: 'CLUB-101-12', name: 'Number Phone', phone: 7827337942 } }, 200, '101-12');
@@ -190,6 +203,31 @@ assert.equal(missing.body.error, 'CLUB_MEMBER_NOT_FOUND');
 const noAuth = await json(await request('CLUB-101-14', null));
 assert.equal(noAuth.status, 401);
 assert.equal(noAuth.body.error, 'AUTH_REQUIRED');
+
+customerRecords = {
+  owner: { status: 'active', clubNumber: 'CLUB-101-15', uid: 'member-uid', activeSubscriptionId: 'stale-sub' },
+  other: { status: 'active', clubNumber: 'CLUB-101-16', uid: 'other-uid', activeSubscriptionId: 'other-sub' }
+};
+subscriptions = {
+  'stale-sub': { customerId: 'CLUB-101-16', uid: 'other-uid', planId: 'small', status: 'active', remainingUses: 4, expiresAt: Date.now() + 86400000 },
+  'owner-sub': { customerId: 'owner', uid: 'member-uid', planId: 'small', status: 'active', remainingUses: 2, expiresAt: Date.now() + 86400000 },
+  'other-sub': { customerId: 'other', uid: 'other-uid', planId: 'small', status: 'active', remainingUses: 8, expiresAt: Date.now() + 86400000 }
+};
+const unauthenticatedMe = await json(await handleLoyaltyRoutes(new Request('https://worker.test/api/subscription/me', { method: 'GET', headers: { Origin: 'https://najf8.github.io' } }), env, new URL('https://worker.test/api/subscription/me')));
+assert.equal(unauthenticatedMe.status, 401);
+const ownedMe = await json(await get('/api/subscription/me', 'member-uid'));
+assert.equal(ownedMe.status, 200);
+assert.equal(ownedMe.body.customer.customerId, 'owner');
+assert.equal(ownedMe.body.subscription.id, 'owner-sub');
+assert.equal(ownedMe.body.subscription.remainingUses, 2);
+assert.equal('uid' in ownedMe.body.customer, false);
+assert.equal('pin' in ownedMe.body, false);
+assert.equal('email' in ownedMe.body, false);
+const noSubscription = await json(await get('/api/subscription/me', 'unlinked-uid'));
+assert.equal(noSubscription.status, 200);
+assert.equal(noSubscription.body.customer, null);
+assert.equal(noSubscription.body.subscription, null);
+console.log('subscription /me security fixtures: PASS');
 role = 'viewer';
 const forbidden = await json(await request('CLUB-101-14'));
 assert.equal(forbidden.status, 403);

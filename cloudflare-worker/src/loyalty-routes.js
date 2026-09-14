@@ -154,6 +154,61 @@ async function findClubSubscription(env, customerId, customer) {
   if (matches.length !== 1) return null;
   return { id: matches[0][0], value: matches[0][1], relation: 'historical' };
 }
+function subscriptionBelongsToCustomer(subscription, customerId, customer) {
+  if (!subscription || typeof subscription !== 'object') return false;
+  const linkedCustomerId = String(subscription.customerId || '').trim();
+  const linkedUid = String(subscription.uid || '').trim();
+  return (linkedCustomerId && linkedCustomerId === String(customerId || '').trim()) ||
+    (linkedUid && linkedUid === String(customer?.uid || '').trim());
+}
+async function findOwnedSubscription(env, customerId, customer) {
+  const directId = String(customer?.activeSubscriptionId || '').trim();
+  if (directId) {
+    const direct = await firebaseAdminRequest(env, `subscriptions/${directId}`);
+    if (subscriptionBelongsToCustomer(direct, customerId, customer)) return { id: directId, value: direct };
+  }
+  const subscriptions = await firebaseAdminRequest(env, 'subscriptions') || {};
+  const matches = Object.entries(subscriptions).filter(([, value]) => subscriptionBelongsToCustomer(value, customerId, customer));
+  return matches.length === 1 ? { id: matches[0][0], value: matches[0][1] } : null;
+}
+function safeSubscriptionMe(customerId, customer, subscriptionId, subscription, plan) {
+  const sub = subscription && typeof subscription === 'object' ? subscription : null;
+  const planValue = plan && typeof plan === 'object' ? plan : {};
+  return {
+    ok: true,
+    customer: {
+      customerId: String(customerId || '').slice(0, 180),
+      clubNumber: String(customer?.clubNumber || '').slice(0, 80),
+      status: String(customer?.status || '').slice(0, 40)
+    },
+    subscription: sub ? {
+      id: String(subscriptionId || '').slice(0, 180),
+      planId: String(sub.planId || '').slice(0, 120),
+      status: String(sub.status || '').slice(0, 40),
+      remainingUses: Number(sub.remainingUses) || 0,
+      totalUses: Number.isFinite(Number(sub.totalUses)) ? Number(sub.totalUses) : Number(planValue.totalUses) || 0,
+      expiresAt: sub.expiresAt == null ? null : Number(sub.expiresAt) || null,
+      startedAt: sub.startedAt == null ? null : Number(sub.startedAt) || null
+    } : null,
+    plan: planValue && Object.keys(planValue).length ? {
+      id: String(planValue.id || sub?.planId || '').slice(0, 120),
+      nameAr: String(planValue.nameAr || '').slice(0, 120),
+      nameEn: String(planValue.nameEn || '').slice(0, 120),
+      totalUses: Number(planValue.totalUses) || 0,
+      durationDays: Number(planValue.durationDays) || 0
+    } : null
+  };
+}
+async function subscriptionMe(request, env, current) {
+  const customers = await firebaseAdminRequest(env, 'subscription_customers') || {};
+  const matches = Object.entries(customers).filter(([, value]) => value && typeof value === 'object' && String(value.uid || '') === current.uid);
+  if (matches.length !== 1) return response(request, env, { ok: true, ambiguous: matches.length > 1, customer: null, subscription: null, plan: null });
+  const [customerId, customer] = matches[0];
+  const related = await findOwnedSubscription(env, customerId, customer);
+  if (!related) return response(request, env, safeSubscriptionMe(customerId, customer, '', null, null));
+  const plan = related.value?.planId ? await firebaseAdminRequest(env, `subscription_plans/${related.value.planId}`) : null;
+  return response(request, env, safeSubscriptionMe(customerId, customer, related.id, related.value, plan ? { id: related.value.planId, ...plan } : null));
+}
 async function searchClub(request, env, current) {
   console.info('[CLUB_SEARCH_ENTER]');
   const actor = await staff(env, current, 'search');
@@ -460,6 +515,7 @@ async function route(request, env, url) {
   try {
     if (url.pathname === '/api/loyalty/login' && request.method === 'POST') return await login(request, env);
     const current = await auth(request), path = url.pathname;
+    if (path === '/api/subscription/me' && request.method === 'GET') return await subscriptionMe(request, env, current);
     if (path === '/api/admin/club/search' && request.method === 'POST') return await searchClub(request, env, current);
     if (path === '/api/loyalty/profile' && ['GET', 'POST'].includes(request.method)) return await profile(request, env, current);
     if (path === '/api/loyalty/reveal-pin' && request.method === 'POST') return await revealPin(request, env, current);
@@ -530,4 +586,4 @@ async function handleBackgroundPosterRoute(request, env, url) {
   }
 }
 async function handleLoyaltyRoutes(request, env, url) { return await handleBackgroundVideoRoute(request, env, url) || await handleBackgroundPosterRoute(request, env, url) || await handleProductImageRoute(request, env, url) || route(request, env, url); }
-export { handleLoyaltyRoutes, clubSearchQuery, normalizeIraqiPhone, normalizeClubMembership, safeClubCustomer, backgroundVideoType, backgroundPosterType, videoExtension };
+export { handleLoyaltyRoutes, clubSearchQuery, normalizeIraqiPhone, normalizeClubMembership, safeClubCustomer, safeSubscriptionMe, backgroundVideoType, backgroundPosterType, videoExtension };

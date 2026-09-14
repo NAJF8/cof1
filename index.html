@@ -3518,6 +3518,7 @@
             clubCustomer = null,
             clubCustomerRef = null,
             clubSubscriptionRef = null,
+            clubSubscriptionData = null,
             currentFirebaseUser = null,
             clubPlans = {},
             loyaltyLoginRequested = false,
@@ -4735,36 +4736,44 @@
             const plans=Object.entries(clubPlans).map(([id,plan])=>({id,...plan})).filter(plan=>plan.enabled!==false);
             grid.innerHTML=plans.length?plans.map(plan=>`<article class="club-plan-card"><h3>${esc(clubPlanName(plan))}</h3><p>${esc(plan.description||'')}</p><strong>${money(plan.price||0)}</strong><p>${Number(plan.totalUses||0)} مشروب · ${Number(plan.durationDays||0)} يوم</p><ul>${(Array.isArray(plan.features)?plan.features:[]).map(feature=>`<li>${esc(feature)}</li>`).join('')}</ul><button type="button" class="primary-btn" onclick="requestClubSubscription('${attrEsc(plan.id)}')">اشترك الآن</button></article>`).join(''):'<p class="muted">خطط الاشتراك غير متاحة حالياً.</p>';
         }
-        function clubDate(value){return value?new Date(Number(value)).toLocaleDateString('ar-IQ',{year:'numeric',month:'long',day:'numeric'}):'—';}
-        function clubAccountIndex(uid){return `subscription_account_index/${uid}`;}
-        function clubIsActive(subscription, customer=clubCustomer){const status=String(customer?.status||'').trim().toLowerCase();return Boolean(subscription&&status==='active'&&Number(subscription.expiresAt)>Date.now());}
-        async function loadClubCustomer(user){
-            if(clubCustomerRef){clubCustomerRef.off();clubCustomerRef=null;}
-            if(clubSubscriptionRef){clubSubscriptionRef.off();clubSubscriptionRef=null;}
-            clubCustomer=null;
-            if(!user||!db){renderClubAccount();return false;}
-            try{
-                const link=await db.ref(clubAccountIndex(user.uid)).once('value');
-                let customerId=link.exists()?String(link.val()||''):'';
-                if(!customerId){
-                    const fallback=await db.ref('subscription_customers').orderByChild('uid').equalTo(user.uid).once('value');
-                    const matches=[]; fallback.forEach(child=>matches.push(child));
-                    if(matches.length===1) customerId=matches[0].key;
-                }
-                if(!customerId){renderClubAccount();renderClubAccountModal();return false;}
-                clubCustomerRef=db.ref(`subscription_customers/${customerId}`);
-                clubCustomerRef.on('value',snap=>{
-                    clubCustomer=snap.exists()?{id:customerId,...snap.val()}:null;
-                    if(clubSubscriptionRef){clubSubscriptionRef.off();clubSubscriptionRef=null;}
-                    const subscriptionId=String(clubCustomer?.activeSubscriptionId||'').trim();
-                    if(subscriptionId){clubSubscriptionRef=db.ref(`subscriptions/${subscriptionId}`);clubSubscriptionRef.on('value',()=>{renderClubAccount();renderClubAccountModal();});}
-                    renderClubAccount();renderClubAccountModal();
-                });
-                return true;
-            }catch(error){console.warn('CLUB_ACCOUNT_LOAD_FAILED',error?.code||error?.message);renderClubAccount();renderClubAccountModal();return false;}
-        }
-        async function getClubSubscription(){
-            const id=clubCustomer?.activeSubscriptionId;if(!id||!db)return null;
+         function clubDate(value){return value?new Date(Number(value)).toLocaleDateString('ar-IQ',{year:'numeric',month:'long',day:'numeric'}):'—';}
+         function clubAccountIndex(uid){return `subscription_account_index/${uid}`;}
+         function clubIsActive(subscription, customer=clubCustomer){const status=String(customer?.status||'').trim().toLowerCase();return Boolean(subscription&&status==='active'&&Number(subscription.expiresAt)>Date.now());}
+         async function loadClubSubscriptionMe(user){
+             try{
+                 const result=await callLoyaltySecurity('/api/subscription/me');
+                 if(result?.customer){
+                     clubCustomer={id:String(result.customer.customerId||''),...result.customer,name:user.displayName||''};
+                     clubSubscriptionData=result.subscription||null;
+                     return true;
+                 }
+             }catch(error){console.warn('CLUB_SUBSCRIPTION_ME_FAILED',error?.code||error?.message);}
+             return false;
+         }
+         async function loadClubCustomer(user){
+             if(clubCustomerRef){clubCustomerRef.off();clubCustomerRef=null;}
+             if(clubSubscriptionRef){clubSubscriptionRef.off();clubSubscriptionRef=null;}
+             clubCustomer=null;clubSubscriptionData=null;
+             if(!user||!db){renderClubAccount();return false;}
+             try{
+                 const link=await db.ref(clubAccountIndex(user.uid)).once('value');
+                 let customerId=link.exists()?String(link.val()||''):'';
+                 if(customerId){
+                     const candidate=await db.ref(`subscription_customers/${customerId}`).once('value');
+                     if(!candidate.exists()||String(candidate.val()?.uid||'')!==String(user.uid)) customerId='';
+                 }
+                 if(!customerId){const loaded=await loadClubSubscriptionMe(user);renderClubAccount();renderClubAccountModal();return loaded;}
+                 const customerSnap=await db.ref(`subscription_customers/${customerId}`).once('value');
+                 clubCustomer={id:customerId,...customerSnap.val()};
+                 const loaded=await loadClubSubscriptionMe(user);
+                 if(!loaded){clubCustomer=null;}
+                 renderClubAccount();renderClubAccountModal();
+                 return Boolean(clubCustomer);
+             }catch(error){console.warn('CLUB_ACCOUNT_LOAD_FAILED',error?.code||error?.message);renderClubAccount();renderClubAccountModal();return false;}
+         }
+         async function getClubSubscription(){
+             if(clubSubscriptionData)return clubSubscriptionData;
+             const id=clubCustomer?.activeSubscriptionId;if(!id||!db)return null;
             try{return (await db.ref(`subscriptions/${id}`).once('value')).val()||null;}catch{return null;}
         }
         async function renderClubAccount(){
