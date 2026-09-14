@@ -4857,17 +4857,21 @@
             if(!auth)return showToast('خدمة الدخول غير متاحة حالياً.','error');
             try{const provider=new firebase.auth.GoogleAuthProvider();provider.addScope('email');const result=await auth.signInWithPopup(provider).catch(async error=>{if(['auth/popup-blocked','auth/operation-not-supported-in-this-environment'].includes(error.code)){await auth.signInWithRedirect(provider);return null;}throw error;});if(result?.user){await loadClubCustomer(result.user);renderClubAccountModal();setModalOpen(document.getElementById('clubAccountModal'),false);}}catch(error){console.error('CLUB_ACCOUNT_SIGNIN_FAILED',error);showToast('تعذر تسجيل الدخول للحساب.','error');}
         };
+        }
+        window.openClubAccount=function(){renderClubAccountModal();setModalOpen(document.getElementById('clubAccountModal'),true);};
+        window.closeClubAccount=function(){setModalOpen(document.getElementById('clubAccountModal'),false);};
+        window.signInForClubAccount=async function(){
+            if(!auth)return showToast('خدمة الدخول غير متاحة حالياً.','error');
+            try{const provider=new firebase.auth.GoogleAuthProvider();provider.addScope('email');const result=await auth.signInWithPopup(provider).catch(async error=>{if(['auth/popup-blocked','auth/operation-not-supported-in-this-environment'].includes(error.code)){await auth.signInWithRedirect(provider);return null;}throw error;});if(result?.user){await loadClubCustomer(result.user);renderClubAccountModal();setModalOpen(document.getElementById('clubAccountModal'),false);}}catch(error){console.error('CLUB_ACCOUNT_SIGNIN_FAILED',error);showToast('تعذر تسجيل الدخول للحساب.','error');}
+        };
         window.signOutClubAccount=async function(){try{await auth?.signOut();}finally{renderClubAccountModal();}};
         window.submitClubAccountClaim=async function(){
             const user=auth?.currentUser,clubNumber=document.getElementById('clubClaimNumber')?.value.trim().toUpperCase(),pin=document.getElementById('clubClaimPin')?.value.trim();
             if(!user)return showToast('سجّل الدخول أولاً.','error');
             if(!/^CLUB-101-\d+$/.test(clubNumber)||!/^\d{4,8}$/.test(pin))return showToast('أدخل رقم CLUB ورمز PIN الصحيحين.','error');
-            try{await callLoyaltySecurity('/api/subscription/claim',{method:'POST',body:{clubNumber,pin}});showToast('تم إرسال طلب الربط. سيتم تفعيله بعد التحقق من بيانات الاشتراك.','success');}catch(error){console.error('CLUB_ACCOUNT_CLAIM_FAILED',{code:error?.code||error?.message||'unknown'});showToast('تعذر إرسال طلب الربط.','error');}
+            try{const result=await callLoyaltySecurity('/api/subscription/claim',{method:'POST',body:{clubNumber,pin}});if(result.linked){showToast('تم ربط حساب 101 CLUB بنجاح.','success');closeModal('clubAccountModal');if(window.fetchSubscriptionMe)await window.fetchSubscriptionMe();}else{showToast('تم إرسال طلب الربط. سيتم تفعيله قريباً.','success');}}catch(error){console.error('CLUB_ACCOUNT_CLAIM_FAILED',{code:error?.code||error?.message||'unknown'});showToast('تعذر ربط الحساب. يرجى التأكد من صحة رقم النادي ورمز PIN.','error');}
         };
         window.openClubExperience=function(){document.getElementById('clubRegistrationPanel').hidden=false;document.getElementById('clubPlansGrid').hidden=true;const payment=document.getElementById('clubRequestPayment');payment.style.display='block';payment.dataset.requestText='';renderClubTransferInfo();renderClubPlansExperience();setModalOpen(document.getElementById('clubAccountModal'),false);setModalOpen(document.getElementById('clubExperienceModal'),true);};
-        window.closeClubExperience=function(){setModalOpen(document.getElementById('clubExperienceModal'),false);};
-        window.signInForClub=async function(){
-            if(!auth){return showToast('خدمة الدخول غير متاحة حالياً.','error');}
             const applyGoogleUser=user=>{clubRegistration={registrationMethod:'google',uid:user.uid,email:user.email||null,name:user.displayName||'',phone:document.getElementById('clubCustomerPhone')?.value.trim()||''};const name=document.getElementById('clubCustomerName');if(name)name.value=clubRegistration.name;showToast('سيُنشأ حسابك تلقائياً عند تفعيل الاشتراك. أكمل رقم WhatsApp للمتابعة.','success');};
             if(auth.currentUser){applyGoogleUser(auth.currentUser);return;}
             try{const provider=new firebase.auth.GoogleAuthProvider();provider.addScope('email');const result=await auth.signInWithPopup(provider).catch(async error=>{if(['auth/popup-blocked','auth/operation-not-supported-in-this-environment'].includes(error.code)){await auth.signInWithRedirect(provider);return null;}throw error;});if(result?.user)applyGoogleUser(result.user);}catch(error){showToast('تعذر تسجيل الدخول للاشتراك.','error');}

@@ -557,7 +557,7 @@ async function consume(request, env, current) {
   });
   return response(request, env, result);
 }
-async function submitClaim(request, env, current) { if (!current.emailVerified || !current.email) throw Error('VERIFIED_EMAIL_REQUIRED'); const p = await body(request), clubNumber = String(p.clubNumber || '').trim().toUpperCase(), pin = String(p.pin || '').trim(); if (!/^CLUB-101-\d+$/.test(clubNumber) || !security.validPin(pin)) throw Error('INVALID_ARGUMENT'); const customerId = normalizeClubMembership(clubNumber)?.canonicalClubId, customer = customerId ? await firebaseAdminRequest(env, `subscription_customers/${customerId}`) : null, credential = customerId ? await firebaseAdminRequest(env, `subscription_credentials/${customerId}`) : null; if (!customer || !credential || !await security.timingSafePinMatch(pin, credential, String(env.LOYALTY_PIN_PEPPER || ''))) throw Error('CLAIM_INVALID'); await firebaseAdminRequest(env, `subscription_account_claims/${current.uid}`, { method: 'PUT', body: { uid: current.uid, customerId, clubNumber, displayName: current.name, email: current.email, status: 'pending', createdAt: Date.now() } }); return response(request, env, { ok: true, submitted: true }); }
+async function submitClaim(request, env, current) { if (!current.emailVerified || !current.email) throw Error('VERIFIED_EMAIL_REQUIRED'); const p = await body(request), clubNumber = String(p.clubNumber || '').trim().toUpperCase(), pin = String(p.pin || '').trim(), phone = String(p.phone || '').trim(); if (!/^CLUB-101-\d+$/.test(clubNumber) || !security.validPin(pin)) throw Error('INVALID_ARGUMENT'); const customerId = normalizeClubMembership(clubNumber)?.canonicalClubId, customer = customerId ? await firebaseAdminRequest(env, `subscription_customers/${customerId}`) : null, credential = customerId ? await firebaseAdminRequest(env, `subscription_credentials/${customerId}`) : null; if (!customer || !credential || !await security.timingSafePinMatch(pin, credential, String(env.LOYALTY_PIN_PEPPER || ''))) throw Error('CLAIM_INVALID'); if (customer.uid && customer.uid !== current.uid) throw Error('PROFILE_LINK_CONFLICT'); const updates = { [`subscription_customers/${customerId}/uid`]: current.uid, [`subscription_customers/${customerId}/email`]: customer.email || current.email || '', [`subscription_account_index/${current.uid}`]: customerId }; if (customer.activeSubscriptionId) updates[`subscriptions/${customer.activeSubscriptionId}/uid`] = current.uid; await firebaseAdminRequest(env, '', { method: 'PATCH', body: updates }); return response(request, env, { ok: true, submitted: true, linked: true }); }
 async function approveClaim(request, env, current) { await staff(env, current, 'approve-claim'); const p = await body(request), uid = String(p.uid || p.claimId || '').trim(), claim = await firebaseAdminRequest(env, `subscription_account_claims/${uid}`), customerId = String(claim?.customerId || '').trim(), customer = customerId ? await firebaseAdminRequest(env, `subscription_customers/${customerId}`) : null, credential = customerId ? await firebaseAdminRequest(env, `subscription_credentials/${customerId}`) : null; if (!claim || claim.status !== 'pending' || !customer || !credential || customer.clubNumber !== claim.clubNumber) throw Error('CLAIM_INVALID'); const updates = { [`subscription_customers/${customerId}/uid`]: uid, [`subscription_customers/${customerId}/email`]: claim.email || customer.email || '', [`subscription_account_index/${uid}`]: customerId, [`subscription_account_claims/${uid}/status`]: 'approved', [`subscription_account_claims/${uid}/approvedAt`]: Date.now() }; if (customer.activeSubscriptionId) updates[`subscriptions/${customer.activeSubscriptionId}/uid`] = uid; await firebaseAdminRequest(env, '', { method: 'PATCH', body: updates }); return response(request, env, { ok: true, approved: true }); }
 async function setPin(request, env, current) { await staff(env, current, 'set-pin'); const p = await body(request), id = String(p.customerId || p.id || '').trim(), pin = String(p.pin || '').trim(), pepper = String(env.LOYALTY_PIN_PEPPER || ''); if (!id || !security.validPin(pin) || !pepper) throw Error('INVALID_ARGUMENT'); const generatedCredential = await security.createCredential(pin, pepper), credential = { pinHash: generatedCredential.pinHash, salt: generatedCredential.salt, algorithm: generatedCredential.algorithm, iterations: generatedCredential.iterations, version: generatedCredential.version }; const customer = await firebaseAdminRequest(env, `subscription_customers/${id}`); if (!customer) throw Error('CLUB_MEMBER_NOT_FOUND'); const updates = { [`subscription_credentials/${id}`]: credential, [`subscription_customers/${id}/pin`]: null }; if (customer.activeSubscriptionId) updates[`subscriptions/${customer.activeSubscriptionId}/pin`] = null; await firebaseAdminRequest(env, '', { method: 'PATCH', body: updates }); return response(request, env, { ok: true, saved: true }); }
 async function debugRootSize(request, env, current) {
@@ -568,6 +568,36 @@ async function debugRootSize(request, env, current) {
   if (typeof serialized !== 'string') throw Error('INTERNAL_ERROR');
   const sizeBytes = new TextEncoder().encode(serialized).byteLength;
   return response(request, env, { ok: true, sizeBytes, sizeMB: Number((sizeBytes / 1024 / 1024).toFixed(3)), topLevelKeys: root && typeof root === 'object' && !Array.isArray(root) ? Object.keys(root).length : 0 });
+}
+async function deleteSubscription(request, env, current) {
+  const actor = await staff(env, current, 'delete-subscription');
+  if (actor.role !== 'super_admin') throw Error('FORBIDDEN');
+  const payload = await body(request);
+  const subscriptionId = String(payload.subscriptionId || '').trim();
+  if (!subscriptionId) throw Error('INVALID_ARGUMENT');
+
+  const result = await atomicPlan(env, async root => {
+    const subscriptions = root.subscriptions || {};
+    const sub = subscriptions[subscriptionId];
+    if (!sub) return { replay: true, result: { ok: true, deleted: false, reason: 'NOT_FOUND' } };
+    
+    const customerId = String(sub.customerId || sub.clubNumber || '');
+    const uid = String(sub.uid || '');
+    const customers = root.subscription_customers || {};
+    const index = root.subscription_account_index || {};
+    const credentials = root.subscription_credentials || {};
+    
+    const updates = {
+      [`subscriptions/${subscriptionId}`]: null
+    };
+    if (customerId && customers[customerId]) updates[`subscription_customers/${customerId}`] = null;
+    if (customerId && credentials[customerId]) updates[`subscription_credentials/${customerId}`] = null;
+    if (uid && index[uid] === customerId) updates[`subscription_account_index/${uid}`] = null;
+    
+    return { updates, result: { ok: true, deleted: true } };
+  });
+  
+  return response(request, env, result);
 }
 async function route(request, env, url) {
   if (!url.pathname.startsWith('/api/loyalty/') && !url.pathname.startsWith('/api/subscription/') && !url.pathname.startsWith('/api/admin/')) return null;
@@ -584,6 +614,7 @@ async function route(request, env, url) {
     if (path === '/api/admin/provision-super-admin') { await staff(env, current, 'provision-super-admin'); return await provision(request, env, current, true); }
     if (path === '/api/subscription/claim') return await submitClaim(request, env, current);
     if (path === '/api/admin/subscription/activate' && request.method === 'POST') return await activateSubscription(request, env, current);
+    if (path === '/api/admin/subscription/delete' && request.method === 'POST') return await deleteSubscription(request, env, current);
     if (path === '/api/admin/loyalty/activate-pending') return await activatePending(request, env, current);
     if (path === '/api/admin/loyalty/change-membership') return await changeMembership(request, env, current);
     if (path === '/api/admin/loyalty/search') return await search(request, env, current);

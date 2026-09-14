@@ -3113,11 +3113,14 @@ function clubActivationErrorMessage(error){const code=String(error?.code||error?
 function showClubActivationDiagnostics(data){const debugEl=document.getElementById('clubActivationDebug');if(!debugEl)return;if(currentRole!=='super_admin'){debugEl.hidden=true;debugEl.textContent='';return;}debugEl.hidden=false;debugEl.textContent=['CLUB Activation Debug',`HTTP: ${data?.status ?? 'N/A'}`,`ERROR: ${data?.error ?? 'N/A'}`,`STAGE: ${data?.stage ?? 'N/A'}`,`SAFE CODE: ${data?.code ?? 'N/A'}`,`CRYPTO ERROR NAME: ${data?.cryptoErrorName ?? 'N/A'}`,`FIREBASE OP: ${data?.firebaseOp ?? 'N/A'}`,`FIREBASE STATUS: ${data?.firebaseStatus ?? 'N/A'}`].join('\n');}
 window.confirmClubPayment=async function(){
   const request=pendingClubPaymentRequest;if(!request||!canManageClub())return;const btn=document.getElementById('clubConfirmPaymentBtn'),phoneInput=document.getElementById('clubPaymentPhone'),phone=phoneInput?.value.trim()||'',normalized=normalizeClubPhone(phone);if(!normalized)return showNotif('أدخل رقم WhatsApp صالحاً قبل التفعيل.','error');
+  const waWindow=window.open('','_blank');
   if(btn){btn.disabled=true;btn.textContent='جارٍ التفعيل...';}
   try{
     const result=await callLoyaltySecurity('/api/admin/subscription/activate',{method:'POST',body:{requestId:request.id,phone}}),plan=subscriptionPlans[request.planId]||{},name=request.name||request.customerName||'عضو 101',planName=request.planName||plan.nameAr||plan.nameEn||String(request.planId||'').toUpperCase(),totalUses=Number(plan.totalUses||0),expiresAt=Date.now()+Number(plan.durationDays||0)*86400000;
-    await renderClubCustomers();renderClubRequests();if(!result.pin){showNotif('تم تفعيل الطلب مسبقاً. PIN تم إنشاؤه سابقاً ولا يمكن عرضه مرة أخرى.');closeClubPaymentModal();return;}const message=clubTemplate(clubSettings.whatsappActivationMessage,{name,planName,clubNumber:result.clubNumber,pin:result.pin,totalUses,expiryDate:new Date(expiresAt).toLocaleDateString('ar-IQ')}),fallback=document.getElementById('clubWhatsAppFallback');if(fallback)fallback.textContent=`${message}\n\nلا يمكن إعادة عرض PIN بعد مغادرة هذه الشاشة.`;showNotif('تم تفعيل الاشتراك. تم عرض PIN مرة واحدة للمشرف دون حفظه أو وضعه في رابط.');
-  }catch(error){const code=error?.code||error?.message||'SUB_ACTIVATE_FAILED';console.error('CLUB_ACTIVATION_FAILED',{code});showClubActivationDiagnostics(error?.safeDiagnostics);showNotif(clubActivationErrorMessage(error),'error');}
+    await renderClubCustomers();renderClubRequests();if(!result.pin){showNotif('تم تفعيل الطلب مسبقاً. PIN تم إنشاؤه سابقاً ولا يمكن عرضه مرة أخرى.');closeClubPaymentModal();if(waWindow)waWindow.close();return;}const message=clubTemplate(clubSettings.whatsappActivationMessage,{name,planName,clubNumber:result.clubNumber,pin:result.pin,totalUses,expiryDate:new Date(expiresAt).toLocaleDateString('ar-IQ')}),fallback=document.getElementById('clubWhatsAppFallback');if(fallback)fallback.textContent=`${message}\n\nلا يمكن إعادة عرض PIN بعد مغادرة هذه الشاشة.`;showNotif('تم تفعيل الاشتراك. تم عرض PIN مرة واحدة للمشرف دون حفظه أو وضعه في رابط.');
+    const waUrl=`https://wa.me/${normalized}?text=${encodeURIComponent(message)}`;
+    if(waWindow){waWindow.location.href=waUrl;}else{showNotif('فشل فتح WhatsApp تلقائياً. يرجى السماح بالنوافذ المنبثقة.','error');}
+  }catch(error){if(waWindow)waWindow.close();const code=error?.code||error?.message||'SUB_ACTIVATE_FAILED';console.error('CLUB_ACTIVATION_FAILED',{code});showClubActivationDiagnostics(error?.safeDiagnostics);showNotif(clubActivationErrorMessage(error),'error');}
   finally{if(btn){btn.disabled=false;btn.textContent='تأكيد الدفع والتفعيل';}}
 };
 async function cancelClubSubscription(uid){
@@ -3129,10 +3132,21 @@ async function deleteClubSubscriber(subscriptionId){
   if(currentRole!=='super_admin')return showNotif('الحذف متاح لـ Super Admin فقط.','error');
   const sub=clubSubscriptions.find(item=>item.id===subscriptionId),customer=clubCustomerIndex.get(String(sub?.customerId||''))||clubCustomerIndex.get(String(sub?.uid||''))||clubCustomerIndex.get(String(sub?.clubNumber||''));
   if(!sub)return showNotif('الاشتراك غير موجود.','error');
-  if(!confirm(`هل أنت متأكد من حذف هذا المشترك؟\nالاسم: ${customer?.name||sub.name||sub.customerName||'—'}\nرقم CLUB: ${customer?.clubNumber||sub.clubNumber||'—'}`))return;
+  if(!confirm(`هل أنت متأكد من حذف هذا المشترك نهائياً؟\nالاسم: ${customer?.name||sub.name||sub.customerName||'—'}\nرقم CLUB: ${customer?.clubNumber||sub.clubNumber||'—'}`))return;
   console.info('[CLUB_DELETE_START]',{subscriptionId});
-  try{await db.ref().update({[`subscriptions/${subId}/status`]:'cancelled',[`subscription_customers/${customerId}/status`]:'deleted',[`subscription_customers/${customerId}/activeSubscriptionId`]:null});console.info('[CLUB_DELETE_RESULT]',{customerId,subscriptionId:subId,success:true});showNotif('تم حذف المشترك مع الحفاظ على سجل الاستخدام.');renderClubCustomers();}catch(error){console.error('[CLUB_DELETE_RESULT]',{customerId,subscriptionId:subId,success:false,code:error?.code||'unknown'});showNotif('تعذر حذف المشترك: '+error.message,'error');}
-  try{const updates={[`subscriptions/${subscriptionId}/status`]:'cancelled'};if(customer?.id){updates[`subscription_customers/${customer.id}/status`]='deleted';updates[`subscription_customers/${customer.id}/activeSubscriptionId`]=null;}await db.ref().update(updates);console.info('[CLUB_DELETE_RESULT]',{subscriptionId,success:true});showNotif('تم حذف المشترك مع الحفاظ على سجل الاستخدام.');renderClubCustomers();}catch(error){console.error('[CLUB_DELETE_RESULT]',{subscriptionId,success:false,code:error?.code||'unknown'});showNotif('تعذر حذف المشترك: '+error.message,'error');}
+  try{
+    const res = await callLoyaltySecurity('/api/admin/subscription/delete', { method: 'POST', body: { subscriptionId } });
+    if(res.ok){
+      console.info('[CLUB_DELETE_RESULT]',{subscriptionId,success:true});
+      showNotif('تم حذف المشترك وجميع بياناته بنجاح.');
+      renderClubCustomers();
+    } else {
+      throw Error(res.error || 'فشل الحذف');
+    }
+  }catch(error){
+    console.error('[CLUB_DELETE_RESULT]',{subscriptionId,success:false,code:error?.message||'unknown'});
+    showNotif('تعذر حذف المشترك: '+error.message,'error');
+  }
 }
 
 function toggleCustPinReveal(pin){
