@@ -443,6 +443,15 @@ async function consume(request, env, current) { await staff(env, current, 'consu
 async function submitClaim(request, env, current) { if (!current.emailVerified || !current.email) throw Error('VERIFIED_EMAIL_REQUIRED'); const p = await body(request), clubNumber = String(p.clubNumber || '').trim().toUpperCase(), pin = String(p.pin || '').trim(); if (!/^CLUB-101-\d+$/.test(clubNumber) || !/^\d{4,8}$/.test(pin)) throw Error('INVALID_ARGUMENT'); await firebaseAdminRequest(env, `subscription_account_claims/${current.uid}`, { method: 'PUT', body: { uid: current.uid, clubNumber, pin, displayName: current.name, email: current.email, status: 'pending', createdAt: Date.now() } }); return response(request, env, { ok: true, submitted: true }); }
 async function approveClaim(request, env, current) { await staff(env, current, 'approve-claim'); const p = await body(request), uid = String(p.uid || p.claimId || '').trim(), claim = await firebaseAdminRequest(env, `subscription_account_claims/${uid}`), customers = await firebaseAdminRequest(env, 'subscription_customers') || {}; const entry = Object.entries(customers).find(([, c]) => String(c.clubNumber || '').toUpperCase() === String(claim?.clubNumber || '').toUpperCase() && String(c.pin || '') === String(claim?.pin || '')); if (!claim || claim.status !== 'pending' || !entry) throw Error('CLAIM_INVALID'); const [customerId, customer] = entry; const updates = { [`subscription_customers/${customerId}/uid`]: uid, [`subscription_customers/${customerId}/email`]: claim.email || customer.email || '', [`subscription_account_index/${uid}`]: customerId, [`subscription_account_claims/${uid}/status`]: 'approved', [`subscription_account_claims/${uid}/approvedAt`]: Date.now() }; if (customer.activeSubscriptionId) updates[`subscriptions/${customer.activeSubscriptionId}/uid`] = uid; await firebaseAdminRequest(env, '', { method: 'PATCH', body: updates }); return response(request, env, { ok: true, approved: true }); }
 async function setPin(request, env, current) { await staff(env, current, 'set-pin'); const p = await body(request), id = String(p.customerId || p.id || '').trim(), pin = String(p.pin || '').trim(); if (!id || !/^\d{4,8}$/.test(pin)) throw Error('INVALID_ARGUMENT'); await firebaseAdminRequest(env, `subscription_customers/${id}`, { method: 'PATCH', body: { pin, updatedAt: Date.now() } }); return response(request, env, { ok: true, saved: true }); }
+async function debugRootSize(request, env, current) {
+  const actor = await staff(env, current, 'root-size-diagnostics');
+  if (actor.role !== 'super_admin') throw Error('FORBIDDEN');
+  const root = await firebaseAdminRequest(env, '');
+  const serialized = JSON.stringify(root);
+  if (typeof serialized !== 'string') throw Error('INTERNAL_ERROR');
+  const sizeBytes = new TextEncoder().encode(serialized).byteLength;
+  return response(request, env, { ok: true, sizeBytes, sizeMB: Number((sizeBytes / 1024 / 1024).toFixed(3)), topLevelKeys: root && typeof root === 'object' && !Array.isArray(root) ? Object.keys(root).length : 0 });
+}
 async function route(request, env, url) {
   if (!url.pathname.startsWith('/api/loyalty/') && !url.pathname.startsWith('/api/subscription/') && !url.pathname.startsWith('/api/admin/')) return null;
   if (request.method === 'OPTIONS') return cors(request, env) ? new Response(null, { status: 204, headers: cors(request, env) }) : fail(request, env, 'ORIGIN_NOT_ALLOWED', 403);
@@ -471,6 +480,7 @@ async function route(request, env, url) {
     if (path === '/api/admin/club/reserve-pin') return await reservePin(request, env, current);
     if (path === '/api/admin/subscription/set-pin') return await setPin(request, env, current);
     if (path === '/api/admin/subscription/approve-claim') return await approveClaim(request, env, current);
+    if (path === '/api/admin/debug/root-size' && request.method === 'GET') return await debugRootSize(request, env, current);
     return fail(request, env, 'NOT_FOUND', 404);
   } catch (error) {
     if (url.pathname === '/api/loyalty/reveal-pin') console.error('[PIN_BACKEND_FAIL]', { code: String(error?.message || 'UNKNOWN').slice(0, 80) });
