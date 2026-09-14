@@ -97,7 +97,7 @@
       "$uid": {
         ".read": "auth != null && ($uid === auth.uid || auth.token.email === 'mohameadalhaear100@gmail.com' || root.child('admins').child(auth.uid).child('status').val() === 'active')",
         ".write": "auth != null && (($uid === auth.uid && !data.exists() && newData.child('uid').val() === auth.uid && newData.child('status').val() === 'pending') || auth.token.email === 'mohameadalhaear100@gmail.com' || (root.child('admins').child(auth.uid).child('status').val() === 'active' && (root.child('admins').child(auth.uid).child('role').val() === 'super_admin' || root.child('admins').child(auth.uid).child('role').val() === 'admin' || root.child('admins').child(auth.uid).child('role').val() === 'manager')))",
-        ".validate": "newData.hasChildren(['uid','clubNumber','pin','status','createdAt']) && newData.child('uid').isString() && newData.child('clubNumber').isString() && newData.child('pin').isString() && newData.child('status').isString()"
+        ".validate": "newData.hasChildren(['uid','customerId','clubNumber','status','createdAt']) && newData.child('uid').isString() && newData.child('customerId').isString() && newData.child('clubNumber').isString() && newData.child('status').isString()"
       }
     },
     "subscription_customers": {
@@ -136,6 +136,10 @@
       ".write": "auth != null && root.child('admins').child(auth.uid).child('status').val() === 'active' && (root.child('admins').child(auth.uid).child('role').val() === 'super_admin' || root.child('admins').child(auth.uid).child('role').val() === 'admin' || root.child('admins').child(auth.uid).child('role').val() === 'manager') && (!data.exists() || newData.val() === data.val() + 1)"
     },
     "subscription_pin_index": {
+      ".read": false,
+      ".write": false
+    },
+    "subscription_credentials": {
       ".read": false,
       ".write": false
     },

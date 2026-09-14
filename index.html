@@ -4862,7 +4862,7 @@
             const user=auth?.currentUser,clubNumber=document.getElementById('clubClaimNumber')?.value.trim().toUpperCase(),pin=document.getElementById('clubClaimPin')?.value.trim();
             if(!user)return showToast('سجّل الدخول أولاً.','error');
             if(!/^CLUB-101-\d+$/.test(clubNumber)||!/^\d{4,8}$/.test(pin))return showToast('أدخل رقم CLUB ورمز PIN الصحيحين.','error');
-            try{await db.ref(`subscription_account_claims/${user.uid}`).set({uid:user.uid,clubNumber,pin,displayName:user.displayName||'',email:user.email||'',status:'pending',createdAt:firebase.database.ServerValue.TIMESTAMP});showToast('تم إرسال طلب الربط. سيتم تفعيله بعد التحقق من بيانات الاشتراك.','success');}catch(error){console.error('CLUB_ACCOUNT_CLAIM_FAILED',error);showToast('تعذر إرسال طلب الربط.','error');}
+            try{await callLoyaltySecurity('/api/subscription/claim',{method:'POST',body:{clubNumber,pin}});showToast('تم إرسال طلب الربط. سيتم تفعيله بعد التحقق من بيانات الاشتراك.','success');}catch(error){console.error('CLUB_ACCOUNT_CLAIM_FAILED',{code:error?.code||error?.message||'unknown'});showToast('تعذر إرسال طلب الربط.','error');}
         };
         window.openClubExperience=function(){document.getElementById('clubRegistrationPanel').hidden=false;document.getElementById('clubPlansGrid').hidden=true;const payment=document.getElementById('clubRequestPayment');payment.style.display='block';payment.dataset.requestText='';renderClubTransferInfo();renderClubPlansExperience();setModalOpen(document.getElementById('clubAccountModal'),false);setModalOpen(document.getElementById('clubExperienceModal'),true);};
         window.closeClubExperience=function(){setModalOpen(document.getElementById('clubExperienceModal'),false);};

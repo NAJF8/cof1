@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { webcrypto } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { handleLoyaltyRoutes, clubSearchQuery, normalizeIraqiPhone, normalizeClubMembership, safeClubCustomer, safeSubscriptionMe } from '../src/loyalty-routes.js';
+import { createCredential } from '../src/loyalty-security.js';
 
 globalThis.crypto ||= webcrypto;
 const encoder = new TextEncoder();
@@ -14,6 +15,7 @@ const privateKey = await crypto.subtle.exportKey('pkcs8', keyPair.privateKey);
 const privatePem = `-----BEGIN PRIVATE KEY-----\n${Buffer.from(privateKey).toString('base64')}\n-----END PRIVATE KEY-----`;
 
 let role = 'manager';
+let clubCredential = await createCredential('1234', 'fixture');
 let writes = 0;
 let allowWrites = false;
 let customer = { status: 'active', clubNumber: 'CLUB-101-6', name: 'Known Club Member', phone: '07827337942', uid: 'member-uid', pin: '1234' };
@@ -34,9 +36,10 @@ const database = {
   subscriptions: () => subscriptions,
   'subscription_plans/small': () => plans.small,
   subscription_plans: () => plans,
-  'subscription_account_index/staff-uid': () => 'stale-customer'
+  'subscription_account_index/staff-uid': () => 'stale-customer',
+  'subscription_credentials/CLUB-101-6': () => clubCredential
 };
-const databaseRoot = () => ({ admins: { 'staff-uid': { role, status: 'active', permissions: {} } }, subscription_customers: customerRecords, subscriptions, subscription_plans: plans, subscription_account_index: { 'staff-uid': 'stale-customer' }, subscription_pin_index: {} });
+const databaseRoot = () => ({ admins: { 'staff-uid': { role, status: 'active', permissions: {} } }, subscription_customers: customerRecords, subscriptions, subscription_plans: plans, subscription_account_index: { 'staff-uid': 'stale-customer' }, subscription_credentials: { 'CLUB-101-6': clubCredential }, subscription_pin_index: {} });
 globalThis.fetch = async (input, options = {}) => {
   const url = String(input);
   if (url.includes('service_accounts/v1/jwk')) return Response.json({ keys: [publicJwk] });
@@ -63,7 +66,7 @@ async function idToken(uid = 'staff-uid') {
   const signature = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', keyPair.privateKey, encoder.encode(`${header}.${payload}`));
   return `${header}.${payload}.${base64url(signature)}`;
 }
-const env = { ALLOWED_ORIGINS: 'https://najf8.github.io', FIREBASE_SERVICE_ACCOUNT_EMAIL: 'fixture@example.com', FIREBASE_SERVICE_ACCOUNT_PRIVATE_KEY: privatePem, FIREBASE_DATABASE_URL: 'https://coffee-30fa7-default-rtdb.firebaseio.com' };
+const env = { ALLOWED_ORIGINS: 'https://najf8.github.io', FIREBASE_SERVICE_ACCOUNT_EMAIL: 'fixture@example.com', FIREBASE_SERVICE_ACCOUNT_PRIVATE_KEY: privatePem, FIREBASE_DATABASE_URL: 'https://coffee-30fa7-default-rtdb.firebaseio.com', LOYALTY_PIN_PEPPER: 'fixture' };
 const post = async (path, payload, token) => { const auth = token === null ? null : (token || await idToken()); return handleLoyaltyRoutes(new Request(`https://worker.test${path}`, { method: 'POST', headers: { Origin: 'https://najf8.github.io', 'Content-Type': 'application/json', ...(auth ? { Authorization: `Bearer ${auth}` } : {}) }, body: JSON.stringify(payload) }), env, new URL(`https://worker.test${path}`)); };
 const request = async (query, token) => post('/api/admin/club/search', { query }, token);
 const get = async (path, uid = 'staff-uid') => handleLoyaltyRoutes(new Request(`https://worker.test${path}`, { method: 'GET', headers: { Origin: 'https://najf8.github.io', Authorization: `Bearer ${await idToken(uid)}` } }), env, new URL(`https://worker.test${path}`));
@@ -235,9 +238,10 @@ assert.equal(forbidden.body.error, 'FORBIDDEN');
 assert.equal(writes, 0);
 role = 'manager';
 allowWrites = true;
-customer = { status: 'active', clubNumber: 'CLUB-101-6', name: 'Known Club Member', phone: '07827337942', uid: 'member-uid', pin: '1234' };
+customer = { status: 'active', clubNumber: 'CLUB-101-6', name: 'Known Club Member', phone: '07827337942', uid: 'member-uid' };
 customerRecords = { 'CLUB-101-6': customer };
 subscriptions = { subscriptionA: { customerId: 'CLUB-101-6', clubNumber: 'CLUB-101-6', status: 'active', planName: 'Test', remainingUses: 3, totalUses: 10, expiresAt: Date.now() + 86400000 } };
+clubCredential = await createCredential('1234', 'fixture');
 const consumeResult = await json(await post('/api/admin/club/consume', { subscriptionId: 'subscriptionA', customerId: 'CLUB-101-6', clubNumber: 'CLUB-101-6', pin: '1234', requestId: 'consume-fixture' }));
 assert.equal(consumeResult.status, 200);
 assert.equal(consumeResult.body.remainingUses, 2);
@@ -250,9 +254,6 @@ assert.equal(missingPin.body.error, 'INVALID_ARGUMENT');
 const otherCustomer = await json(await post('/api/admin/club/consume', { subscriptionId: 'subscriptionA', customerId: 'other-customer', clubNumber: 'CLUB-101-6', pin: '1234', requestId: 'other-customer' }));
 assert.equal(otherCustomer.status, 404);
 assert.equal(otherCustomer.body.error, 'CLUB_MEMBER_NOT_FOUND');
-const reserveResult = await json(await post('/api/admin/club/reserve-pin', { customerId: 'CLUB-101-6' }));
-assert.equal(reserveResult.status, 200);
-assert.match(reserveResult.body.pin, /^\d{4}$/);
 const loyaltySource = await readFile(new URL('../../loyalty.html', import.meta.url), 'utf8');
 const searchFlow = loyaltySource.slice(loyaltySource.indexOf('async function searchClubCust'), loyaltySource.indexOf('async function redeemClubDrink'));
 const clubUiFlow = loyaltySource.slice(loyaltySource.indexOf('function renderClubCustomer'), loyaltySource.indexOf('async function redeemClubDrink'));

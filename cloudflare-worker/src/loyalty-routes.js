@@ -361,7 +361,7 @@ async function provision(request, env, current, superAdmin = false) {
 }
 async function activatePending(request, env, current) { await staff(env, current, 'activate-pending'); const p = await body(request), uid = String(p.uid || '').trim(), pending = await firebaseAdminRequest(env, `loyalty_pending/${uid}`); if (!/^[A-Za-z0-9_-]{6,180}$/.test(uid) || !pending || pending.status !== 'pending') throw Error('INVALID_PENDING'); const existing = await firebaseAdminRequest(env, `loyalty_links/${uid}`); if (existing) { await firebaseAdminRequest(env, `loyalty_pending/${uid}`, { method: 'DELETE' }); return response(request, env, { ok: true, membershipNumber: existing, existing: true }); } const counter = (Number(await firebaseAdminRequest(env, 'loyalty_counter')) || 0) + 1, membership = `101-${counter}`, pin = String(Math.floor(Math.random() * 10000)).padStart(4, '0'), now = Date.now(); await firebaseAdminRequest(env, '', { method: 'PATCH', body: { [`loyalty_customers/${membership}`]: { uid, name: String(pending.displayName || pending.email || 'عضو 101').slice(0, 120), email: String(pending.email || '').slice(0, 180), memberType: 'زبون', membershipStatus: 'عضو مميز', hearts: 0, currentHearts: 0, pin, createdAt: now, updatedAt: now }, [`loyalty_links/${uid}`]: membership, [`loyalty_pending/${uid}`]: null, loyalty_counter: counter } }); return response(request, env, { ok: true, membershipNumber: membership, existing: false }); }
 function normalizeActivationPhone(value) { return normalizeIraqiPhone(value); }
-function subscriptionActivationResult(requestId, subscriptionId, customerId, customer, pin, idempotent = false) { return { ok: true, requestId, subscriptionId, customerId, clubNumber: customer.clubNumber, pin, idempotent }; }
+function subscriptionActivationResult(requestId, subscriptionId, customerId, customer, pin, idempotent = false) { return { ok: true, requestId, subscriptionId, customerId, clubNumber: customer.clubNumber, ...(pin ? { pin } : {}), idempotent }; }
 async function activateSubscription(request, env, current) {
   let activationStage = 'START';
   let requestIdValue = '';
@@ -383,7 +383,7 @@ async function activateSubscription(request, env, current) {
     if (!requestIdValue) throw Error('INVALID_ARGUMENT');
     stage('REQUEST_OK');
     stage('ROOT_READ');
-    const result = await atomicPlan(env, root => {
+    const result = await atomicPlan(env, async root => {
     stage('ROOT_READ_OK');
     const clubRequest = root.subscription_requests?.[requestIdValue];
     if (!clubRequest) throw Error('SUB_REQUEST_NOT_FOUND');
@@ -391,7 +391,7 @@ async function activateSubscription(request, env, current) {
       const subscription = root.subscriptions?.[clubRequest.subscriptionId];
       const customerId = clubRequest.customerId || subscription?.customerId || '';
       const customer = root.subscription_customers?.[customerId];
-      if (subscription && customer) return { replay: true, result: subscriptionActivationResult(requestIdValue, clubRequest.subscriptionId, customerId, customer, customer.pin || subscription.pin || '', true) };
+      if (subscription && customer) return { replay: true, result: subscriptionActivationResult(requestIdValue, clubRequest.subscriptionId, customerId, customer, '', true) };
     }
     if (clubRequest.status !== 'pending') throw Error('SUB_REQUEST_NOT_PENDING');
     planId = String(clubRequest.planId || '');
@@ -413,27 +413,32 @@ async function activateSubscription(request, env, current) {
     if (existingCustomer?.activeSubscriptionId && subscriptions[existingCustomer.activeSubscriptionId]?.status === 'active') throw Error('SUB_CUSTOMER_ALREADY_ACTIVE');
     stage('CLUB_ALLOCATION');
     let customerId = existingId, clubNumber = existingCustomer?.clubNumber || '', counter = Number(root.subscription_counter) || 0;
-    if (existingId && (!clubNumber || !existingCustomer?.pin)) throw Error('SUB_CUSTOMER_DATA_INCOMPLETE');
+    if (existingId && !clubNumber) throw Error('SUB_CUSTOMER_DATA_INCOMPLETE');
     if (!customerId) {
       do { counter += 1; clubNumber = `CLUB-101-${counter}`; customerId = clubNumber; } while (customers[customerId]);
     }
     stage('CLUB_OK');
-    let pin = existingCustomer?.pin || '';
+    let pin = '';
     stage('PIN_PREPARE');
     if (!pin) {
-      const usedPins = new Set(Object.keys(root.subscription_pin_index || {}));
-      do { pin = String(Math.floor(1000 + Math.random() * 9000)); } while (usedPins.has(pin));
+      pin = security.generatePin();
     }
     stage('PIN_OK');
     const now = Date.now(), subscriptionId = `sub_${requestIdValue}`, totalUses = Number(plan.totalUses), durationDays = Number(plan.durationDays);
     if (!Number.isInteger(totalUses) || totalUses < 1 || !Number.isInteger(durationDays) || durationDays < 1) throw Error('SUB_PLAN_NOT_FOUND');
-    const customer = { ...(existingCustomer || {}), customerId, name: String(clubRequest.name || clubRequest.customerName || existingCustomer?.name || 'عضو 101').slice(0, 120), phone: normalizedPhone, email: String(clubRequest.email || existingCustomer?.email || '').slice(0, 180), ...(clubRequest.uid ? { uid: String(clubRequest.uid).slice(0, 180) } : {}), clubNumber, pin, status: 'active', activeSubscriptionId: subscriptionId, createdAt: Number(existingCustomer?.createdAt) || now, updatedAt: now };
-    const subscription = { subscriptionId, requestId: requestIdValue, customerId, uid: customer.uid || '', name: customer.name, phone: normalizedPhone, clubNumber, pin, planId: String(clubRequest.planId), planName: String(clubRequest.planName || plan.nameAr || plan.nameEn || clubRequest.planId), price: Number(clubRequest.price || plan.price || 0), status: 'active', paymentStatus: 'paid', totalUses, remainingUses: totalUses, startedAt: now, activatedAt: now, expiresAt: now + durationDays * 86400000, createdAt: Number(clubRequest.createdAt) || now };
+    const { pin: _legacyCustomerPin, ...customerWithoutPin } = existingCustomer || {};
+    const customer = { ...customerWithoutPin, customerId, name: String(clubRequest.name || clubRequest.customerName || existingCustomer?.name || 'عضو 101').slice(0, 120), phone: normalizedPhone, email: String(clubRequest.email || existingCustomer?.email || '').slice(0, 180), ...(clubRequest.uid ? { uid: String(clubRequest.uid).slice(0, 180) } : {}), clubNumber, status: 'active', activeSubscriptionId: subscriptionId, createdAt: Number(existingCustomer?.createdAt) || now, updatedAt: now };
+    const subscription = { subscriptionId, requestId: requestIdValue, customerId, uid: customer.uid || '', name: customer.name, phone: normalizedPhone, clubNumber, planId: String(clubRequest.planId), planName: String(clubRequest.planName || plan.nameAr || plan.nameEn || clubRequest.planId), price: Number(clubRequest.price || plan.price || 0), status: 'active', paymentStatus: 'paid', totalUses, remainingUses: totalUses, startedAt: now, activatedAt: now, expiresAt: now + durationDays * 86400000, createdAt: Number(clubRequest.createdAt) || now };
+    const pepper = String(env.LOYALTY_PIN_PEPPER || '');
+    if (!pepper) throw Error('INTERNAL_ERROR');
+    const generatedCredential = await security.createCredential(pin, pepper, now);
+    const credential = { pinHash: generatedCredential.pinHash, salt: generatedCredential.salt, algorithm: generatedCredential.algorithm, iterations: generatedCredential.iterations, version: generatedCredential.version };
     const updatedRequest = { ...clubRequest, requestId: clubRequest.requestId || requestIdValue, phone: normalizedPhone, status: 'activated', paymentStatus: 'paid', customerId, subscriptionId, clubNumber, activatedAt: now, updatedAt: now };
     stage('PAYLOAD_BUILD');
     const updates = { [`subscription_requests/${requestIdValue}`]: updatedRequest, [`subscription_customers/${customerId}`]: customer, [`subscriptions/${subscriptionId}`]: subscription, [`subscription_activation_logs/${requestIdValue}`]: { type: 'subscription_activated', requestId: requestIdValue, subscriptionId, customerId, uid: current.uid, role: actor.role, createdAt: now } };
     if (customer.uid) updates[`subscription_account_index/${customer.uid}`] = customerId;
-    if (!existingId) { updates.subscription_counter = counter; updates[`subscription_pin_index/${pin}`] = customerId; }
+    updates[`subscription_credentials/${customerId}`] = credential;
+    if (!existingId) updates.subscription_counter = counter;
     stage('PAYLOAD_OK');
     stage('ATOMIC_PATCH');
     return { updates, result: subscriptionActivationResult(requestIdValue, subscriptionId, customerId, customer, pin, false) };
@@ -494,22 +499,18 @@ async function redeemGift(request, env, current) {
 }
 async function listGiftOrders(request, env, current) { await staff(env, current, 'manage-gifts'); const root = await firebaseAdminRequest(env, 'gift_orders') || {}; const now = Date.now(); const orders = Object.entries(root).map(([id, value]) => { const gift = value || {}, expired = gift.giftStatus === 'active' && gift.expiresAt && Number(gift.expiresAt) <= now; const approvalStatus = gift.paymentStatus === 'rejected' || gift.giftStatus === 'cancelled' ? 'rejected' : gift.giftStatus === 'redeemed' ? 'redeemed' : gift.giftStatus === 'expired' || expired ? 'expired' : gift.paymentStatus === 'paid' || gift.giftStatus === 'active' ? 'approved' : 'pending'; return { id, orderCode: gift.orderCode || '', giftCode: gift.giftCode || '', senderName: gift.senderName || '', recipientName: gift.recipientName || '', recipientPhone: gift.recipientPhone || '', senderPhone: gift.senderPhone || '', productName: gift.productName || '', giftType: gift.giftType || '', giftValue: Number(gift.giftValue || 0), message: gift.message || '', createdAt: gift.createdAt || null, expiresAt: gift.expiresAt || null, paymentStatus: gift.paymentStatus || '', giftStatus: gift.giftStatus || '', approvalStatus, approvedAt: gift.approvedAt || null, rejectedAt: gift.rejectedAt || null, redeemedAt: gift.redeemedAt || null }; }).sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0)); return response(request, env, { ok: true, orders }); }
 async function decideGift(request, env, current, decision) { const actor = await staff(env, current, 'manage-gifts'); const payload = await body(request), id = String(payload.giftId || payload.id || '').trim(); if (!id) throw Error('INVALID_ARGUMENT'); const result = await atomicPlan(env, root => planGiftDecision(root, id, decision, { uid: current.uid, name: actor.record.displayName || current.name, email: current.email, role: actor.role })); return response(request, env, result); }
-async function reservePin(request, env, current) { await staff(env, current, 'reserve-pin'); const p = await body(request), customerId = String(p.customerId || '').trim(); if (!customerId || customerId.length > 180) throw Error('INVALID_ARGUMENT'); for (let i = 0; i < 100; i++) { const pin = String(Math.floor(1000 + Math.random() * 9000)); try { const result = await atomicPlan(env, (root) => { if (root.subscription_pin_index?.[pin]) return null; return { updates: { [`subscription_pin_index/${pin}`]: customerId }, result: { ok: true, pin } }; }); if (result) return response(request, env, result); } catch (error) { if (error?.message !== 'FIREBASE_ATOMIC_PLAN_INVALID') throw error; } } throw Error('PIN_RESERVATION_FAILED'); }
 async function consume(request, env, current) {
   const actor = await staff(env, current, 'consume');
   const p = await body(request), id = String(p.subscriptionId || p.id || '').trim(), customerId = String(p.customerId || '').trim();
   const clubNumber = String(p.clubNumber || '').trim(), pin = String(p.pin || '').trim(), requestKey = requestId(p);
   if (!id || !customerId || !security.validPin(pin)) throw Error('INVALID_ARGUMENT');
-  const [customer, subscription] = await Promise.all([firebaseAdminRequest(env, `subscription_customers/${customerId}`), firebaseAdminRequest(env, `subscriptions/${id}`)]);
+  const [customer, subscription, credential] = await Promise.all([firebaseAdminRequest(env, `subscription_customers/${customerId}`), firebaseAdminRequest(env, `subscriptions/${id}`), firebaseAdminRequest(env, `subscription_credentials/${customerId}`)]);
   const customerClub = normalizeClubMembership(customer?.clubNumber || customerId)?.canonicalClubId || normalizeClubNumber(customer?.clubNumber || customerId);
   const suppliedClub = normalizeClubMembership(clubNumber)?.canonicalClubId || normalizeClubNumber(clubNumber);
   const relation = subscriptionBelongsToCustomer(subscription, customerId, customer) && (!suppliedClub || suppliedClub === customerClub) && (!customer?.activeSubscriptionId || String(customer.activeSubscriptionId) === id);
   if (!customer || !subscription || !relation) throw Error('CLUB_MEMBER_NOT_FOUND');
-  const membership = security.normalizeMembershipNumber(customer.membershipNumber) || normalizeClubMembership(customer.clubNumber || customerId)?.displayMembership;
-  const credential = membership ? await firebaseAdminRequest(env, `loyalty_credentials/${membership}`) : null;
   const pepper = String(env.LOYALTY_PIN_PEPPER || '');
-  let verified = Boolean(pepper && await security.timingSafePinMatch(pin, credential, pepper));
-  if (!verified && !credential && security.validPin(customer.pin)) verified = security.timingSafeEqual(new TextEncoder().encode(pin), new TextEncoder().encode(String(customer.pin)));
+  const verified = Boolean(pepper && await security.timingSafePinMatch(pin, credential, pepper));
   if (!verified) throw Error('INVALID_PIN');
   const result = await atomicPlan(env, (root) => {
     const replay = replayOrPlan(root, 'consume', requestKey); if (replay) return replay;
@@ -522,9 +523,9 @@ async function consume(request, env, current) {
   });
   return response(request, env, result);
 }
-async function submitClaim(request, env, current) { if (!current.emailVerified || !current.email) throw Error('VERIFIED_EMAIL_REQUIRED'); const p = await body(request), clubNumber = String(p.clubNumber || '').trim().toUpperCase(), pin = String(p.pin || '').trim(); if (!/^CLUB-101-\d+$/.test(clubNumber) || !/^\d{4,8}$/.test(pin)) throw Error('INVALID_ARGUMENT'); await firebaseAdminRequest(env, `subscription_account_claims/${current.uid}`, { method: 'PUT', body: { uid: current.uid, clubNumber, pin, displayName: current.name, email: current.email, status: 'pending', createdAt: Date.now() } }); return response(request, env, { ok: true, submitted: true }); }
-async function approveClaim(request, env, current) { await staff(env, current, 'approve-claim'); const p = await body(request), uid = String(p.uid || p.claimId || '').trim(), claim = await firebaseAdminRequest(env, `subscription_account_claims/${uid}`), customers = await firebaseAdminRequest(env, 'subscription_customers') || {}; const entry = Object.entries(customers).find(([, c]) => String(c.clubNumber || '').toUpperCase() === String(claim?.clubNumber || '').toUpperCase() && String(c.pin || '') === String(claim?.pin || '')); if (!claim || claim.status !== 'pending' || !entry) throw Error('CLAIM_INVALID'); const [customerId, customer] = entry; const updates = { [`subscription_customers/${customerId}/uid`]: uid, [`subscription_customers/${customerId}/email`]: claim.email || customer.email || '', [`subscription_account_index/${uid}`]: customerId, [`subscription_account_claims/${uid}/status`]: 'approved', [`subscription_account_claims/${uid}/approvedAt`]: Date.now() }; if (customer.activeSubscriptionId) updates[`subscriptions/${customer.activeSubscriptionId}/uid`] = uid; await firebaseAdminRequest(env, '', { method: 'PATCH', body: updates }); return response(request, env, { ok: true, approved: true }); }
-async function setPin(request, env, current) { await staff(env, current, 'set-pin'); const p = await body(request), id = String(p.customerId || p.id || '').trim(), pin = String(p.pin || '').trim(); if (!id || !/^\d{4,8}$/.test(pin)) throw Error('INVALID_ARGUMENT'); await firebaseAdminRequest(env, `subscription_customers/${id}`, { method: 'PATCH', body: { pin, updatedAt: Date.now() } }); return response(request, env, { ok: true, saved: true }); }
+async function submitClaim(request, env, current) { if (!current.emailVerified || !current.email) throw Error('VERIFIED_EMAIL_REQUIRED'); const p = await body(request), clubNumber = String(p.clubNumber || '').trim().toUpperCase(), pin = String(p.pin || '').trim(); if (!/^CLUB-101-\d+$/.test(clubNumber) || !security.validPin(pin)) throw Error('INVALID_ARGUMENT'); const customerId = normalizeClubMembership(clubNumber)?.canonicalClubId, customer = customerId ? await firebaseAdminRequest(env, `subscription_customers/${customerId}`) : null, credential = customerId ? await firebaseAdminRequest(env, `subscription_credentials/${customerId}`) : null; if (!customer || !credential || !await security.timingSafePinMatch(pin, credential, String(env.LOYALTY_PIN_PEPPER || ''))) throw Error('CLAIM_INVALID'); await firebaseAdminRequest(env, `subscription_account_claims/${current.uid}`, { method: 'PUT', body: { uid: current.uid, customerId, clubNumber, displayName: current.name, email: current.email, status: 'pending', createdAt: Date.now() } }); return response(request, env, { ok: true, submitted: true }); }
+async function approveClaim(request, env, current) { await staff(env, current, 'approve-claim'); const p = await body(request), uid = String(p.uid || p.claimId || '').trim(), claim = await firebaseAdminRequest(env, `subscription_account_claims/${uid}`), customerId = String(claim?.customerId || '').trim(), customer = customerId ? await firebaseAdminRequest(env, `subscription_customers/${customerId}`) : null, credential = customerId ? await firebaseAdminRequest(env, `subscription_credentials/${customerId}`) : null; if (!claim || claim.status !== 'pending' || !customer || !credential || customer.clubNumber !== claim.clubNumber) throw Error('CLAIM_INVALID'); const updates = { [`subscription_customers/${customerId}/uid`]: uid, [`subscription_customers/${customerId}/email`]: claim.email || customer.email || '', [`subscription_account_index/${uid}`]: customerId, [`subscription_account_claims/${uid}/status`]: 'approved', [`subscription_account_claims/${uid}/approvedAt`]: Date.now() }; if (customer.activeSubscriptionId) updates[`subscriptions/${customer.activeSubscriptionId}/uid`] = uid; await firebaseAdminRequest(env, '', { method: 'PATCH', body: updates }); return response(request, env, { ok: true, approved: true }); }
+async function setPin(request, env, current) { await staff(env, current, 'set-pin'); const p = await body(request), id = String(p.customerId || p.id || '').trim(), pin = String(p.pin || '').trim(), pepper = String(env.LOYALTY_PIN_PEPPER || ''); if (!id || !security.validPin(pin) || !pepper) throw Error('INVALID_ARGUMENT'); const generatedCredential = await security.createCredential(pin, pepper), credential = { pinHash: generatedCredential.pinHash, salt: generatedCredential.salt, algorithm: generatedCredential.algorithm, iterations: generatedCredential.iterations, version: generatedCredential.version }; const customer = await firebaseAdminRequest(env, `subscription_customers/${id}`); if (!customer) throw Error('CLUB_MEMBER_NOT_FOUND'); const updates = { [`subscription_credentials/${id}`]: credential, [`subscription_customers/${id}/pin`]: null }; if (customer.activeSubscriptionId) updates[`subscriptions/${customer.activeSubscriptionId}/pin`] = null; await firebaseAdminRequest(env, '', { method: 'PATCH', body: updates }); return response(request, env, { ok: true, saved: true }); }
 async function debugRootSize(request, env, current) {
   const actor = await staff(env, current, 'root-size-diagnostics');
   if (actor.role !== 'super_admin') throw Error('FORBIDDEN');
@@ -560,7 +561,6 @@ async function route(request, env, url) {
     if (path === '/api/admin/gift/reject' && request.method === 'POST') return await decideGift(request, env, current, 'reject');
     if (path === '/api/admin/gift/redeem' && request.method === 'POST') return await redeemGift(request, env, current);
     if (path === '/api/admin/club/consume') return await consume(request, env, current);
-    if (path === '/api/admin/club/reserve-pin') return await reservePin(request, env, current);
     if (path === '/api/admin/subscription/set-pin') return await setPin(request, env, current);
     if (path === '/api/admin/subscription/approve-claim') return await approveClaim(request, env, current);
     if (path === '/api/admin/debug/root-size' && request.method === 'GET') return await debugRootSize(request, env, current);
