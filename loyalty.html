@@ -1357,11 +1357,15 @@ async function modifyPoints(delta, isExact = false, exactVal = 0) {
               
               const custName = (snapVal.name || 'عميلنا العزيز').split(' ')[0];
               const heartsStr = `${newH} / 5 ❤️`;
-              const msg = 'مبروك ❤️ حصلت على قلب جديد من 101 COFFEE';
-              
-              const waUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(msg)}`;
-              const popup = window.open(waUrl, '_blank');
-              if (!popup) console.error('[WHATSAPP_PREPARE_FAILED]', {operation:'open', path:`loyalty_customers/${custId}/phone`, code:'POPUP_BLOCKED', message:'Browser blocked the WhatsApp window'});
+              const msg = `مبروك 🎉 حصلت على قلب جديد من 101 COFFEE ❤️\nرصيدك الحالي: ${newH} / 5 قلوب ❤️\nمزاجك يستاهل 101 ☕️`;
+
+              try {
+                const waUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(msg)}`;
+                const popup = window.open(waUrl, '_blank');
+                if (!popup) console.error('[WHATSAPP_PREPARE_FAILED]', {operation:'open', path:`loyalty_customers/${custId}/phone`, code:'POPUP_BLOCKED', message:'Browser blocked the WhatsApp window'});
+              } catch (whatsappError) {
+                console.error('[WHATSAPP_PREPARE_FAILED]', {operation:'open', path:`loyalty_customers/${custId}/phone`, code:whatsappError?.code || 'OPEN_FAILED', message:whatsappError?.message});
+              }
           } else if (actualDelta > 0) {
               showToast('تمت إضافة القلب، لكن العميل لا يملك رقم WhatsApp محفوظًا.');
           }
