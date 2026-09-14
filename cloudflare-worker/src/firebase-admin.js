@@ -36,6 +36,60 @@ function firebaseErrorDetails(text, fallbackCode) {
     return { firebaseErrorCode: fallbackCode || null, firebaseErrorMessage: null };
   }
 }
+function firebasePayloadDiagnostics(updates, includeGroups = true) {
+  const counts = { undefined: 0, nan: 0, infinity: 0, bigint: 0, dateObjects: 0, otherInvalidTypes: 0 };
+  const invalidPaths = [], paths = Object.keys(updates || {}), seen = new Map(), collisions = [], visitedObjects = new WeakSet();
+  const forbidden = /[.#$\[\]]/;
+  const visit = (value, path) => {
+    if (value === undefined) { counts.undefined += 1; return; }
+    if (typeof value === 'number' && Number.isNaN(value)) { counts.nan += 1; return; }
+    if (typeof value === 'number' && !Number.isFinite(value)) { counts.infinity += 1; return; }
+    if (typeof value === 'bigint') { counts.bigint += 1; return; }
+    if (value instanceof Date) { counts.dateObjects += 1; return; }
+    if (typeof value === 'function' || typeof value === 'symbol') { counts.otherInvalidTypes += 1; return; }
+    if (value && typeof value === 'object') {
+      if (visitedObjects.has(value)) return;
+      visitedObjects.add(value);
+      for (const [key, child] of Object.entries(value)) {
+        if (!key || forbidden.test(key)) invalidPaths.push(`${path}.${key}`);
+        visit(child, `${path}.${key}`);
+      }
+    }
+  };
+  for (const [path, value] of Object.entries(updates || {})) {
+    const segments = String(path).split('/');
+    if (!path || segments.some(segment => !segment) || segments.some(segment => forbidden.test(segment))) invalidPaths.push(path);
+    visit(value, path);
+    const normalized = segments.join('/');
+    for (const existing of seen.keys()) {
+      if (normalized === existing || normalized.startsWith(`${existing}/`) || existing.startsWith(`${normalized}/`)) {
+        if (normalized !== existing) collisions.push([existing, normalized]);
+      }
+    }
+    seen.set(normalized, true);
+  }
+  let serialization = { status: 'PASS', serializedSize: 0, topLevelKeyCount: paths.length };
+  try {
+    const serialized = JSON.stringify(updates);
+    const parsed = JSON.parse(serialized);
+    serialization = { status: Object.keys(parsed || {}).length === paths.length ? 'PASS' : 'FAIL', serializedSize: new TextEncoder().encode(serialized).byteLength, topLevelKeyCount: Object.keys(parsed || {}).length };
+  } catch (error) {
+    serialization = { status: 'FAIL', serializedSize: null, topLevelKeyCount: paths.length, error: String(error?.message || error).slice(0, 200) };
+  }
+  const report = { totalUpdatePaths: paths.length, invalidPaths, parentChildCollisions: collisions, counts, serialization };
+  if (includeGroups) {
+    const groups = {
+      A_request_updates: path => path.startsWith('subscription_requests/'),
+      B_customer: path => path.startsWith('subscription_customers/'),
+      C_subscription: path => path.startsWith('subscriptions/'),
+      D_counter: path => path === 'subscription_counter',
+      E_pin_index: path => path.startsWith('subscription_pin_index/'),
+      F_audit_logs: path => path.startsWith('subscription_activation_logs/') || path.startsWith('subscription_logs/')
+    };
+    report.groups = Object.fromEntries(Object.entries(groups).map(([name, matches]) => [name, firebasePayloadDiagnostics(Object.fromEntries(paths.filter(matches).map(path => [path, updates[path]])), false)]));
+  }
+  return report;
+}
 async function firebaseAdminRequest(env, path, options = {}) {
   const base = String(env.FIREBASE_DATABASE_URL || 'https://coffee-30fa7-default-rtdb.firebaseio.com').replace(/\/$/, '');
   const response = await fetch(`${base}/${String(path).replace(/^\//, '')}.json`, { method: options.method || 'GET', headers: { Authorization: `Bearer ${await serviceAccountToken(env)}`, 'Content-Type': 'application/json', Accept: 'application/json' }, body: options.body === undefined ? undefined : JSON.stringify(options.body) });
@@ -56,17 +110,17 @@ async function firebaseAdminReadWithEtag(env, path = '') {
   if (!etag) throw new Error('FIREBASE_ETAG_MISSING');
   return { data, etag };
 }
-async function firebaseAdminConditionalPatch(env, updates, etag, retry = 0) {
+async function firebaseAdminConditionalPatch(env, updates, etag, retry = 0, options = {}) {
   const base = String(env.FIREBASE_DATABASE_URL || 'https://coffee-30fa7-default-rtdb.firebaseio.com').replace(/\/$/, '');
   const response = await fetch(`${base}/.json`, { method: 'PATCH', headers: { Authorization: `Bearer ${await serviceAccountToken(env)}`, 'Content-Type': 'application/json', Accept: 'application/json', 'If-Match': etag }, body: JSON.stringify(updates) });
   const text = await response.text();
   console.info({ tag: 'FIREBASE_ROOT_PATCH', status: response.status, retry });
   if (response.status === 412) {
-    console.error({ tag: 'FIREBASE_ROOT_PATCH_FAILED', status: response.status, retry, firebaseErrorCode: 'FIREBASE_ETAG_CONFLICT', firebaseErrorMessage: 'ETag conflict' });
+    console.error({ tag: 'FIREBASE_ROOT_PATCH_FAILED', status: response.status, firebaseErrorBody: text, stage: options.stage || 'ATOMIC_PATCH', requestId: options.requestId || null });
     throw new Error('FIREBASE_ETAG_CONFLICT');
   }
   if (!response.ok) {
-    console.error({ tag: 'FIREBASE_ROOT_PATCH_FAILED', status: response.status, retry, ...firebaseErrorDetails(text, `FIREBASE_${response.status}`) });
+    console.error({ tag: 'FIREBASE_ROOT_PATCH_FAILED', status: response.status, firebaseErrorBody: text, stage: options.stage || 'ATOMIC_PATCH', requestId: options.requestId || null });
     throw new Error(`FIREBASE_${response.status}`);
   }
   return text ? JSON.parse(text) : null;
@@ -82,14 +136,17 @@ async function firebaseAdminConditionalPut(env, path, body, etag) {
 async function firebaseAdminAtomicPatch(env, plan, options = {}) {
   const attempts = Math.max(1, Math.min(Number(options.attempts) || 8, 20));
   const read = options.read || ((currentEnv) => firebaseAdminReadWithEtag(currentEnv, ''));
-  const write = options.write || ((currentEnv, updates, etag, retry) => firebaseAdminConditionalPatch(currentEnv, updates, etag, retry));
+  const write = options.write || ((currentEnv, updates, etag, retry, writeOptions) => firebaseAdminConditionalPatch(currentEnv, updates, etag, retry, writeOptions));
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     const snapshot = await read(env);
     const decision = await plan(snapshot.data || {});
     if (decision?.replay) return decision.result;
     if (!decision?.updates || typeof decision.result === 'undefined') throw new Error('FIREBASE_ATOMIC_PLAN_INVALID');
+    const diagnostics = firebasePayloadDiagnostics(decision.updates);
+    console.info({ tag: 'FIREBASE_PAYLOAD_DIAGNOSTICS', requestId: options.requestId || null, stage: options.stage || 'PAYLOAD_OK', paths: Object.fromEntries(Object.entries(decision.updates).map(([path, value]) => [path, value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value])), ...diagnostics });
+    if (diagnostics.invalidPaths.length || diagnostics.parentChildCollisions.length || diagnostics.serialization.status !== 'PASS' || Object.values(diagnostics.counts).some(Number)) throw Error('FIREBASE_PAYLOAD_INVALID');
     try {
-      await write(env, decision.updates, snapshot.etag, attempt);
+      await write(env, decision.updates, snapshot.etag, attempt, options);
       return decision.result;
     } catch (error) {
       if (error?.message !== 'FIREBASE_ETAG_CONFLICT' || attempt === attempts - 1) throw error;
@@ -97,4 +154,4 @@ async function firebaseAdminAtomicPatch(env, plan, options = {}) {
   }
   throw new Error('FIREBASE_ETAG_CONFLICT');
 }
-export { firebaseAdminRequest, firebaseAdminReadWithEtag, firebaseAdminConditionalPatch, firebaseAdminConditionalPut, firebaseAdminAtomicPatch, serviceAccountToken };
+export { firebaseAdminRequest, firebaseAdminReadWithEtag, firebaseAdminConditionalPatch, firebaseAdminConditionalPut, firebaseAdminAtomicPatch, firebasePayloadDiagnostics, serviceAccountToken };
