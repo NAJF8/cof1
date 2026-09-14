@@ -4743,7 +4743,7 @@
              try{
                  const result=await callLoyaltySecurity('/api/subscription/me');
                  if(result?.customer){
-                     clubCustomer={id:String(result.customer.customerId||''),...result.customer,name:user.displayName||''};
+                     clubCustomer={...(clubCustomer||{}),id:String(result.customer.customerId||''),...result.customer,name:clubCustomer?.name||user.displayName||''};
                      clubSubscriptionData=result.subscription||null;
                      return true;
                  }
@@ -4756,15 +4756,16 @@
              clubCustomer=null;clubSubscriptionData=null;
              if(!user||!db){renderClubAccount();return false;}
              try{
-                 const link=await db.ref(clubAccountIndex(user.uid)).once('value');
-                 let customerId=link.exists()?String(link.val()||''):'';
-                 if(customerId){
-                     const candidate=await db.ref(`subscription_customers/${customerId}`).once('value');
-                     if(!candidate.exists()||String(candidate.val()?.uid||'')!==String(user.uid)) customerId='';
-                 }
-                 if(!customerId){const loaded=await loadClubSubscriptionMe(user);renderClubAccount();renderClubAccountModal();return loaded;}
-                 const customerSnap=await db.ref(`subscription_customers/${customerId}`).once('value');
-                 clubCustomer={id:customerId,...customerSnap.val()};
+                 let customerId='';
+                 try{
+                     const link=await db.ref(clubAccountIndex(user.uid)).once('value');
+                     customerId=link.exists()?String(link.val()||''):'';
+                     if(customerId){
+                         const candidate=await db.ref(`subscription_customers/${customerId}`).once('value');
+                         if(!candidate.exists()||String(candidate.val()?.uid||'')!==String(user.uid)) customerId='';
+                         else clubCustomer={id:customerId,...candidate.val()};
+                     }
+                 }catch(indexError){ console.warn('CLUB_ACCOUNT_INDEX_FALLBACK',indexError?.code||indexError?.message); }
                  const loaded=await loadClubSubscriptionMe(user);
                  if(!loaded){clubCustomer=null;}
                  renderClubAccount();renderClubAccountModal();

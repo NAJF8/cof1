@@ -1819,43 +1819,20 @@ async function redeemClubDrink() {
   if(!currentClubCustomer) return;
   const pinInput = document.getElementById('clubPinInput').value.trim();
   if(!pinInput) return alert('يرجى إدخال PIN المكون من 4 أرقام.');
-  if(pinInput !== currentClubCustomer.pin) {
-    return alert('❌ الـ PIN غير صحيح.');
-  }
-  
   const subId = currentClubCustomer.subscriptionId;
   if(!subId) return alert('❌ هذا العميل ليس لديه اشتراك.');
   
   try {
-    console.info('[CLUB_CONSUME_START]',{subscriptionId:subId});
-    const before=(await db.ref('subscriptions/'+subId).once('value')).val(),state=clubSubscriptionState(before);
-    if(!state.active)return alert(state.label==='الرصيد منتهي'?'الرصيد منتهي.':state.label==='الاشتراك منتهي'?'الاشتراك منتهي.':'الاشتراك غير فعال.');
-    console.info('[CLUB_CONSUME_TRANSACTION]',{path:'subscriptions/'+subId+'/remainingUses',currentRemaining:Number(before.remainingUses)});
-    const result = await db.ref('subscriptions/' + subId + '/remainingUses').transaction(current => {
-      if(current==null||Number(current)<=0)return;
-      return Number(current)-1;
-    });
-    console.info('[CLUB_CONSUME_RESULT]',{subscriptionId:subId,committed:result.committed});
-    if(!result.committed)return alert('الرصيد منتهي أو تم استخدامه من جهاز آخر.');
-    const remainingAfter=Number(result.snapshot.val()),sub={...before,remainingUses:remainingAfter};
+    const result=await callLoyaltySecurity('/api/admin/club/consume',{method:'POST',body:{subscriptionId:subId,customerId:currentClubCustomer.customerId||currentClubCustomer.id,clubNumber:currentClubCustomer.clubNumber||'',pin:pinInput,requestId:crypto.randomUUID()}});
+    const remainingAfter=Number(result.remainingUses||0);
+    alert('☕ تم استهلاك المشروب بنجاح! الرصيد المتبقي: ' + remainingAfter);
     
-    await db.ref('subscription_usage').push({
-      subscriptionId: subId,
-      clubNumber: currentClubCustomer.clubNumber || '',
-      uid: currentClubCustomer.uid,
-      usedAt: firebase.database.ServerValue.TIMESTAMP,
-      cashierUid: auth.currentUser.uid,
-      cashierName: currentCashier?.name || 'كاشير',
-      remainingAfter
-    });
-    
-    alert('☕ تم استهلاك المشروب بنجاح! الرصيد المتبقي: ' + sub.remainingUses);
-    
-    document.getElementById('clubRemainingUsesDisplay').textContent = `${sub.remainingUses} / ${sub.totalUses}`;
+    document.getElementById('clubRemainingUsesDisplay').textContent = `${remainingAfter} / ${Number(currentClubCustomer.subscription?.totalUses||0)}`;
     document.getElementById('clubPinInput').value = '';
     
   } catch(e) {
-    alert('❌ حدث خطأ: ' + e.message);
+    const code=e?.code||'REQUEST_FAILED';
+    alert(code==='INVALID_PIN'?'❌ الـ PIN غير صحيح.':code==='CLUB_UNAVAILABLE'?'❌ الاشتراك غير فعال أو منتهي أو لا يحتوي رصيداً.':'❌ تعذر تنفيذ الاستقطاع حالياً.');
   }
 }
 </script>
