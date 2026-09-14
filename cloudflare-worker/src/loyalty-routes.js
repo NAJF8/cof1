@@ -24,6 +24,33 @@ function fail(request, env, error, status) { return response(request, env, { ok:
 function giftDiagnostic(marker, details = {}) { console.info(marker, details); }
 function giftId(value) { const id = String(value || '').trim(); return /^[A-Za-z0-9_-]{1,160}$/.test(id) ? id : ''; }
 function firebaseHttpStatus(error) { const match = String(error?.message || '').match(/^FIREBASE_(\d{3})$/); return match ? Number(match[1]) : null; }
+const SUBSCRIPTION_DIAGNOSTIC_STAGES = new Set(['START', 'AUTH_START', 'AUTH_OK', 'ROLE_START', 'ROLE_OK', 'REQUEST_READ_START', 'REQUEST_READ_OK', 'REQUEST_VALIDATE_START', 'REQUEST_VALIDATE_OK', 'PLAN_READ_START', 'PLAN_READ_OK', 'PLAN_VALIDATE_START', 'PLAN_VALIDATE_OK', 'PHONE_VALIDATE_START', 'PHONE_VALIDATE_OK', 'UID_RESOLVE_START', 'UID_RESOLVE_OK', 'ROOT_READ_START', 'ROOT_READ_OK', 'ETAG_OK', 'COUNTER_READ_OK', 'CLUB_NUMBER_OK', 'PIN_GENERATE_OK', 'CREDENTIAL_HASH_OK', 'CUSTOMER_BUILD_OK', 'SUBSCRIPTION_BUILD_OK', 'INDEX_BUILD_OK', 'ROOT_MERGE_OK', 'ATOMIC_PUT_START', 'ATOMIC_PUT_OK', 'RESPONSE_BUILD_OK']);
+const SUBSCRIPTION_SAFE_CODES = new Set(['AUTH_FAILED', 'ROLE_FAILED', 'REQUEST_READ_FAILED', 'REQUEST_INVALID', 'PLAN_READ_FAILED', 'PLAN_INVALID', 'PHONE_INVALID', 'UID_RESOLVE_FAILED', 'ROOT_READ_FAILED', 'ETAG_MISSING', 'PIN_HASH_FAILED', 'ATOMIC_PUT_FAILED', 'UNKNOWN']);
+function subscriptionDiagnosticStage(stage) { return SUBSCRIPTION_DIAGNOSTIC_STAGES.has(stage) ? stage : 'START'; }
+function subscriptionDiagnosticCode(stage, error) {
+  const raw = String(error?.message || '');
+  if (raw === 'FIREBASE_ETAG_MISSING') return 'ETAG_MISSING';
+  if (stage.startsWith('AUTH_')) return 'AUTH_FAILED';
+  if (stage.startsWith('ROLE_')) return 'ROLE_FAILED';
+  if (stage === 'REQUEST_READ_START') return 'REQUEST_READ_FAILED';
+  if (stage.startsWith('REQUEST_VALIDATE')) return 'REQUEST_INVALID';
+  if (stage.startsWith('PLAN_READ')) return 'PLAN_READ_FAILED';
+  if (stage.startsWith('PLAN_VALIDATE')) return 'PLAN_INVALID';
+  if (stage.startsWith('PHONE_VALIDATE')) return 'PHONE_INVALID';
+  if (stage.startsWith('UID_RESOLVE')) return 'UID_RESOLVE_FAILED';
+  if (stage === 'ROOT_READ_START') return 'ROOT_READ_FAILED';
+  if (stage.startsWith('PIN_') || stage === 'CREDENTIAL_HASH_OK') return 'PIN_HASH_FAILED';
+  if (stage.startsWith('ATOMIC_PUT') || raw === 'FIREBASE_ETAG_CONFLICT') return 'ATOMIC_PUT_FAILED';
+  return SUBSCRIPTION_SAFE_CODES.has(raw) ? raw : 'UNKNOWN';
+}
+function subscriptionActivationFailure(request, env, stage, error) {
+  const safeStage = subscriptionDiagnosticStage(stage);
+  const safeCode = subscriptionDiagnosticCode(safeStage, error);
+  const diagnostic = { ok: false, error: 'INTERNAL_SERVER_ERROR', stage: safeStage, code: safeCode };
+  if (error?.firebaseOp === 'GET' || error?.firebaseOp === 'PUT') diagnostic.firebaseOp = error.firebaseOp;
+  if (Number.isInteger(error?.firebaseStatus)) diagnostic.firebaseStatus = error.firebaseStatus;
+  return response(request, env, diagnostic, 500);
+}
 async function body(request) { const type = request.headers.get('Content-Type') || ''; if (!type.toLowerCase().includes('application/json')) throw Error('INVALID_CONTENT_TYPE'); const raw = await request.text(); if (new TextEncoder().encode(raw).byteLength > MAX_BODY) throw Error('PAYLOAD_TOO_LARGE'); const value = JSON.parse(raw); if (!value || typeof value !== 'object' || Array.isArray(value)) throw Error('INVALID_JSON'); return value; }
 function b64(value) { let text = String(value || '').replace(/-/g, '+').replace(/_/g, '/'); while (text.length % 4) text += '='; return Uint8Array.from(atob(text), c => c.charCodeAt(0)); }
 function b64url(bytes) { let text = ''; for (const byte of new Uint8Array(bytes)) text += String.fromCharCode(byte); return btoa(text).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, ''); }
@@ -366,25 +393,27 @@ async function activateSubscription(request, env, current) {
   let activationStage = 'START';
   let requestIdValue = '';
   let planId = '';
-  let hasCustomer = false;
-  let safePhoneSuffix = '';
-  const stage = (next, extra = {}) => {
-    activationStage = next;
-    console.info({ tag: 'SUB_ACTIVATE_STAGE', stage: activationStage, requestId: requestIdValue || null, hasCustomer, planId: planId || null, safePhoneSuffix: safePhoneSuffix || null, ...extra });
-  };
+  const stage = next => { activationStage = next; console.info({ tag: 'SUB_ACTIVATE_STAGE', stage: activationStage }); };
   try {
     stage('START');
-    const actor = await staff(env, current, 'activate-subscription');
+    stage('AUTH_START');
+    if (!current?.uid) throw Error('AUTH_INVALID');
     stage('AUTH_OK');
+    stage('ROLE_START');
+    const actor = await staff(env, current, 'activate-subscription');
+    stage('ROLE_OK');
+    stage('REQUEST_READ_START');
     const payload = await body(request);
-    stage('REQUEST_READ');
+    stage('REQUEST_READ_OK');
+    stage('REQUEST_VALIDATE_START');
     requestIdValue = String(payload.requestId || payload.id || '').trim();
     const suppliedPhone = String(payload.phone || '').trim();
     if (!requestIdValue) throw Error('INVALID_ARGUMENT');
-    stage('REQUEST_OK');
-    stage('ROOT_READ');
+    stage('REQUEST_VALIDATE_OK');
+    stage('ROOT_READ_START');
     const result = await atomicPlan(env, async root => {
     stage('ROOT_READ_OK');
+    stage('ETAG_OK');
     const clubRequest = root.subscription_requests?.[requestIdValue];
     if (!clubRequest) throw Error('SUB_REQUEST_NOT_FOUND');
     if ((clubRequest.status === 'activated' || clubRequest.paymentStatus === 'paid') && clubRequest.subscriptionId) {
@@ -395,61 +424,61 @@ async function activateSubscription(request, env, current) {
     }
     if (clubRequest.status !== 'pending') throw Error('SUB_REQUEST_NOT_PENDING');
     planId = String(clubRequest.planId || '');
-    stage('PLAN_READ');
+    stage('PLAN_READ_START');
     const plan = root.subscription_plans?.[planId];
+    stage('PLAN_READ_OK');
+    stage('PLAN_VALIDATE_START');
     if (!plan || plan.enabled === false) throw Error('SUB_PLAN_NOT_FOUND');
-    stage('PLAN_OK');
+    stage('PLAN_VALIDATE_OK');
+    stage('PHONE_VALIDATE_START');
     const normalizedPhone = normalizeActivationPhone(suppliedPhone || clubRequest.phone);
     if (!normalizedPhone) throw Error('INVALID_ARGUMENT');
-    safePhoneSuffix = normalizedPhone.slice(-4);
-    stage('PHONE_OK');
+    stage('PHONE_VALIDATE_OK');
+    stage('UID_RESOLVE_START');
+    const requestUid = clubRequest.uid ? String(clubRequest.uid).slice(0, 180) : '';
+    stage('UID_RESOLVE_OK');
     const customers = root.subscription_customers || {}, subscriptions = root.subscriptions || {};
-    stage('CUSTOMER_LOOKUP');
-    const existingEntry = Object.entries(customers).find(([id, value]) => (clubRequest.uid && String(value?.uid || '') === String(clubRequest.uid)) || normalizeActivationPhone(value?.phone) === normalizedPhone);
+    const existingEntry = Object.entries(customers).find(([id, value]) => (requestUid && String(value?.uid || '') === requestUid) || normalizeActivationPhone(value?.phone) === normalizedPhone);
     const existingId = existingEntry?.[0] || '';
     const existingCustomer = existingEntry?.[1] || null;
-    hasCustomer = Boolean(existingCustomer);
-    stage('CUSTOMER_OK');
     if (existingCustomer?.activeSubscriptionId && subscriptions[existingCustomer.activeSubscriptionId]?.status === 'active') throw Error('SUB_CUSTOMER_ALREADY_ACTIVE');
-    stage('CLUB_ALLOCATION');
-    let customerId = existingId, clubNumber = existingCustomer?.clubNumber || '', counter = Number(root.subscription_counter) || 0;
+    let customerId = existingId, clubNumber = existingCustomer?.clubNumber || '';
+    const counter = Number(root.subscription_counter) || 0;
+    stage('COUNTER_READ_OK');
+    let nextCounter = counter;
     if (existingId && !clubNumber) throw Error('SUB_CUSTOMER_DATA_INCOMPLETE');
     if (!customerId) {
-      do { counter += 1; clubNumber = `CLUB-101-${counter}`; customerId = clubNumber; } while (customers[customerId]);
+      do { nextCounter += 1; clubNumber = `CLUB-101-${nextCounter}`; customerId = clubNumber; } while (customers[customerId]);
     }
-    stage('CLUB_OK');
-    let pin = '';
-    stage('PIN_PREPARE');
-    if (!pin) {
-      pin = security.generatePin();
-    }
-    stage('PIN_OK');
+    stage('CLUB_NUMBER_OK');
+    const pin = security.generatePin();
+    stage('PIN_GENERATE_OK');
     const now = Date.now(), subscriptionId = `sub_${requestIdValue}`, totalUses = Number(plan.totalUses), durationDays = Number(plan.durationDays);
     if (!Number.isInteger(totalUses) || totalUses < 1 || !Number.isInteger(durationDays) || durationDays < 1) throw Error('SUB_PLAN_NOT_FOUND');
     const { pin: _legacyCustomerPin, ...customerWithoutPin } = existingCustomer || {};
-    const customer = { ...customerWithoutPin, customerId, name: String(clubRequest.name || clubRequest.customerName || existingCustomer?.name || 'عضو 101').slice(0, 120), phone: normalizedPhone, email: String(clubRequest.email || existingCustomer?.email || '').slice(0, 180), ...(clubRequest.uid ? { uid: String(clubRequest.uid).slice(0, 180) } : {}), clubNumber, status: 'active', activeSubscriptionId: subscriptionId, createdAt: Number(existingCustomer?.createdAt) || now, updatedAt: now };
+    const customer = { ...customerWithoutPin, customerId, name: String(clubRequest.name || clubRequest.customerName || existingCustomer?.name || 'عضو 101').slice(0, 120), phone: normalizedPhone, email: String(clubRequest.email || existingCustomer?.email || '').slice(0, 180), ...(requestUid ? { uid: requestUid } : {}), clubNumber, status: 'active', activeSubscriptionId: subscriptionId, createdAt: Number(existingCustomer?.createdAt) || now, updatedAt: now };
+    stage('CUSTOMER_BUILD_OK');
     const subscription = { subscriptionId, requestId: requestIdValue, customerId, uid: customer.uid || '', name: customer.name, phone: normalizedPhone, clubNumber, planId: String(clubRequest.planId), planName: String(clubRequest.planName || plan.nameAr || plan.nameEn || clubRequest.planId), price: Number(clubRequest.price || plan.price || 0), status: 'active', paymentStatus: 'paid', totalUses, remainingUses: totalUses, startedAt: now, activatedAt: now, expiresAt: now + durationDays * 86400000, createdAt: Number(clubRequest.createdAt) || now };
+    stage('SUBSCRIPTION_BUILD_OK');
     const pepper = String(env.LOYALTY_PIN_PEPPER || '');
     if (!pepper) throw Error('INTERNAL_ERROR');
     const generatedCredential = await security.createCredential(pin, pepper, now);
     const credential = { pinHash: generatedCredential.pinHash, salt: generatedCredential.salt, algorithm: generatedCredential.algorithm, iterations: generatedCredential.iterations, version: generatedCredential.version };
+    stage('CREDENTIAL_HASH_OK');
     const updatedRequest = { ...clubRequest, requestId: clubRequest.requestId || requestIdValue, phone: normalizedPhone, status: 'activated', paymentStatus: 'paid', customerId, subscriptionId, clubNumber, activatedAt: now, updatedAt: now };
-    stage('PAYLOAD_BUILD');
     const updates = { [`subscription_requests/${requestIdValue}`]: updatedRequest, [`subscription_customers/${customerId}`]: customer, [`subscriptions/${subscriptionId}`]: subscription, [`subscription_activation_logs/${requestIdValue}`]: { type: 'subscription_activated', requestId: requestIdValue, subscriptionId, customerId, uid: current.uid, role: actor.role, createdAt: now } };
     if (customer.uid) updates[`subscription_account_index/${customer.uid}`] = customerId;
     updates[`subscription_credentials/${customerId}`] = credential;
-    if (!existingId) updates.subscription_counter = counter;
-    stage('PAYLOAD_OK');
-    stage('ATOMIC_PATCH');
+    if (!existingId) updates.subscription_counter = nextCounter;
+    stage('INDEX_BUILD_OK');
     return { updates, result: subscriptionActivationResult(requestIdValue, subscriptionId, customerId, customer, pin, false) };
-    }, { requestId: requestIdValue, stage: 'ATOMIC_PATCH' });
-    stage('ATOMIC_PATCH_OK');
-    stage('DONE');
+    }, { requestId: requestIdValue, stage: 'ATOMIC_PATCH', onStage: stage });
+    stage('ATOMIC_PUT_OK');
+    stage('RESPONSE_BUILD_OK');
     return response(request, env, result);
   } catch (err) {
-    const stackTop = String(err?.stack || '').split('\n').map(line => line.trim()).find(Boolean) || null;
-    console.error({ tag: 'SUB_ACTIVATE_FAILED', stage: activationStage, requestId: requestIdValue || null, errorName: err?.name || null, errorMessage: String(err?.message || err).slice(0, 200), errorCode: err?.code || null, stackTop });
-    return fail(request, env, 'INTERNAL_SERVER_ERROR', 500);
+    console.error({ tag: 'SUB_ACTIVATE_FAILED', stage: subscriptionDiagnosticStage(activationStage), code: subscriptionDiagnosticCode(activationStage, err), firebaseOp: err?.firebaseOp || null, firebaseStatus: Number.isInteger(err?.firebaseStatus) ? err.firebaseStatus : firebaseHttpStatus(err) });
+    return subscriptionActivationFailure(request, env, activationStage, err);
   }
 }
 async function changeMembership(request, env, current) { await staff(env, current, 'change-membership'); const p = await body(request), oldId = security.normalizeMembershipNumber(p.oldId), newId = security.normalizeMembershipNumber(p.newId), id = requestId(p); if (!oldId || !newId || oldId === newId) throw Error('INVALID_MEMBERSHIP'); const result = await atomicPlan(env, (root) => { const replay = replayOrPlan(root, 'membership-change', id); if (replay) return replay; const customer = root.loyalty_customers?.[oldId]; if (!customer) throw Error('NOT_FOUND'); if (root.loyalty_customers?.[newId]) throw Error('ALREADY_EXISTS'); const outcome = { ok: true, membershipNumber: newId }; const updates = { [`loyalty_customers/${newId}`]: customer, [`loyalty_customers/${oldId}`]: null, ...(customer.uid ? { [`loyalty_links/${customer.uid}`]: newId } : {}) }; if (id) updates[operationPath('membership-change', id)] = { result: outcome, createdAt: Date.now() }; return { updates, result: outcome }; }); return response(request, env, result); }
@@ -612,4 +641,4 @@ async function handleBackgroundPosterRoute(request, env, url) {
   }
 }
 async function handleLoyaltyRoutes(request, env, url) { return await handleBackgroundVideoRoute(request, env, url) || await handleBackgroundPosterRoute(request, env, url) || await handleProductImageRoute(request, env, url) || route(request, env, url); }
-export { handleLoyaltyRoutes, clubSearchQuery, normalizeIraqiPhone, normalizeClubMembership, safeClubCustomer, safeSubscriptionMe, backgroundVideoType, backgroundPosterType, videoExtension };
+export { handleLoyaltyRoutes, clubSearchQuery, normalizeIraqiPhone, normalizeClubMembership, safeClubCustomer, safeSubscriptionMe, backgroundVideoType, backgroundPosterType, videoExtension, subscriptionActivationFailure };
