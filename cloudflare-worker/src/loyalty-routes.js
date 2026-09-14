@@ -24,7 +24,7 @@ function fail(request, env, error, status) { return response(request, env, { ok:
 function giftDiagnostic(marker, details = {}) { console.info(marker, details); }
 function giftId(value) { const id = String(value || '').trim(); return /^[A-Za-z0-9_-]{1,160}$/.test(id) ? id : ''; }
 function firebaseHttpStatus(error) { const match = String(error?.message || '').match(/^FIREBASE_(\d{3})$/); return match ? Number(match[1]) : null; }
-const SUBSCRIPTION_DIAGNOSTIC_STAGES = new Set(['START', 'AUTH_START', 'AUTH_OK', 'ROLE_START', 'ROLE_OK', 'REQUEST_READ_START', 'REQUEST_READ_OK', 'REQUEST_VALIDATE_START', 'REQUEST_VALIDATE_OK', 'PLAN_READ_START', 'PLAN_READ_OK', 'PLAN_VALIDATE_START', 'PLAN_VALIDATE_OK', 'PHONE_VALIDATE_START', 'PHONE_VALIDATE_OK', 'UID_RESOLVE_START', 'UID_RESOLVE_OK', 'ROOT_READ_START', 'ROOT_READ_OK', 'ETAG_OK', 'COUNTER_READ_OK', 'CLUB_NUMBER_OK', 'PIN_GENERATE_OK', 'CREDENTIAL_HASH_OK', 'CUSTOMER_BUILD_OK', 'SUBSCRIPTION_BUILD_OK', 'INDEX_BUILD_OK', 'ROOT_MERGE_OK', 'ATOMIC_PUT_START', 'ATOMIC_PUT_OK', 'RESPONSE_BUILD_OK']);
+const SUBSCRIPTION_DIAGNOSTIC_STAGES = new Set(['START', 'AUTH_START', 'AUTH_OK', 'ROLE_START', 'ROLE_OK', 'REQUEST_READ_START', 'REQUEST_READ_OK', 'REQUEST_VALIDATE_START', 'REQUEST_VALIDATE_OK', 'PLAN_READ_START', 'PLAN_READ_OK', 'PLAN_VALIDATE_START', 'PLAN_VALIDATE_OK', 'PHONE_VALIDATE_START', 'PHONE_VALIDATE_OK', 'UID_RESOLVE_START', 'UID_RESOLVE_OK', 'ROOT_READ_START', 'ROOT_READ_OK', 'ETAG_OK', 'COUNTER_READ_OK', 'CLUB_NUMBER_OK', 'PIN_GENERATE_OK', 'CREDENTIAL_PREPARE_START', 'CREDENTIAL_PEPPER_OK', 'CREDENTIAL_HASH_START', 'CREDENTIAL_HASH_OK', 'CUSTOMER_BUILD_OK', 'SUBSCRIPTION_BUILD_OK', 'INDEX_BUILD_OK', 'ROOT_MERGE_OK', 'ATOMIC_PUT_START', 'ATOMIC_PUT_OK', 'RESPONSE_BUILD_OK']);
 const SUBSCRIPTION_SAFE_CODES = new Set(['AUTH_FAILED', 'ROLE_FAILED', 'REQUEST_READ_FAILED', 'REQUEST_INVALID', 'PLAN_READ_FAILED', 'PLAN_INVALID', 'PHONE_INVALID', 'UID_RESOLVE_FAILED', 'ROOT_READ_FAILED', 'ETAG_MISSING', 'PIN_HASH_FAILED', 'ATOMIC_PUT_FAILED', 'UNKNOWN']);
 function subscriptionDiagnosticStage(stage) { return SUBSCRIPTION_DIAGNOSTIC_STAGES.has(stage) ? stage : 'START'; }
 function subscriptionDiagnosticCode(stage, error) {
@@ -460,8 +460,11 @@ async function activateSubscription(request, env, current) {
     stage('CUSTOMER_BUILD_OK');
     const subscription = { subscriptionId, requestId: requestIdValue, customerId, uid: customer.uid || '', name: customer.name, phone: normalizedPhone, clubNumber, planId: String(clubRequest.planId), planName: String(clubRequest.planName || plan.nameAr || plan.nameEn || clubRequest.planId), price: Number(clubRequest.price || plan.price || 0), status: 'active', paymentStatus: 'paid', totalUses, remainingUses: totalUses, startedAt: now, activatedAt: now, expiresAt: now + durationDays * 86400000, createdAt: Number(clubRequest.createdAt) || now };
     stage('SUBSCRIPTION_BUILD_OK');
+    stage('CREDENTIAL_PREPARE_START');
     const pepper = String(env.LOYALTY_PIN_PEPPER || '');
     if (!pepper) throw Error('INTERNAL_ERROR');
+    stage('CREDENTIAL_PEPPER_OK');
+    stage('CREDENTIAL_HASH_START');
     const generatedCredential = await security.createCredential(pin, pepper, now);
     const credential = { pinHash: generatedCredential.pinHash, salt: generatedCredential.salt, algorithm: generatedCredential.algorithm, iterations: generatedCredential.iterations, version: generatedCredential.version };
     stage('CREDENTIAL_HASH_OK');
