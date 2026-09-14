@@ -60,6 +60,7 @@ function pemBytes(value) { return b64(String(value).replace(/-----BEGIN PRIVATE 
 async function signingKeys() { if (publicKeys.expiresAt > Date.now() && Object.keys(publicKeys.value).length) return publicKeys.value; const r = await fetch('https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com'); if (!r.ok) throw Error('AUTH_KEYS_UNAVAILABLE'); const value = {}; for (const key of (await r.json()).keys || []) if (key.kid) value[key.kid] = key; publicKeys = { value, expiresAt: Date.now() + 300000 }; return value; }
 async function verifyIdToken(token) { const parts = String(token || '').split('.'); if (parts.length !== 3) throw Error('AUTH_INVALID'); let header, claims; try { header = JSON.parse(new TextDecoder().decode(b64(parts[0]))); claims = JSON.parse(new TextDecoder().decode(b64(parts[1]))); } catch { throw Error('AUTH_INVALID'); } const jwk = (await signingKeys())[header.kid]; if (header.alg !== 'RS256' || !jwk) throw Error('AUTH_INVALID'); const key = await crypto.subtle.importKey('jwk', jwk, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['verify']); if (!await crypto.subtle.verify('RSASSA-PKCS1-v1_5', key, b64(parts[2]), new TextEncoder().encode(`${parts[0]}.${parts[1]}`))) throw Error('AUTH_INVALID'); const now = Math.floor(Date.now() / 1000); if (!claims.sub || claims.aud !== PROJECT_ID || claims.iss !== `https://securetoken.google.com/${PROJECT_ID}` || Number(claims.exp) <= now || Number(claims.iat || 0) > now + 300) throw Error('AUTH_INVALID'); return { uid: String(claims.sub), email: String(claims.email || '').toLowerCase(), emailVerified: claims.email_verified === true, name: String(claims.name || ''), picture: String(claims.picture || '') }; }
 async function auth(request) { const header = request.headers.get('Authorization') || ''; if (!header.startsWith('Bearer ')) throw Error('AUTH_REQUIRED'); return verifyIdToken(header.slice(7).trim()); }
+async function optionalAuth(request) { const header = request.headers.get('Authorization') || ''; if (!header) return null; if (!header.startsWith('Bearer ')) throw Error('AUTH_INVALID'); return verifyIdToken(header.slice(7).trim()); }
 async function customToken(env, uid) { const email = String(env.FIREBASE_SERVICE_ACCOUNT_EMAIL || '').trim(), privateKey = String(env.FIREBASE_SERVICE_ACCOUNT_PRIVATE_KEY || ''); if (!email || !privateKey) throw Error('FIREBASE_SERVICE_ACCOUNT_NOT_CONFIGURED'); const fingerprint = privateKey.slice(0, 24); if (customTokenKey.fingerprint !== fingerprint) customTokenKey = { fingerprint, value: await crypto.subtle.importKey('pkcs8', pemBytes(privateKey), { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']) }; const now = Math.floor(Date.now() / 1000), head = jsonPart({ alg: 'RS256', typ: 'JWT' }), claim = jsonPart({ iss: email, sub: uid, aud: 'https://identitytoolkit.googleapis.com/google.identity.identitytoolkit.v1.IdentityToolkit', iat: now, exp: now + 3600, claims: { loyaltyMembership: uid.replace('loyalty-member:', '') } }), signature = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', customTokenKey.value, new TextEncoder().encode(`${head}.${claim}`)); return `${head}.${claim}.${b64url(signature)}`; }
 function safeCustomer(membership, customer) { return security.publicProfile(membership, customer); }
 function generateLoyaltyPin() { return String(Math.floor(Math.random() * 10000)).padStart(4, '0'); }
@@ -89,6 +90,7 @@ async function uploadBackgroundVideo(request, env, current) { await staff(env, c
 async function uploadBackgroundPoster(request, env, current) { await staff(env, current, 'manage-settings'); const file = (await request.formData()).get('poster'); if (!file || typeof file.arrayBuffer !== 'function') throw Error('POSTER_REQUIRED'); if (Number(file.size) > MAX_BACKGROUND_POSTER_BYTES) throw Error('POSTER_TOO_LARGE'); const type = String(file.type || '').toLowerCase(), bytes = new Uint8Array(await file.arrayBuffer()); if (type !== 'image/webp' || backgroundPosterType(bytes) !== type) throw Error('POSTER_TYPE_UNSUPPORTED'); const filename = `bg_poster_${Date.now()}_${crypto.randomUUID().replace(/-/g, '')}.webp`, path = `assets/backgrounds/posters/${filename}`; try { await githubContentsUpload(env, path, bytes, 'chore: upload background video poster', '101-coffee-background-poster-uploader'); } catch (error) { if (error.message === 'GITHUB_UPLOAD_NOT_CONFIGURED') throw Error('POSTER_STORAGE_NOT_CONFIGURED'); throw Error('POSTER_UPLOAD_FAILED'); } return response(request, env, { ok: true, posterUrl: `https://101coffees.com/${path}`, path }); }
 async function login(request, env) { const payload = await body(request), membership = security.normalizeMembershipNumber(payload.membershipNumber), pin = String(payload.pin || ''), pepper = String(env.LOYALTY_PIN_PEPPER || ''); if (!membership || !security.validPin(pin) || !pepper) return fail(request, env, 'INVALID_CREDENTIALS', 401); const key = await security.attemptKey(membership, request.headers.get('CF-Connecting-IP') || 'unknown', pepper), state = await firebaseAdminRequest(env, `loyalty_login_attempts/${key}`) || {}, now = Date.now(); if (Number(state.lockedUntil) > now || Number(state.failedAttempts) >= security.MAX_FAILURES && now - Number(state.firstFailureAt || 0) < security.WINDOW_MS) return fail(request, env, 'RATE_LIMITED', 429); const [customer, credential] = await Promise.all([firebaseAdminRequest(env, `loyalty_customers/${membership}`), firebaseAdminRequest(env, `loyalty_credentials/${membership}`)]); let valid = await security.timingSafePinMatch(pin, credential, pepper); if (!valid && !credential && customer && security.validPin(customer.pin)) { valid = security.timingSafeEqual(new TextEncoder().encode(pin), new TextEncoder().encode(String(customer.pin))); if (valid) await firebaseAdminRequest(env, `loyalty_credentials/${membership}`, { method: 'PUT', body: await security.createCredential(pin, pepper, now) }); } if (!customer || !valid) { const within = Number(state.firstFailureAt) > 0 && now - Number(state.firstFailureAt) < security.WINDOW_MS, failures = within ? Number(state.failedAttempts || 0) + 1 : 1; await firebaseAdminRequest(env, `loyalty_login_attempts/${key}`, { method: 'PUT', body: { failedAttempts: failures, firstFailureAt: within ? Number(state.firstFailureAt) : now, lastFailureAt: now, lockedUntil: failures >= security.MAX_FAILURES ? now + security.WINDOW_MS : 0 } }); return fail(request, env, failures >= security.MAX_FAILURES ? 'RATE_LIMITED' : 'INVALID_CREDENTIALS', failures >= security.MAX_FAILURES ? 429 : 401); } await firebaseAdminRequest(env, `loyalty_login_attempts/${key}`, { method: 'DELETE' }); return response(request, env, { ok: true, token: await customToken(env, `loyalty-member:${membership}`), profile: safeCustomer(membership, customer) }); }
 function normalizedEmail(value) { return String(value || '').trim().toLowerCase(); }
+function cleanText(value, limit) { return typeof value === 'string' ? value.trim().replace(/\s+/g, ' ').slice(0, limit) : ''; }
 function normalizeIraqiPhone(value) {
   const cleaned = String(value || '').trim().replace(/[\s()-]/g, '');
   let digits = cleaned.startsWith('+') ? cleaned.slice(1) : cleaned;
@@ -97,6 +99,48 @@ function normalizeIraqiPhone(value) {
   if (digits.startsWith('0')) digits = `964${digits.slice(1)}`;
   if (/^7\d{9}$/.test(digits)) digits = `964${digits}`;
   return /^9647\d{9}$/.test(digits) ? digits : '';
+}
+function subscriptionRequestId(value) {
+  const id = String(value || '').trim();
+  return /^[A-Za-z0-9._:-]{8,120}$/.test(id) ? id : '';
+}
+function subscriptionRequestName(value) {
+  const name = cleanText(value, 120);
+  return name.length >= 2 ? name : '';
+}
+async function requestSubscription(request, env, current) {
+  const payload = await body(request);
+  const name = subscriptionRequestName(payload.name || payload.customerName);
+  const phone = normalizeIraqiPhone(payload.phone);
+  const planId = String(payload.planId || '').trim();
+  const idempotencyKey = subscriptionRequestId(payload.requestId || payload.idempotencyKey);
+  if (!name || !phone || !/^[A-Za-z0-9_-]{1,80}$/.test(planId)) throw Error('INVALID_ARGUMENT');
+  const plan = await firebaseAdminRequest(env, `subscription_plans/${planId}`);
+  if (!plan || plan.enabled === false || !Number.isInteger(Number(plan.totalUses)) || Number(plan.totalUses) < 1 || !Number.isInteger(Number(plan.durationDays)) || Number(plan.durationDays) < 1) throw Error('SUB_PLAN_NOT_FOUND');
+  const requestIdValue = idempotencyKey || crypto.randomUUID();
+  const existing = await firebaseAdminRequest(env, `subscription_requests/${requestIdValue}`);
+  if (existing) {
+    if (String(existing.phone || '') !== phone || String(existing.planId || '') !== planId || String(existing.name || existing.customerName || '') !== name) throw Error('ALREADY_EXISTS');
+    return response(request, env, { ok: true, duplicate: true, requestId: requestIdValue, request: { requestId: requestIdValue, ...existing, phone } });
+  }
+  const requestRecord = {
+    requestId: requestIdValue,
+    registrationMethod: String(payload.registrationMethod || (current ? 'google' : 'manual')).slice(0, 30),
+    uid: current?.uid || '',
+    email: current?.email || '',
+    name,
+    customerName: name,
+    phone,
+    planId,
+    planName: String(plan.nameAr || plan.nameEn || planId).slice(0, 120),
+    price: Number(plan.price) || 0,
+    status: 'pending',
+    paymentStatus: 'pending',
+    ...(typeof payload.notes === 'string' && payload.notes.trim() ? { notes: cleanText(payload.notes, 500) } : {}),
+    createdAt: Date.now()
+  };
+  await firebaseAdminRequest(env, `subscription_requests/${requestIdValue}`, { method: 'PUT', body: requestRecord });
+  return response(request, env, { ok: true, duplicate: false, requestId: requestIdValue, request: requestRecord });
 }
 function normalizeClubNumber(value) { return String(value || '').trim().toUpperCase().replace(/[\s_]+/g, '-').replace(/-+/g, '-'); }
 function normalizeClubMembership(value) {
@@ -605,6 +649,7 @@ async function route(request, env, url) {
   if (!cors(request, env)) return fail(request, env, 'ORIGIN_NOT_ALLOWED', 403);
   try {
     if (url.pathname === '/api/loyalty/login' && request.method === 'POST') return await login(request, env);
+    if (url.pathname === '/api/subscription/request' && request.method === 'POST') return await requestSubscription(request, env, await optionalAuth(request));
     const current = await auth(request), path = url.pathname;
     if (path === '/api/subscription/me' && request.method === 'GET') return await subscriptionMe(request, env, current);
     if (path === '/api/admin/club/search' && request.method === 'POST') return await searchClub(request, env, current);

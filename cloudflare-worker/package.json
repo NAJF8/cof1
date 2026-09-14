@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
-    "test": "node test/loyalty-security.test.js && node test/firebase-admin.test.js && node test/static-loyalty.test.mjs && node test/club-search.test.mjs && node test/background-video.test.mjs && node test/debug-root-size.test.mjs && node --test test/subscription-zero-state.test.mjs test/subscription-diagnostics.test.mjs test/subscription-activation-no-uid.test.mjs",
+    "test": "node test/loyalty-security.test.js && node test/firebase-admin.test.js && node test/static-loyalty.test.mjs && node test/club-search.test.mjs && node test/background-video.test.mjs && node test/debug-root-size.test.mjs && node --test test/subscription-zero-state.test.mjs test/subscription-diagnostics.test.mjs test/subscription-activation-no-uid.test.mjs test/subscription-request.test.mjs",
     "deploy": "wrangler deploy"
   },
   "devDependencies": {

@@ -4730,6 +4730,7 @@
             payment.innerHTML = `<div class="club-transfer-info" role="status"><h3>معلومات التحويل</h3><p class="club-transfer-note">${esc(note)}</p><div class="club-transfer-row"><span>رقم الحساب للتحويل:</span><strong dir="ltr">${esc(account)}</strong></div><div class="club-transfer-row"><span>رقم الهاتف للتحويل:</span><strong dir="ltr">${esc(phone)}</strong></div>${url?`<a class="primary-btn club-transfer-confirm" href="${url}" target="_blank" rel="noopener">تأكيد التحويل</a>`:''}</div>`;
         }
         let pendingClubPlanId = '';
+        let clubRequestInFlight = false;
         let clubRegistration = { registrationMethod:'manual', uid:null, email:null, name:'', phone:'' };
         function renderClubPlansExperience() {
             const grid=document.getElementById('clubPlansGrid'); if(!grid)return;
@@ -4877,8 +4878,11 @@
         window.requestClubSubscription=async function(planId){
             const plan=clubPlans[planId];if(!plan||plan.enabled===false)return showToast('هذه الخطة غير متاحة حالياً.','error');
             if(!clubRegistration.name||!clubRegistration.phone)return showToast('أكمل بيانات الاشتراك أولاً.','error');
-            const requestRef=db.ref('subscription_requests').push(),request={requestId:requestRef.key,registrationMethod:clubRegistration.registrationMethod||'manual',uid:clubRegistration.uid||'',email:clubRegistration.email||'',name:clubRegistration.name,customerName:clubRegistration.name,phone:clubRegistration.phone,planId,planName:clubPlanName(plan),price:Number(plan.price||0),status:'pending',paymentStatus:'pending',createdAt:firebase.database.ServerValue.TIMESTAMP};
-            try{await requestRef.set(request);const shopPhone=(settings.whatsapp||'').replace(/\D/g,'').replace(/^0/,'964'),payment=document.getElementById('clubRequestPayment');const text=`مرحباً 101 COFFEE ❤️\nأرغب بتأكيد طلب اشتراك 101 CLUB.\nرقم الطلب: ${request.requestId}\nالاسم: ${request.name}\nالخطة: ${request.planName}\nالسعر: ${money(request.price)}`;if(payment){payment.style.display='block';payment.dataset.requestText=text;renderClubTransferInfo();}const url=shopPhone?`https://wa.me/${shopPhone}?text=${encodeURIComponent(text)}`:'';if(url)window.open(url,'_blank','noopener');showToast('تم إرسال طلب اشتراك 101 CLUB.','success');}catch(error){console.error('CLUB_REQUEST_FAILED',error);showToast('تعذر إرسال طلب الاشتراك.','error');}
+            if(clubRequestInFlight)return;
+            clubRequestInFlight=true;
+            const requestId=crypto.randomUUID();
+            const buttons=[...document.querySelectorAll('#clubPlansGrid button')];buttons.forEach(button=>{button.disabled=true;});
+            try{const result=await callLoyaltySecurity('/api/subscription/request',{method:'POST',body:{requestId,registrationMethod:clubRegistration.registrationMethod||'manual',name:clubRegistration.name,phone:clubRegistration.phone,planId}}),payload=result?.data||result,request=payload.request||{};const shopPhone=(settings.whatsapp||'').replace(/\D/g,'').replace(/^0/,'964'),payment=document.getElementById('clubRequestPayment');const text=`مرحباً 101 COFFEE ❤️\nأرغب بتأكيد طلب اشتراك 101 CLUB.\nرقم الطلب: ${request.requestId||payload.requestId}\nالاسم: ${request.name||clubRegistration.name}\nالخطة: ${request.planName||clubPlanName(plan)}\nالسعر: ${money(request.price??plan.price)}`;if(payment){payment.style.display='block';payment.dataset.requestText=text;renderClubTransferInfo();}const url=shopPhone?`https://wa.me/${shopPhone}?text=${encodeURIComponent(text)}`:'';if(url)window.open(url,'_blank','noopener');showToast('تم إرسال طلب الاشتراك بنجاح.','success');}catch(error){console.error('CLUB_REQUEST_FAILED',{code:error?.code||error?.message||'unknown'});showToast('تعذر إرسال طلب الاشتراك.','error');}finally{clubRequestInFlight=false;buttons.forEach(button=>{button.disabled=false;});}
         };
 
         async function requestGoogleLoyaltyProvisioning() {
