@@ -305,6 +305,55 @@ async function provision(request, env, current, superAdmin = false) {
   return response(request, env, { ok: true, status: ownsLinkedProfile ? 'already_provisioned' : 'created', profileStatus: 'active', provisioned: !ownsLinkedProfile, membershipNumber: membership, profile: safeCustomer(membership, customer) });
 }
 async function activatePending(request, env, current) { await staff(env, current, 'activate-pending'); const p = await body(request), uid = String(p.uid || '').trim(), pending = await firebaseAdminRequest(env, `loyalty_pending/${uid}`); if (!/^[A-Za-z0-9_-]{6,180}$/.test(uid) || !pending || pending.status !== 'pending') throw Error('INVALID_PENDING'); const existing = await firebaseAdminRequest(env, `loyalty_links/${uid}`); if (existing) { await firebaseAdminRequest(env, `loyalty_pending/${uid}`, { method: 'DELETE' }); return response(request, env, { ok: true, membershipNumber: existing, existing: true }); } const counter = (Number(await firebaseAdminRequest(env, 'loyalty_counter')) || 0) + 1, membership = `101-${counter}`, pin = String(Math.floor(Math.random() * 10000)).padStart(4, '0'), now = Date.now(); await firebaseAdminRequest(env, '', { method: 'PATCH', body: { [`loyalty_customers/${membership}`]: { uid, name: String(pending.displayName || pending.email || 'عضو 101').slice(0, 120), email: String(pending.email || '').slice(0, 180), memberType: 'زبون', membershipStatus: 'عضو مميز', hearts: 0, currentHearts: 0, pin, createdAt: now, updatedAt: now }, [`loyalty_links/${uid}`]: membership, [`loyalty_pending/${uid}`]: null, loyalty_counter: counter } }); return response(request, env, { ok: true, membershipNumber: membership, existing: false }); }
+function normalizeActivationPhone(value) { return normalizeIraqiPhone(value); }
+function subscriptionActivationResult(requestId, subscriptionId, customerId, customer, pin, idempotent = false) { return { ok: true, requestId, subscriptionId, customerId, clubNumber: customer.clubNumber, pin, idempotent }; }
+async function activateSubscription(request, env, current) {
+  console.info('[SUB_ACTIVATE_ENTER]');
+  const actor = await staff(env, current, 'activate-subscription');
+  console.info('[SUB_ACTIVATE_AUTH_OK]', { hasUid: Boolean(current.uid), role: actor.role });
+  const payload = await body(request), requestIdValue = String(payload.requestId || payload.id || '').trim(), suppliedPhone = String(payload.phone || '').trim();
+  if (!requestIdValue) throw Error('INVALID_ARGUMENT');
+  const result = await atomicPlan(env, root => {
+    const clubRequest = root.subscription_requests?.[requestIdValue];
+    if (!clubRequest) throw Error('SUB_REQUEST_NOT_FOUND');
+    if ((clubRequest.status === 'activated' || clubRequest.paymentStatus === 'paid') && clubRequest.subscriptionId) {
+      const subscription = root.subscriptions?.[clubRequest.subscriptionId];
+      const customerId = clubRequest.customerId || subscription?.customerId || '';
+      const customer = root.subscription_customers?.[customerId];
+      if (subscription && customer) return { replay: true, result: subscriptionActivationResult(requestIdValue, clubRequest.subscriptionId, customerId, customer, customer.pin || subscription.pin || '', true) };
+    }
+    if (clubRequest.status !== 'pending') throw Error('SUB_REQUEST_NOT_PENDING');
+    const plan = root.subscription_plans?.[clubRequest.planId];
+    if (!plan || plan.enabled === false) throw Error('SUB_PLAN_NOT_FOUND');
+    const normalizedPhone = normalizeActivationPhone(suppliedPhone || clubRequest.phone);
+    if (!normalizedPhone) throw Error('INVALID_ARGUMENT');
+    const customers = root.subscription_customers || {}, subscriptions = root.subscriptions || {};
+    const existingEntry = Object.entries(customers).find(([id, value]) => (clubRequest.uid && String(value?.uid || '') === String(clubRequest.uid)) || normalizeActivationPhone(value?.phone) === normalizedPhone);
+    const existingId = existingEntry?.[0] || '';
+    const existingCustomer = existingEntry?.[1] || null;
+    if (existingCustomer?.activeSubscriptionId && subscriptions[existingCustomer.activeSubscriptionId]?.status === 'active') throw Error('SUB_CUSTOMER_ALREADY_ACTIVE');
+    let customerId = existingId, clubNumber = existingCustomer?.clubNumber || '', counter = Number(root.subscription_counter) || 0;
+    if (existingId && (!clubNumber || !existingCustomer?.pin)) throw Error('SUB_CUSTOMER_DATA_INCOMPLETE');
+    if (!customerId) {
+      do { counter += 1; clubNumber = `CLUB-101-${counter}`; customerId = clubNumber; } while (customers[customerId]);
+    }
+    let pin = existingCustomer?.pin || '';
+    if (!pin) {
+      const usedPins = new Set(Object.keys(root.subscription_pin_index || {}));
+      do { pin = String(Math.floor(1000 + Math.random() * 9000)); } while (usedPins.has(pin));
+    }
+    const now = Date.now(), subscriptionId = `sub_${requestIdValue}`, totalUses = Number(plan.totalUses), durationDays = Number(plan.durationDays);
+    if (!Number.isInteger(totalUses) || totalUses < 1 || !Number.isInteger(durationDays) || durationDays < 1) throw Error('SUB_PLAN_NOT_FOUND');
+    const customer = { ...(existingCustomer || {}), customerId, name: String(clubRequest.name || clubRequest.customerName || existingCustomer?.name || 'عضو 101').slice(0, 120), phone: normalizedPhone, email: String(clubRequest.email || existingCustomer?.email || '').slice(0, 180), ...(clubRequest.uid ? { uid: String(clubRequest.uid).slice(0, 180) } : {}), clubNumber, pin, status: 'active', activeSubscriptionId: subscriptionId, createdAt: Number(existingCustomer?.createdAt) || now, updatedAt: now };
+    const subscription = { subscriptionId, requestId: requestIdValue, customerId, uid: customer.uid || '', name: customer.name, phone: normalizedPhone, clubNumber, pin, planId: String(clubRequest.planId), planName: String(clubRequest.planName || plan.nameAr || plan.nameEn || clubRequest.planId), price: Number(clubRequest.price || plan.price || 0), status: 'active', paymentStatus: 'paid', totalUses, remainingUses: totalUses, startedAt: now, activatedAt: now, expiresAt: now + durationDays * 86400000, createdAt: Number(clubRequest.createdAt) || now };
+    const updatedRequest = { ...clubRequest, requestId: clubRequest.requestId || requestIdValue, phone: normalizedPhone, status: 'activated', paymentStatus: 'paid', customerId, subscriptionId, clubNumber, activatedAt: now, updatedAt: now };
+    const updates = { [`subscription_requests/${requestIdValue}`]: updatedRequest, [`subscription_customers/${customerId}`]: customer, [`subscriptions/${subscriptionId}`]: subscription, [`subscription_activation_logs/${requestIdValue}`]: { type: 'subscription_activated', requestId: requestIdValue, subscriptionId, customerId, uid: current.uid, role: actor.role, createdAt: now } };
+    if (!existingId) { updates.subscription_counter = counter; updates[`subscription_pin_index/${pin}`] = customerId; }
+    return { updates, result: subscriptionActivationResult(requestIdValue, subscriptionId, customerId, customer, pin, false) };
+  });
+  console.info('[SUB_ACTIVATE_WRITE_OK]', { requestId: requestIdValue, idempotent: Boolean(result.idempotent) });
+  return response(request, env, result);
+}
 async function changeMembership(request, env, current) { await staff(env, current, 'change-membership'); const p = await body(request), oldId = security.normalizeMembershipNumber(p.oldId), newId = security.normalizeMembershipNumber(p.newId), id = requestId(p); if (!oldId || !newId || oldId === newId) throw Error('INVALID_MEMBERSHIP'); const result = await atomicPlan(env, (root) => { const replay = replayOrPlan(root, 'membership-change', id); if (replay) return replay; const customer = root.loyalty_customers?.[oldId]; if (!customer) throw Error('NOT_FOUND'); if (root.loyalty_customers?.[newId]) throw Error('ALREADY_EXISTS'); const outcome = { ok: true, membershipNumber: newId }; const updates = { [`loyalty_customers/${newId}`]: customer, [`loyalty_customers/${oldId}`]: null, ...(customer.uid ? { [`loyalty_links/${customer.uid}`]: newId } : {}) }; if (id) updates[operationPath('membership-change', id)] = { result: outcome, createdAt: Date.now() }; return { updates, result: outcome }; }); return response(request, env, result); }
 async function search(request, env, current) { await staff(env, current, 'search'); const p = await body(request), q = String(p.query || '').trim().toLowerCase(), all = await firebaseAdminRequest(env, 'loyalty_customers') || {}; const found = Object.entries(all).map(([membership, customer]) => ({ membership, customer })).find(({ membership, customer }) => !q || [membership, customer.name, customer.email, customer.phone].some(v => String(v || '').toLowerCase().includes(q))); return response(request, env, { ok: true, customer: found ? safeCustomer(found.membership, found.customer) : null }); }
 async function deleteCustomer(request, env, current) { await staff(env, current, 'delete'); const p = await body(request), membership = security.normalizeMembershipNumber(p.membership); if (!membership) throw Error('INVALID_MEMBERSHIP'); const customer = await firebaseAdminRequest(env, `loyalty_customers/${membership}`); if (!customer) return response(request, env, { ok: true, deleted: false }); await firebaseAdminRequest(env, '', { method: 'PATCH', body: { [`loyalty_customers/${membership}`]: null, ...(customer.uid ? { [`loyalty_links/${customer.uid}`]: null } : {}) } }); return response(request, env, { ok: true, deleted: true }); }
@@ -370,6 +419,7 @@ async function route(request, env, url) {
     if (path === '/api/loyalty/provision-google') return await provision(request, env, current);
     if (path === '/api/admin/provision-super-admin') { await staff(env, current, 'provision-super-admin'); return await provision(request, env, current, true); }
     if (path === '/api/subscription/claim') return await submitClaim(request, env, current);
+    if (path === '/api/admin/subscription/activate' && request.method === 'POST') return await activateSubscription(request, env, current);
     if (path === '/api/admin/loyalty/activate-pending') return await activatePending(request, env, current);
     if (path === '/api/admin/loyalty/change-membership') return await changeMembership(request, env, current);
     if (path === '/api/admin/loyalty/search') return await search(request, env, current);
@@ -390,8 +440,8 @@ async function route(request, env, url) {
     if (url.pathname === '/api/admin/club/search') console.error('[CLUB_SEARCH_FAIL]', { code: String(error?.message || 'UNKNOWN').slice(0, 80) });
     console.error('[LOYALTY_ROUTE_FAILED]', { path: url.pathname, code: String(error?.message || 'UNKNOWN').slice(0, 80) });
     const rawCode = String(error?.message || '');
-    const code = ['AUTH_REQUIRED', 'AUTH_INVALID', 'INVALID_CONTENT_TYPE', 'PAYLOAD_TOO_LARGE', 'FORBIDDEN', 'NOT_FOUND', 'ALREADY_EXISTS', 'GIFT_NOT_FOUND', 'GIFT_ALREADY_REDEEMED', 'GIFT_EXPIRED', 'GIFT_NOT_AVAILABLE', 'GIFT_ALREADY_DECIDED', 'GIFT_NOT_PENDING', 'CONCURRENT_MODIFICATION', 'INVALID_ARGUMENT', 'INVALID_INPUT', 'INVALID_MEMBERSHIP', 'INVALID_PENDING', 'INSUFFICIENT_HEARTS', 'HEARTS_OUT_OF_RANGE', 'CLUB_UNAVAILABLE', 'CLUB_MEMBER_NOT_FOUND', 'CLUB_PHONE_AMBIGUOUS', 'CLAIM_INVALID', 'PIN_RESERVATION_FAILED', 'VERIFIED_EMAIL_REQUIRED', 'PROFILE_NOT_FOUND', 'PROFILE_LINK_CONFLICT', 'BACKEND_AUTH_ERROR', 'INTERNAL_ERROR'].includes(rawCode) ? rawCode : rawCode.startsWith('FIREBASE_') ? (rawCode.includes('401') || rawCode.includes('403') ? 'BACKEND_AUTH_ERROR' : 'INTERNAL_ERROR') : 'REQUEST_FAILED';
-    const status = ['AUTH_REQUIRED', 'AUTH_INVALID'].includes(code) ? 401 : code === 'FORBIDDEN' ? 403 : ['CLUB_MEMBER_NOT_FOUND', 'NOT_FOUND', 'PROFILE_NOT_FOUND'].includes(code) ? 404 : ['BACKEND_AUTH_ERROR', 'INTERNAL_ERROR'].includes(code) ? 500 : ['CLUB_PHONE_AMBIGUOUS', 'PROFILE_LINK_CONFLICT', 'CONCURRENT_MODIFICATION'].includes(code) ? 409 : code === 'INVALID_CONTENT_TYPE' ? 415 : code === 'PAYLOAD_TOO_LARGE' ? 413 : 400;
+    const code = ['AUTH_REQUIRED', 'AUTH_INVALID', 'INVALID_CONTENT_TYPE', 'PAYLOAD_TOO_LARGE', 'FORBIDDEN', 'NOT_FOUND', 'ALREADY_EXISTS', 'GIFT_NOT_FOUND', 'GIFT_ALREADY_REDEEMED', 'GIFT_EXPIRED', 'GIFT_NOT_AVAILABLE', 'GIFT_ALREADY_DECIDED', 'GIFT_NOT_PENDING', 'CONCURRENT_MODIFICATION', 'INVALID_ARGUMENT', 'INVALID_INPUT', 'INVALID_MEMBERSHIP', 'INVALID_PENDING', 'INSUFFICIENT_HEARTS', 'HEARTS_OUT_OF_RANGE', 'CLUB_UNAVAILABLE', 'CLUB_MEMBER_NOT_FOUND', 'CLUB_PHONE_AMBIGUOUS', 'CLAIM_INVALID', 'PIN_RESERVATION_FAILED', 'VERIFIED_EMAIL_REQUIRED', 'PROFILE_NOT_FOUND', 'PROFILE_LINK_CONFLICT', 'BACKEND_AUTH_ERROR', 'INTERNAL_ERROR', 'SUB_REQUEST_NOT_FOUND', 'SUB_REQUEST_NOT_PENDING', 'SUB_PLAN_NOT_FOUND', 'SUB_CUSTOMER_ALREADY_ACTIVE', 'SUB_CUSTOMER_DATA_INCOMPLETE'].includes(rawCode) ? rawCode : rawCode.startsWith('FIREBASE_') ? (rawCode.includes('401') || rawCode.includes('403') ? 'BACKEND_AUTH_ERROR' : 'INTERNAL_ERROR') : 'REQUEST_FAILED';
+    const status = ['AUTH_REQUIRED', 'AUTH_INVALID'].includes(code) ? 401 : code === 'FORBIDDEN' ? 403 : ['CLUB_MEMBER_NOT_FOUND', 'NOT_FOUND', 'PROFILE_NOT_FOUND', 'SUB_REQUEST_NOT_FOUND'].includes(code) ? 404 : ['BACKEND_AUTH_ERROR', 'INTERNAL_ERROR'].includes(code) ? 500 : ['GIFT_ALREADY_REDEEMED', 'SUB_REQUEST_NOT_PENDING', 'SUB_CUSTOMER_ALREADY_ACTIVE', 'CONCURRENT_MODIFICATION'].includes(code) ? 409 : code === 'INVALID_CONTENT_TYPE' ? 415 : code === 'PAYLOAD_TOO_LARGE' ? 413 : 400;
     return fail(request, env, code, status);
   }
 }

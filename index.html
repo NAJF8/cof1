@@ -2633,6 +2633,13 @@
         .club-account-actions .primary-btn { flex:1; min-width:180px; justify-content:center; }
         .club-login-note { padding:12px 14px; border-radius:13px; background:var(--surface2); border:1px solid var(--border); color:var(--text-muted); font-size:13px; line-height:1.8; }
         .club-link-form { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin-top:12px; }
+        .club-transfer-info { margin-top:14px; padding:15px; border:1px solid var(--border); border-radius:14px; background:var(--surface2); line-height:1.8; }
+        .club-transfer-info h3 { margin:0 0 5px; color:var(--primary-dk); font-size:18px; }
+        .club-transfer-note { margin:0 0 12px; color:var(--text-muted); font-size:13px; }
+        .club-transfer-row { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; padding:9px 0; border-top:1px solid var(--border); font-size:13px; }
+        .club-transfer-row span { color:var(--text-muted); }
+        .club-transfer-row strong { max-width:60%; overflow-wrap:anywhere; text-align:left; }
+        .club-transfer-confirm { display:flex; width:100%; min-height:42px; margin-top:12px; justify-content:center; align-items:center; box-sizing:border-box; text-decoration:none; }
         .club-link-form input { min-height:42px; padding:9px 11px; border:1px solid var(--border); border-radius:10px; background:var(--surface); color:var(--text); font:700 13px Cairo,Arial,sans-serif; }
         @media (max-width:600px) {
             .ai-chat-hero { flex:0 0 clamp(245px,64vw,305px); min-height:clamp(245px,64vw,305px); height:auto; padding:16px; }
@@ -3500,7 +3507,8 @@
                 enableOffers: true,
                 enableLoyalty: true,
                 ordersOpen: true
-            };
+            },
+            clubSubscriptionSettings = {};
 
         let cart = _load("cart", []),
             previewHearts = 0,
@@ -4705,7 +4713,20 @@
             });
         }
 
-        function clubPlanName(plan) { return currentLang==='en' ? (plan?.nameEn || String(plan?.id||'').toUpperCase()) : (plan?.nameAr || String(plan?.id||'').toUpperCase()); }
+         function clubPlanName(plan) { return currentLang==='en' ? (plan?.nameEn || String(plan?.id||'').toUpperCase()) : (plan?.nameAr || String(plan?.id||'').toUpperCase()); }
+        const DEFAULT_CLUB_TRANSFER_NOTE = 'يرجى تحويل مبلغ الاشتراك إلى أحد الحسابات التالية، ثم تأكيد التحويل بعد التحقق من وصول المبلغ.';
+        function renderClubTransferInfo() {
+            const payment = document.getElementById('clubRequestPayment');
+            if (!payment || payment.style.display === 'none') return;
+            const s = clubSubscriptionSettings || {};
+            const note = String(s.transferNote || DEFAULT_CLUB_TRANSFER_NOTE);
+            const account = String(s.transferAccountNumber || '').trim() || 'غير مُعدّ بعد';
+            const phone = String(s.transferPhone || '').trim() || 'غير مُعدّ بعد';
+            const shopPhone = (settings.whatsapp || '').replace(/\D/g,'').replace(/^0/,'964');
+            const requestText = payment.dataset.requestText || '';
+            const url = shopPhone && requestText ? `https://wa.me/${shopPhone}?text=${encodeURIComponent(requestText)}` : '';
+            payment.innerHTML = `<div class="club-transfer-info" role="status"><h3>معلومات التحويل</h3><p class="club-transfer-note">${esc(note)}</p><div class="club-transfer-row"><span>رقم الحساب للتحويل:</span><strong dir="ltr">${esc(account)}</strong></div><div class="club-transfer-row"><span>رقم الهاتف للتحويل:</span><strong dir="ltr">${esc(phone)}</strong></div>${url?`<a class="primary-btn club-transfer-confirm" href="${url}" target="_blank" rel="noopener">تأكيد التحويل</a>`:''}</div>`;
+        }
         let pendingClubPlanId = '';
         let clubRegistration = { registrationMethod:'manual', uid:null, email:null, name:'', phone:'' };
         function renderClubPlansExperience() {
@@ -4819,7 +4840,7 @@
             if(!/^CLUB-101-\d+$/.test(clubNumber)||!/^\d{4,8}$/.test(pin))return showToast('أدخل رقم CLUB ورمز PIN الصحيحين.','error');
             try{await db.ref(`subscription_account_claims/${user.uid}`).set({uid:user.uid,clubNumber,pin,displayName:user.displayName||'',email:user.email||'',status:'pending',createdAt:firebase.database.ServerValue.TIMESTAMP});showToast('تم إرسال طلب الربط. سيتم تفعيله بعد التحقق من بيانات الاشتراك.','success');}catch(error){console.error('CLUB_ACCOUNT_CLAIM_FAILED',error);showToast('تعذر إرسال طلب الربط.','error');}
         };
-        window.openClubExperience=function(){document.getElementById('clubRegistrationPanel').hidden=false;document.getElementById('clubPlansGrid').hidden=true;document.getElementById('clubRequestPayment').style.display='none';renderClubPlansExperience();setModalOpen(document.getElementById('clubAccountModal'),false);setModalOpen(document.getElementById('clubExperienceModal'),true);};
+        window.openClubExperience=function(){document.getElementById('clubRegistrationPanel').hidden=false;document.getElementById('clubPlansGrid').hidden=true;const payment=document.getElementById('clubRequestPayment');payment.style.display='block';payment.dataset.requestText='';renderClubTransferInfo();renderClubPlansExperience();setModalOpen(document.getElementById('clubAccountModal'),false);setModalOpen(document.getElementById('clubExperienceModal'),true);};
         window.closeClubExperience=function(){setModalOpen(document.getElementById('clubExperienceModal'),false);};
         window.signInForClub=async function(){
             if(!auth){return showToast('خدمة الدخول غير متاحة حالياً.','error');}
@@ -4832,7 +4853,7 @@
             const plan=clubPlans[planId];if(!plan||plan.enabled===false)return showToast('هذه الخطة غير متاحة حالياً.','error');
             if(!clubRegistration.name||!clubRegistration.phone)return showToast('أكمل بيانات الاشتراك أولاً.','error');
             const requestRef=db.ref('subscription_requests').push(),request={requestId:requestRef.key,registrationMethod:clubRegistration.registrationMethod||'manual',uid:clubRegistration.uid||'',email:clubRegistration.email||'',name:clubRegistration.name,customerName:clubRegistration.name,phone:clubRegistration.phone,planId,planName:clubPlanName(plan),price:Number(plan.price||0),status:'pending',paymentStatus:'pending',createdAt:firebase.database.ServerValue.TIMESTAMP};
-            try{await requestRef.set(request);const shopPhone=(settings.whatsapp||'').replace(/\D/g,'').replace(/^0/,'964'),payment=document.getElementById('clubRequestPayment');const text=`مرحباً 101 COFFEE ❤️\nأرغب بتأكيد طلب اشتراك 101 CLUB.\nرقم الطلب: ${request.requestId}\nالاسم: ${request.name}\nالخطة: ${request.planName}\nالسعر: ${money(request.price)}`;const url=shopPhone?`https://wa.me/${shopPhone}?text=${encodeURIComponent(text)}`:'';if(payment){payment.style.display='block';payment.innerHTML=`<p>تم إنشاء الطلب. حوّل المبلغ وأرسل صورة الإثبات عبر WhatsApp.</p>${url?`<a class="primary-btn" href="${url}" target="_blank" rel="noopener">إرسال إثبات التحويل عبر WhatsApp</a>`:''}`;}if(url)window.open(url,'_blank','noopener');showToast('تم إرسال طلب اشتراك 101 CLUB.','success');}catch(error){console.error('CLUB_REQUEST_FAILED',error);showToast('تعذر إرسال طلب الاشتراك.','error');}
+            try{await requestRef.set(request);const shopPhone=(settings.whatsapp||'').replace(/\D/g,'').replace(/^0/,'964'),payment=document.getElementById('clubRequestPayment');const text=`مرحباً 101 COFFEE ❤️\nأرغب بتأكيد طلب اشتراك 101 CLUB.\nرقم الطلب: ${request.requestId}\nالاسم: ${request.name}\nالخطة: ${request.planName}\nالسعر: ${money(request.price)}`;if(payment){payment.style.display='block';payment.dataset.requestText=text;renderClubTransferInfo();}const url=shopPhone?`https://wa.me/${shopPhone}?text=${encodeURIComponent(text)}`:'';if(url)window.open(url,'_blank','noopener');showToast('تم إرسال طلب اشتراك 101 CLUB.','success');}catch(error){console.error('CLUB_REQUEST_FAILED',error);showToast('تعذر إرسال طلب الاشتراك.','error');}
         };
 
         async function requestGoogleLoyaltyProvisioning() {
@@ -5405,6 +5426,11 @@
                 clubPlans = snap.val() || {};
                 if (clubCustomer) renderClubAccount();
                 if (document.getElementById('clubExperienceModal')?.classList.contains('open')) renderClubPlansExperience();
+            });
+
+            db.ref('subscription_settings').on('value', snap => {
+                clubSubscriptionSettings = snap.val() || {};
+                renderClubTransferInfo();
             });
 
             // 2. Background listener
