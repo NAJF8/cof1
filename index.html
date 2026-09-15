@@ -1989,7 +1989,7 @@
             .ai-chat-input-bar { padding-bottom:max(12px, env(safe-area-inset-bottom)); }
         }
         @media (min-width:601px) and (max-width:900px) {
-            .products-grid { grid-template-columns:repeat(2,1fr); }
+            .products-grid { grid-template-columns:repeat(3,minmax(0,1fr)); }
             .feature-products, #eventsListGrid { grid-template-columns:repeat(2,1fr); }
             .event-card .product-info { padding:14px; }
             .about-inner { grid-template-columns:1fr 1fr; gap:28px; }
@@ -2040,6 +2040,19 @@
             width: 100%;
             height: 100%;
             object-fit: cover;
+        }
+
+        /* Tablet product layout: keep cards proportional and give iPad widths their own grid. */
+        @media (min-width:601px) {
+            .products-grid, .feature-products, #eventsListGrid { grid-auto-rows:1fr; }
+            .product-card, .event-card { min-width:0; }
+            .product-img { height:auto; aspect-ratio:4 / 3; }
+            .product-img img { width:100%; height:100%; object-fit:cover; object-position:center; }
+            .product-info { min-width:0; }
+            .product-info h3, .product-info p { overflow-wrap:anywhere; }
+        }
+        @media (min-width:901px) {
+            .products-grid, .feature-products, #eventsListGrid { grid-template-columns:repeat(4,minmax(0,1fr)); }
         }
         #siteBgWrap .site-bg-poster { position:absolute; inset:0; z-index:0; display:block; }
         #siteBgWrap .site-bg-video { position:absolute; inset:0; z-index:1; opacity:0; transition:opacity 350ms ease; }
@@ -2755,7 +2768,7 @@
         </nav>
         <div class="header-actions">
             <button class="header-loyalty-btn" id="headerGiftBtn" type="button" onclick="openGiftExperience()" aria-label="إهداء هدية">🎁 <span>إهداء هدية</span></button>
-            <button class="header-loyalty-btn" id="headerLoyaltyBtn" type="button" onclick="openLoyalty()" aria-label="فتح حساب الولاء">❤️ <span data-i18n="header_loyalty">الولاء</span></button>
+            <button class="header-loyalty-btn" id="headerLoyaltyBtn" type="button" onclick="openLoyalty()" aria-label="فتح حساب العضوية">❤️ <span data-i18n="header_loyalty">العضوية</span></button>
             <button class="header-loyalty-btn" id="headerClubBtn" type="button" onclick="openClubAccount()" aria-label="حساب 101 CLUB">☕ <span>حسابي</span></button>
             <div class="search-wrap" id="searchWrap" role="search">
                 <button class="s-icon" id="searchToggleBtn" type="button" aria-label="فتح البحث" aria-expanded="false">🔍</button>
@@ -2798,7 +2811,7 @@
             
             <div class="hero-copy" style="position:relative; z-index:2; text-align:center; padding: 40px 20px;">
                 <span class="eyebrow" data-i18n="hero_eyebrow" style="color:var(--accent-lt); font-size:14px; letter-spacing:4px;">COFFEE • SWEETS • DRINKS</span>
-                <h1 data-i18n="hero_title" style="color:#fff; font-size:clamp(32px, 8vw, 64px); margin:10px 0;">مزاجك يستاهل<br><em class="shop-name-txt" style="color:var(--accent-lt);">101 COFFEE</em> 🤎</h1>
+                <h1 data-i18n="hero_title" style="color:#fff; font-size:clamp(32px, 8vw, 64px); margin:10px 0;">مزاجك يستاهل<br><em class="shop-name-txt" style="color:var(--accent-lt);">101 COFFEE HOUSE</em> 🤎</h1>
                 <p data-i18n="hero_sub" style="color:#eee; font-size:16px; max-width:500px; margin:0 auto 20px;">اختار طلبك واستمتع بأشهى أنواع القهوة والمشروبات</p>
                 <button class="primary-btn" id="menuBtn" onclick="document.getElementById('catalog').scrollIntoView({behavior:'smooth'})" aria-label="تصفح المنيو"><span data-i18n="browse_menu">تصفح المنيو</span></button>
             </div>
@@ -2809,15 +2822,15 @@
 
 
         <!-- ═══════════════════════ LOYALTY (5 HEARTS CARD) ═══════════════════ -->
-        <section class="container" id="loyaltySection" style="margin-bottom:36px" aria-label="برنامج الولاء">
+        <section class="container" id="loyaltySection" style="margin-bottom:36px" aria-label="برنامج العضوية">
             <div class="loyalty-explorer" id="loyaltyExplorer">
                 <div id="loyaltyGuestContent">
                     <div class="loyalty-summary-top"><div class="loyalty-card-brand"><img src="logo.jpg" alt="101 COFFEE"><div><strong>101 COFFEE</strong><small>LOYALTY CARD</small></div></div><span class="loyalty-summary-id">—</span></div>
                     <h2 data-i18n="loyalty_guest_title">مكافآت 101</h2>
                     <p data-i18n="loyalty_guest_copy">كل زيارة تقرّبك أكثر من مفاجأتك.</p>
-                    <div class="loyalty-summary-hearts"><strong data-i18n="loyalty_current_balance">رصيد الولاء</strong><div class="loyalty-stamp-row" aria-label="0 من 5"><span class="loyalty-stamp"></span><span class="loyalty-stamp"></span><span class="loyalty-stamp"></span><span class="loyalty-stamp"></span><span class="loyalty-stamp"></span></div></div>
+                    <div class="loyalty-summary-hearts"><strong data-i18n="loyalty_current_balance">رصيد العضوية</strong><div class="loyalty-stamp-row" aria-label="0 من 5"><span class="loyalty-stamp"></span><span class="loyalty-stamp"></span><span class="loyalty-stamp"></span><span class="loyalty-stamp"></span><span class="loyalty-stamp"></span></div></div>
                     <p id="loyaltyAuthStatus" role="status" aria-live="polite"></p>
-                    <button class="primary-btn" id="loyaltyAuthAction" type="button" onclick="openLoyalty()" data-i18n="loyalty_login_account">تسجيل الدخول للولاء</button>
+                    <button class="primary-btn" id="loyaltyAuthAction" type="button" onclick="openLoyalty()" data-i18n="loyalty_login_account">تسجيل الدخول للعضوية</button>
                 </div>
                 <div class="loyalty-member-summary" id="loyaltyMemberContent">
                     <div class="loyalty-summary-top"><div class="loyalty-card-brand"><img src="logo.jpg" alt="101 COFFEE"><div><strong>101 COFFEE</strong><small>LOYALTY CARD</small></div></div><span class="loyalty-summary-id" id="summaryDisplayId">—</span></div>
@@ -2827,7 +2840,7 @@
                     <button class="loyalty-summary-logout" type="button" onclick="logoutGoogle()" data-i18n="btn_logout">تسجيل الخروج</button>
                 </div>
             </div>
-            <div class="modal-backdrop" id="loyaltyDetailsBackdrop" role="dialog" aria-modal="true" aria-label="تفاصيل بطاقة الولاء">
+            <div class="modal-backdrop" id="loyaltyDetailsBackdrop" role="dialog" aria-modal="true" aria-label="تفاصيل بطاقة العضوية">
             <div class="loyalty-card-ref" id="loyaltyCardRefBox" style="display:none">
                 <button class="close-btn" type="button" onclick="closeLoyaltyDetails()" aria-label="إغلاق">×</button>
                 <div class="card-top-bar">
@@ -2851,7 +2864,7 @@
 
                 <div class="card-hearts-container">
                     <div class="card-hearts-title">
-                        <span data-i18n="loyalty_current_balance">رصيد القلوب الحالي:</span>
+                        <span data-i18n="loyalty_current_balance">رصيد العضوية:</span>
                         <strong style="color:#e53935;font-size:15px;" id="cardDisplayHeartsText">0 / 5 ❤️</strong>
                     </div>
                     <div class="card-hearts-row" id="cardDisplayHeartsVisual">
@@ -2886,7 +2899,7 @@
                 <button class="close-btn" data-close aria-label="إغلاق">×</button>
                 <span class="eyebrow">LOYALTY PROGRAM</span>
                 <h2 id="loyaltyLoginTitle">تسجيل الدخول إلى مكافآت 101</h2>
-                <p class="loyalty-login-subtitle" id="loyaltyLoginSubtitle">اختر طريقة تسجيل الدخول إلى حساب الولاء</p>
+                <p class="loyalty-login-subtitle" id="loyaltyLoginSubtitle">اختر طريقة تسجيل الدخول إلى حساب العضوية</p>
                 <button class="google-loyalty-btn" id="loyaltyGoogleBtn" type="button" onclick="signInForLoyalty()"><svg class="google-logo-mark" viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M21.35 12.18c0-.72-.06-1.25-.19-1.8H12v3.44h5.38c-.11.86-.71 2.15-2.04 3.02l-.02.12 2.96 2.29.21.02c1.92-1.77 3.03-4.37 3.03-7.09Z"/><path fill="#34A853" d="M12 21.68c2.63 0 4.84-.87 6.45-2.37l-3.07-2.38c-.82.57-1.92.97-3.38.97a5.85 5.85 0 0 1-5.54-4.05l-.11.01-3.08 2.38-.04.1A9.75 9.75 0 0 0 12 21.68Z"/><path fill="#FBBC05" d="M6.46 13.85A5.93 5.93 0 0 1 6.15 12c0-.64.11-1.26.3-1.85v-.13L3.33 7.6l-.1.05A9.75 9.75 0 0 0 2.2 12c0 1.57.37 3.05 1.03 4.35l3.23-2.5Z"/><path fill="#EA4335" d="M12 6.1c1.84 0 3.08.8 3.79 1.46l2.77-2.7C16.83 3.25 14.63 2.3 12 2.3a9.75 9.75 0 0 0-8.77 5.35l3.22 2.5A5.87 5.87 0 0 1 12 6.1Z"/></svg><span class="google-login-label">تسجيل الدخول بواسطة Google</span></button>
                 <p class="google-login-msg" id="loyaltyLoginError" role="alert" aria-live="polite"></p>
                 <div class="login-divider" id="loyaltyLoginDivider">أو</div>
@@ -2907,7 +2920,7 @@
                     <div><small id="welcomeMembershipLabel">رقم عضويتك</small><strong id="welcomeMembership">—</strong></div>
                     <div><small id="welcomePinLabel">رمز PIN الخاص بك</small><strong id="welcomePin">—</strong></div>
                 </div>
-                <p class="form-help" id="welcomeHelp">احتفظ برقم العضوية ورمز PIN، يمكنك استخدامهما للدخول إلى حساب الولاء لاحقًا.</p>
+                <p class="form-help" id="welcomeHelp">احتفظ برقم العضوية ورمز PIN، يمكنك استخدامهما للدخول إلى حساب العضوية لاحقًا.</p>
                 <button class="primary-btn full" type="button" id="welcomeStartBtn">ابدأ الآن</button>
             </div>
         </div>
@@ -3007,7 +3020,7 @@
         <div class="modal-backdrop" id="clubExperienceModal" role="dialog" aria-modal="true" aria-labelledby="clubExperienceTitle">
             <div class="modal club-experience">
                 <button class="close-btn" type="button" onclick="closeClubExperience()" aria-label="إغلاق">×</button>
-                <div class="modal-title"><h2 id="clubExperienceTitle">101 CLUB ☕</h2><p>اشتراك مستقل تماماً عن برنامج الولاء.</p></div>
+                <div class="modal-title"><h2 id="clubExperienceTitle">101 CLUB ☕</h2><p>اشتراك مستقل تماماً عن برنامج العضوية.</p></div>
                 <div id="clubRegistrationPanel"><button class="google-loyalty-btn" id="clubGoogleBtn" type="button" onclick="signInForClub()">المتابعة بواسطة Google</button><div class="login-divider">أو سجّل بياناتك</div><div class="club-account-form"><label>الاسم الكامل *<input id="clubCustomerName" autocomplete="name" placeholder="اسم المشترك"></label><label>رقم هاتف WhatsApp *<input id="clubCustomerPhone" type="tel" inputmode="tel" autocomplete="tel" placeholder="07xxxxxxxxx"></label></div><button class="primary-btn" type="button" style="width:100%;margin-top:12px" onclick="continueClubRegistration()">متابعة</button></div>
                 <div class="club-plans-grid" id="clubPlansGrid" hidden></div>
                 <div id="clubRequestPayment" style="display:none;margin-top:14px"></div>
@@ -3085,7 +3098,7 @@
     <footer class="site-footer" role="contentinfo">
         <div>
             <h2 class="shop-name-txt" style="margin:0;color:#fff;font-size:20px">101 COFFEE</h2>
-            <p>أفضل قهوة في المدينة ☕</p>
+            <p>مزاجك يستاهل 101 COFFEE HOUSE 🤎</p>
         </div>
         <div class="footer-links">
             <a href="#" id="footer-insta" target="_blank" rel="noopener noreferrer" style="display:none"><svg aria-hidden="true" viewBox="0 0 24 24" width="15" height="15" style="vertical-align:-2px;margin-inline-end:4px;fill:currentColor"><path d="M7.2 2h9.6A5.2 5.2 0 0 1 22 7.2v9.6a5.2 5.2 0 0 1-5.2 5.2H7.2A5.2 5.2 0 0 1 2 16.8V7.2A5.2 5.2 0 0 1 7.2 2Zm-.17 2A3.03 3.03 0 0 0 4 7.03v9.94A3.03 3.03 0 0 0 7.03 20h9.94A3.03 3.03 0 0 0 20 16.97V7.03A3.03 3.03 0 0 0 16.97 4H7.03ZM12 6.85A5.15 5.15 0 1 1 6.85 12 5.16 5.16 0 0 1 12 6.85Zm0 2A3.15 3.15 0 1 0 15.15 12 3.15 3.15 0 0 0 12 8.85ZM17.35 5.3a1.2 1.2 0 1 1-1.2 1.2 1.2 1.2 0 0 1 1.2-1.2Z"/></svg>Instagram</a>
@@ -3303,9 +3316,9 @@
                 nav_room: "حجز الغرفة",
                 nav_about: "من نحن",
                 nav_location: "الموقع",
-                header_loyalty: "الولاء",
+                header_loyalty: "العضوية",
                 hero_eyebrow: "COFFEE • SWEETS • DRINKS",
-                hero_title: "مزاجك يستاهل<br><em class=\"shop-name-txt\">101 COFFEE</em> 🤎",
+                hero_title: "مزاجك يستاهل<br><em class=\"shop-name-txt\">101 COFFEE HOUSE</em> 🤎",
                 hero_sub: "اختار طلبك واستمتع بأشهى أنواع القهوة والمشروبات",
                 browse_menu: "تصفح المنيو",
                 discover_eyebrow: "DISCOVER",
@@ -3337,7 +3350,7 @@
                 rating_sub: "رأيك يهمنا في 101 COFFEE لنقدم لك دائماً أفضل جودة ومذاق!",
                 btn_send_rating: "إرسال التقييم ⭐",
                 loyalty_member_label: "اسم العضو",
-                loyalty_current_balance: "رصيد القلوب الحالي:",
+                loyalty_current_balance: "رصيد العضوية:",
                 loyalty_pin_label: "رمز PIN الخاص بك:",
                 btn_my_rewards: "🎁 مكافآتي المستحقة",
                 btn_login_google: "تسجيل الدخول بـ Google / حسابي",
@@ -3360,7 +3373,7 @@
                 nav_location: "Location",
                 header_loyalty: "Loyalty",
                 hero_eyebrow: "COFFEE • SWEETS • DRINKS",
-                hero_title: "You Deserve The Best<br><em class=\"shop-name-txt\">101 COFFEE</em> 🤎",
+                hero_title: "You Deserve The Best<br><em class=\"shop-name-txt\">101 COFFEE HOUSE</em> 🤎",
                 hero_sub: "Choose your favorite coffee, specialty drinks, and delicious desserts.",
                 browse_menu: "Explore Menu",
                 discover_eyebrow: "DISCOVER",
@@ -3421,7 +3434,7 @@
         function updateLanguageDependentUI() {
             const en = currentLang === 'en';
             setText('loyaltyLoginTitle', en ? 'Sign in to 101 Rewards' : 'تسجيل الدخول إلى مكافآت 101');
-            setText('loyaltyLoginSubtitle', en ? 'Choose how you would like to access your loyalty account' : 'اختر طريقة تسجيل الدخول إلى حساب الولاء');
+            setText('loyaltyLoginSubtitle', en ? 'Choose how you would like to access your membership account' : 'اختر طريقة تسجيل الدخول إلى حساب العضوية');
             setText('loyaltyLoginDivider', en ? 'or' : 'أو');
             setText('membershipLoginIdLabel', en ? 'Membership Number' : 'رقم العضوية');
             setText('membershipLoginPinLabel', en ? 'PIN' : 'رمز PIN');
@@ -3430,7 +3443,7 @@
             setText('welcomeCopy', en ? 'We are delighted to welcome you to the 101 COFFEE family.' : 'يسعدنا انضمامك إلى عائلة 101 COFFEE.');
             setText('welcomeMembershipLabel', en ? 'Your membership number' : 'رقم عضويتك');
             setText('welcomePinLabel', en ? 'Your private PIN' : 'رمز PIN الخاص بك');
-            setText('welcomeHelp', en ? 'Keep these details so you can access your loyalty account later.' : 'احتفظ برقم العضوية ورمز PIN، يمكنك استخدامهما للدخول إلى حساب الولاء لاحقًا.');
+            setText('welcomeHelp', en ? 'Keep these details so you can access your membership account later.' : 'احتفظ برقم العضوية ورمز PIN، يمكنك استخدامهما للدخول إلى حساب العضوية لاحقًا.');
             setText('welcomeStartBtn', en ? 'Start now' : 'ابدأ الآن');
             setText('aiChatTitle', en ? 'Welcome ♥\nHow can I help today?' : 'أهلاً بك ♥\nكيف أگدر أساعدك اليوم؟');
             setText('aiChatSubtitle', en ? 'Ready to help you choose ☕' : 'جاهزة أساعدك تختار ☕');
@@ -4818,7 +4831,7 @@
                 detailsHtml += `<div style="display:flex;justify-content:space-between;font-size:13px;align-items:center;flex-wrap:wrap;gap:6px;"><span style="color:#C4D1BD">رقم CLUB</span><strong style="color:#FDFBF7">${esc(clubCustomer.clubNumber||sub?.clubNumber)}</strong></div>`;
             }
             if (loyaltyCustomer?.membership) {
-                detailsHtml += `<div style="display:flex;justify-content:space-between;font-size:13px;align-items:center;flex-wrap:wrap;gap:6px;"><span style="color:#C4D1BD">رقم عضوية الولاء</span><strong style="color:#FDFBF7">${esc(loyaltyCustomer.membership)}</strong></div>`;
+                detailsHtml += `<div style="display:flex;justify-content:space-between;font-size:13px;align-items:center;flex-wrap:wrap;gap:6px;"><span style="color:#C4D1BD">رقم العضوية</span><strong style="color:#FDFBF7">${esc(loyaltyCustomer.membership)}</strong></div>`;
             }
             detailsHtml += `<div style="display:flex;justify-content:space-between;font-size:13px;align-items:center;flex-wrap:wrap;gap:6px;"><span style="color:#C4D1BD">الخطة</span><strong style="color:#F7E0C0;text-align:right;">${esc(plan)}</strong></div>`;
             

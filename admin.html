@@ -302,7 +302,7 @@ body,.top-bar,.card,.stat-card,.main-content,.sidebar,.auth-card,.table-wrap,tab
       <li><a href="#" id="nav-categories" onclick="showSection('categories');return false">🗂️ الأقسام</a></li>
       <li><a href="#" id="nav-offers" onclick="showSection('offers');return false">🏷️ عروض / حالة</a></li>
       <li><a href="#" id="nav-loyalty" onclick="showSection('loyalty');return false">🎁 المكافآت</a></li>
-      <li><a href="#" id="nav-loyalty_customers" onclick="showSection('loyalty_customers');return false">👥 العملاء (الولاء)</a></li>
+      <li><a href="#" id="nav-loyalty_customers" onclick="showSection('loyalty_customers');return false">👥 العملاء (العضوية)</a></li>
       <li><a href="#" id="nav-subscriptions" onclick="showSection('subscriptions');return false">☕ إدارة 101 CLUB</a></li>
       <li><a href="#" id="nav-loyalty_pending" onclick="showSection('loyalty_pending');return false">⏳ طلبات تفعيل المكافآت</a></li>
       <li><a href="#" id="nav-loyalty_logs" onclick="showSection('loyalty_logs');return false">📜 سجل العمليات</a></li>
@@ -354,7 +354,7 @@ body,.top-bar,.card,.stat-card,.main-content,.sidebar,.auth-card,.table-wrap,tab
     <div class="stat-card"><h3 id="analyticsCurrentHearts">0</h3><p>القلوب الحالية</p></div>
     <div class="stat-card"><h3 id="analyticsEarnedHearts">0</h3><p>القلوب المكتسبة</p></div>
     <div class="stat-card"><h3 id="analyticsRedeemedHearts">0</h3><p>القلوب المستبدلة</p></div>
-    <div class="stat-card"><h3 id="analyticsOrders">0</h3><p>طلبات أعضاء الولاء</p></div>
+    <div class="stat-card"><h3 id="analyticsOrders">0</h3><p>طلبات أعضاء العضوية</p></div>
     <div class="stat-card"><h3 id="analyticsSpent">0</h3><p>إجمالي المبلغ المصروف</p></div>
   </div>
   <div class="card">
@@ -542,7 +542,7 @@ body,.top-bar,.card,.stat-card,.main-content,.sidebar,.auth-card,.table-wrap,tab
 
     <!-- ─── LOYALTY ─── -->
     <section class="admin-section" id="loyalty">
-      <div class="section-title">❤️ نقاط الولاء والمكافآت</div>
+      <div class="section-title">❤️ نقاط العضوية والمكافآت</div>
       <div class="card">
         <h3>إضافة مكافأة جديدة</h3>
         <div class="form-row">
@@ -581,7 +581,7 @@ body,.top-bar,.card,.stat-card,.main-content,.sidebar,.auth-card,.table-wrap,tab
 
     <section class="admin-section" id="subscriptions">
       <div class="section-title">☕ إدارة اشتراكات 101 CLUB</div>
-      <div class="card"><h3>خطط الاشتراك</h3><p class="muted">بيانات 101 CLUB مستقلة عن برنامج الولاء: خطط ومشتركين وطلبات واستخدامات منفصلة.</p>
+      <div class="card"><h3>خطط الاشتراك</h3><p class="muted">بيانات 101 CLUB مستقلة عن برنامج العضوية: خطط ومشتركين وطلبات واستخدامات منفصلة.</p>
         <div class="form-row"><div class="form-group"><label>الخطة</label><select id="clubPlanId"><option value="small">SMALL</option><option value="large">LARGE</option></select></div><div class="form-group"><label>الاسم بالعربي</label><input id="clubPlanNameAr"></div><div class="form-group"><label>English name</label><input id="clubPlanNameEn"></div></div>
         <div class="form-row"><div class="form-group"><label>السعر (د.ع)</label><input id="clubPlanPrice" type="number" min="0"></div><div class="form-group"><label>المشروبات الشهرية</label><input id="clubPlanUses" type="number" min="1"></div><div class="form-group"><label>المدة (يوم)</label><input id="clubPlanDays" type="number" min="1"></div></div>
         <div class="form-row"><div class="form-group"><label>الوصف</label><textarea id="clubPlanDescription" rows="2"></textarea></div><div class="form-group"><label>المميزات (سطر لكل ميزة)</label><textarea id="clubPlanFeatures" rows="2"></textarea></div></div>
@@ -613,7 +613,7 @@ body,.top-bar,.card,.stat-card,.main-content,.sidebar,.auth-card,.table-wrap,tab
     <section class="admin-section" id="loyalty_pending">
       <div class="section-title">⏳ طلبات تفعيل المكافآت</div>
       <div class="card">
-        <p style="color:var(--muted);font-size:13px;margin-bottom:15px">حسابات Google التي سجلت الدخول ولم تُفعّل لها عضوية ولاء بعد.</p>
+        <p style="color:var(--muted);font-size:13px;margin-bottom:15px">حسابات Google التي سجلت الدخول ولم تُفعّل لها عضوية بعد.</p>
         <div class="table-wrap">
           <table>
             <thead><tr><th>المستخدم</th><th>البريد</th><th>UID</th><th>تاريخ الطلب</th><th>الحالة</th><th>إجراء</th></tr></thead>
@@ -887,7 +887,7 @@ body,.top-bar,.card,.stat-card,.main-content,.sidebar,.auth-card,.table-wrap,tab
             <label>الصلاحية (Role)</label>
             <select id="newAdminRole">
               <option value="admin">Admin — إدارة كاملة</option>
-                <option value="cashier">Cashier - كاشير برنامج الولاء</option>
+              <option value="cashier">Cashier - كاشير برنامج العضوية</option>
               <option value="editor">Editor — تعديل المنتجات فقط</option>
               <option value="viewer">Viewer — قراءة فقط</option>
             </select>
@@ -3100,7 +3100,7 @@ function viewCustomerDetails(id){
 }
 
 function clubDefaultWhatsAppTemplate(){return `أهلاً {{name}} 🤍\n\nتم تفعيل اشتراكك في 101 CLUB بنجاح ☕\n\nالخطة: {{planName}}\nرقم CLUB: {{clubNumber}}\nPIN: {{pin}}\nعدد الاستخدامات: {{totalUses}}\nصالح لغاية: {{expiryDate}}\n\nاحتفظ برقم CLUB والـPIN لاستخدام اشتراكك داخل 101 COFFEE.\n\nننتظرك دائماً 🤎\n101 COFFEE`;}
-const clubPreviewValues={name:'اسم المشترك',planName:'اسم الخطة',clubNumber:'—',pin:'—',totalUses:'—',expiryDate:'—'};
+const clubPreviewValues={name:'اسم المشترك',planName:'اسم الخطة',clubNumber:'—',pin:'—',totalUses:'—',expiryDate:'—',includedItems:'أصناف الخطة'};
 window.toggleClubMessageEditor=function(){const editor=document.getElementById('clubMessageEditor');if(editor)editor.hidden=!editor.hidden;};
 window.toggleClubMessagePreview=function(){const wrap=document.getElementById('clubMessagePreviewWrap');if(!wrap)return;wrap.hidden=!wrap.hidden;if(!wrap.hidden)renderClubMessagePreview();};
 function renderClubMessagePreview(){const field=document.getElementById('clubWhatsAppTemplate'),preview=document.getElementById('clubMessagePreview');if(!field||!preview)return;preview.textContent=clubTemplate(field.value||clubDefaultWhatsAppTemplate(),clubPreviewValues);}
@@ -3108,7 +3108,9 @@ window.insertClubVariable=function(variable){const field=document.getElementById
 window.saveClubSettings=async function(){if(!canManageClub())return showNotif('ليس لديك صلاحية حفظ الإعدادات.','error');const message=document.getElementById('clubWhatsAppTemplate').value.trim()||clubDefaultWhatsAppTemplate(),payload={whatsappActivationMessage:message,updatedAt:firebase.database.ServerValue.TIMESTAMP};try{const ref=db.ref('subscription_settings');await ref.update(payload);const saved=(await ref.once('value')).val()||{};if(saved.whatsappActivationMessage!==message)throw new Error('لم تتطابق القراءة مع الرسالة المحفوظة.');clubSettings=saved;renderClubMessagePreview();showNotif('تم حفظ رسالة تفعيل 101 CLUB والتحقق منها.');}catch(error){showNotif('تعذر حفظ الإعدادات: '+error.message,'error');}};
  window.saveClubTransferSettings=async function(){if(!canManageClub())return showNotif('ليس لديك صلاحية حفظ الإعدادات.','error');const account=document.getElementById('clubTransferAccountNumber')?.value.trim()||'',phone=document.getElementById('clubTransferPhone')?.value.trim()||'',note=document.getElementById('clubTransferNote')?.value.trim()||'يرجى تحويل مبلغ الاشتراك إلى أحد الحسابات التالية، ثم تأكيد التحويل بعد التحقق من وصول المبلغ.';try{const ref=db.ref('subscription_settings'),payload={transferAccountNumber:account,transferPhone:phone,transferNote:note,updatedAt:firebase.database.ServerValue.TIMESTAMP};await ref.update(payload);const saved=(await ref.once('value')).val()||{};if(saved.transferAccountNumber!==account||saved.transferPhone!==phone||saved.transferNote!==note)throw new Error('لم تتطابق القراءة مع معلومات التحويل المحفوظة.');clubSettings=saved;showNotif('تم حفظ معلومات التحويل والتحقق منها.');}catch(error){showNotif('تعذر حفظ معلومات التحويل: '+error.message,'error');}};
 function normalizeClubPhone(value){const raw=String(value||'').replace(/\D/g,'');if(raw.length<8||raw.length>15)return '';return raw.startsWith('0')?'964'+raw.slice(1):raw;}
-function clubTemplate(text,values){return String(text||clubDefaultWhatsAppTemplate()).replace(/{{(name|planName|clubNumber|pin|totalUses|expiryDate)}}/g,(_,key)=>values[key]??'');}
+function clubTemplate(text,values){return String(text||clubDefaultWhatsAppTemplate()).replace(/{{(name|planName|clubNumber|pin|totalUses|expiryDate|includedItems)}}/g,(_,key)=>values[key]??'');}
+function clubPlanIncludedItems(plan){const items=Array.isArray(plan?.features)?plan.features.map(item=>String(item||'').trim()).filter(Boolean):[];return items.join('\n');}
+function clubActivationMessage(template,values,plan){const includedItems=clubPlanIncludedItems(plan),message=clubTemplate(template,{...values,includedItems});if(!includedItems||message.includes('اشتراكك يشمل الأصناف التالية:')||String(template||'').includes('{{includedItems}}'))return message;return `${message}\n\nملاحظة:\nاشتراكك يشمل الأصناف التالية:\n${includedItems}`;}
 function clubActivationErrorMessage(error){const code=String(error?.code||error?.message||'SUB_ACTIVATE_FAILED');const messages={AUTH_REQUIRED:'انتهت الجلسة. سجّل الدخول مرة أخرى.',AUTH_INVALID:'انتهت الجلسة. سجّل الدخول مرة أخرى.',FORBIDDEN:'غير مخول لتفعيل الاشتراكات.',SUB_REQUEST_NOT_FOUND:'طلب الاشتراك غير موجود.',SUB_REQUEST_NOT_PENDING:'الطلب مفعّل أو غير قابل للتفعيل مرة أخرى.',SUB_PLAN_NOT_FOUND:'خطة الاشتراك غير موجودة أو غير متاحة.',SUB_CUSTOMER_ALREADY_ACTIVE:'العميل لديه اشتراك فعّال مسبقاً.',SUB_CUSTOMER_DATA_INCOMPLETE:'بيانات العميل ناقصة ولا يمكن التفعيل بأمان.',INVALID_ARGUMENT:'بيانات التفعيل غير صحيحة.',BACKEND_AUTH_ERROR:'تعذر اعتماد الكتابة في Firebase.',INTERNAL_ERROR:'حدث خطأ داخلي في السيرفر.',REQUEST_FAILED:'حدث خطأ من السيرفر.'};return messages[code]||'تعذر تفعيل الاشتراك حالياً.';}
 function showClubActivationDiagnostics(data){const debugEl=document.getElementById('clubActivationDebug');if(!debugEl)return;if(currentRole!=='super_admin'){debugEl.hidden=true;debugEl.textContent='';return;}debugEl.hidden=false;debugEl.textContent=['CLUB Activation Debug',`HTTP: ${data?.status ?? 'N/A'}`,`ERROR: ${data?.error ?? 'N/A'}`,`STAGE: ${data?.stage ?? 'N/A'}`,`SAFE CODE: ${data?.code ?? 'N/A'}`,`CRYPTO ERROR NAME: ${data?.cryptoErrorName ?? 'N/A'}`,`FIREBASE OP: ${data?.firebaseOp ?? 'N/A'}`,`FIREBASE STATUS: ${data?.firebaseStatus ?? 'N/A'}`].join('\n');}
 window.confirmClubPayment=async function(){
@@ -3117,7 +3119,7 @@ window.confirmClubPayment=async function(){
   if(btn){btn.disabled=true;btn.textContent='جارٍ التفعيل...';}
   try{
     const result=await callLoyaltySecurity('/api/admin/subscription/activate',{method:'POST',body:{requestId:request.id,phone}}),plan=subscriptionPlans[request.planId]||{},name=request.name||request.customerName||'عضو 101',planName=request.planName||plan.nameAr||plan.nameEn||String(request.planId||'').toUpperCase(),totalUses=Number(plan.totalUses||0),expiresAt=Date.now()+Number(plan.durationDays||0)*86400000;
-    await renderClubCustomers();renderClubRequests();if(!result.pin){showNotif('تم تفعيل الطلب مسبقاً. PIN تم إنشاؤه سابقاً ولا يمكن عرضه مرة أخرى.');closeClubPaymentModal();if(waWindow)waWindow.close();return;}const message=clubTemplate(clubSettings.whatsappActivationMessage,{name,planName,clubNumber:result.clubNumber,pin:result.pin,totalUses,expiryDate:new Date(expiresAt).toLocaleDateString('ar-IQ')}),fallback=document.getElementById('clubWhatsAppFallback');if(fallback)fallback.textContent=`${message}\n\nلا يمكن إعادة عرض PIN بعد مغادرة هذه الشاشة.`;showNotif('تم تفعيل الاشتراك. تم عرض PIN مرة واحدة للمشرف دون حفظه أو وضعه في رابط.');
+    await renderClubCustomers();renderClubRequests();if(!result.pin){showNotif('تم تفعيل الطلب مسبقاً. PIN تم إنشاؤه سابقاً ولا يمكن عرضه مرة أخرى.');closeClubPaymentModal();if(waWindow)waWindow.close();return;}const message=clubActivationMessage(clubSettings.whatsappActivationMessage,{name,planName,clubNumber:result.clubNumber,pin:result.pin,totalUses,expiryDate:new Date(expiresAt).toLocaleDateString('ar-IQ')},plan),fallback=document.getElementById('clubWhatsAppFallback');if(fallback)fallback.textContent=`${message}\n\nلا يمكن إعادة عرض PIN بعد مغادرة هذه الشاشة.`;showNotif('تم تفعيل الاشتراك. تم عرض PIN مرة واحدة للمشرف دون حفظه أو وضعه في رابط.');
     const waUrl=`https://wa.me/${normalized}?text=${encodeURIComponent(message)}`;
     if(waWindow){waWindow.location.href=waUrl;}else{showNotif('فشل فتح WhatsApp تلقائياً. يرجى السماح بالنوافذ المنبثقة.','error');}
   }catch(error){if(waWindow)waWindow.close();const code=error?.code||error?.message||'SUB_ACTIVATE_FAILED';console.error('CLUB_ACTIVATION_FAILED',{code});showClubActivationDiagnostics(error?.safeDiagnostics);showNotif(clubActivationErrorMessage(error),'error');}
