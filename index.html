@@ -3876,7 +3876,7 @@
         }
 
         function eventCard(e) {
-            const src = safeImgSrc(e.image);
+            const src = safeImgSrc(e.image || e.imageUrl);
             const seats = Number(e.capacity) || 0;
             const taken = eventBookingsDB.filter(b => b.eventId === e.id && b.status !== 'cancelled').length;
             const available = seats ? Math.max(0, seats - taken) : (currentLang==='en'?'Available':'متاحة');
