@@ -3567,7 +3567,7 @@
             bookings = [],
             eventsDB = [],
             tablesDB = [],
-            eventBookingsDB = [],
+            eventBookingsDB = [], eventCapacityDB = {},
             backgroundSettings = { enabled: false, type: 'none', imageUrl: '', videoUrl: '', fallbackImageUrl: '', posterUrl: '' },
             candleSettings = { enabled: true, startTime: '16:00', endTime: '18:00', capacity: 10, price: 0 },
             DEFAULT_ASSISTANT_NAME = 'زينة',
@@ -3877,8 +3877,8 @@
 
         function eventCard(e) {
             const src = safeImgSrc(e.image || e.imageUrl);
-            const seats = Number(e.capacity) || 0;
-            const taken = eventBookingsDB.filter(b => b.eventId === e.id && b.status !== 'cancelled').length;
+            const seats = (e.id==='candle_day'||e.isCandleDay===true) ? (Number(e.capacity)||10) : 30;
+            const taken = Number(eventCapacityDB[e.id]?.reserved ?? eventBookingsDB.filter(b => b.eventId === e.id && b.status === 'confirmed').length);
             const available = seats ? Math.max(0, seats - taken) : (currentLang==='en'?'Available':'متاحة');
             return `<article class="product-card event-card" data-id="${esc(e.id)}" role="listitem">
               <div class="product-img">${src?`<img src="${esc(src)}" alt="${esc(eventTitle(e))}" loading="lazy">`:`<span class="placeholder-icon">🎉</span>`}</div>
@@ -3889,7 +3889,7 @@
                   <span><b>${currentLang==='en'?'Date:':'التاريخ:'}</b><em dir="ltr">${esc(e.date||'-')}</em></span>
                   <span><b>${currentLang==='en'?'Time:':'الوقت:'}</b><em dir="ltr">${esc(e.startTime||'-')}${e.endTime?' - '+esc(e.endTime):''}</em></span>
                   <span><b>${currentLang==='en'?'Price:':'السعر:'}</b><em>${Number(e.price)===0?(currentLang==='en'?'Free':'مجاني'):money(e.price||0)}</em></span>
-                  <span><b>${currentLang==='en'?'Seats:':'المقاعد:'}</b><em>${esc(available)}${seats?` / ${seats}`:''}</em></span>
+                  <span><b>${currentLang==='en'?'Tables remaining:':'الطاولات المتبقية:'}</b><em>${esc(available)}${seats?` / ${seats}`:''}</em></span>
                 </div>
                 <button class="primary-btn full" type="button" data-book-event="${esc(e.id)}">${currentLang==='en'?'Book Now':'حجز الآن'}</button>
               </div>
@@ -4280,6 +4280,8 @@
             return parts.map(value => String(value || '').trim().replace(/[^a-zA-Z0-9_-]/g, '_')).join('__');
         }
 
+        function confirmedEventTables(eventId) { return Number(eventCapacityDB[eventId]?.reserved ?? eventBookingsDB.filter(b => b.eventId === eventId && b.status === 'confirmed').length); }
+
         function handleEventBookingSubmit(e) {
             e.preventDefault();
             const f = new FormData(e.target);
@@ -4293,19 +4295,23 @@
             const phone = f.get("phone");
 
             if (!name || !phone) return alert("يرجى ملء جميع الحقول المطلوبة.");
+            const ev = eventsDB.find(x => x.id === eventId), isCandle = eventId === 'candle_day' || ev?.isCandleDay === true;
+            if (!ev || (!isCandle && confirmedEventTables(eventId) >= 30)) return showToast('لا توجد طاولات متبقية لهذه الورشة.','error');
+            const bookingId = isCandle ? bookingKey(eventId, date, tableId) : 'WB-' + Date.now().toString(36).toUpperCase() + '-' + Math.random().toString(36).slice(2,7).toUpperCase();
 
             const bookingData = {
                 eventId, eventName, date, time, startTime: time, tableId, tableName, name, phone,
                 price: Number(eventsDB.find(x => x.id === eventId)?.price || 0),
-                status: 'confirmed',
+                status: isCandle ? 'confirmed' : 'pending',
                 createdAt: firebase.database.ServerValue.TIMESTAMP
             };
 
-            const msg = `حجز فعالية في 101 COFFEE 🎉\n\nالفعالية: ${eventName}\n👤 الاسم: ${name}\n📱 الهاتف: ${phone}\n📅 التاريخ: ${date}\n⏰ الوقت: ${time}\n🪑 الطاولة: ${tableId}\n`;
+            const msg = `طلب حجز ورشة في 101 COFFEE 🎉\n\nالفعالية: ${eventName}\n👤 الاسم: ${name}\n📱 الهاتف: ${phone}\n📅 التاريخ: ${date}\n⏰ الوقت: ${time}\n🪑 عدد الطاولات: 1\nرقم الطلب: ${bookingId}\n`;
             const cleanPhone = (settings.whatsapp || "9647800000000").replace(/\D/g, "").replace(/^0/, "964");
-            const bookingId = bookingKey(eventId, date, tableId);
+            const waWindow = window.open('about:blank', '_blank');
             db.ref(`eventBookings/${bookingId}`).set({ ...bookingData, bookingId }).then(() => {
-                window.open(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(msg)}`, "_blank");
+                const waUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(msg)}`;
+                if(waWindow) waWindow.location.href=waUrl; else window.location.href=waUrl;
                 setModalOpen(document.getElementById("eventBookingModal"), false);
             }).catch(err => {
                 console.error('[CANDLE_BOOKING_FAILED]', {code:err?.code,message:err?.message,path:`eventBookings/${bookingId}`,operation:'set'});
@@ -5601,8 +5607,9 @@
             // 6. Event Bookings listener
             db.ref('eventBookings').on('value', snap => {
                 eventBookingsDB = [];
+                eventCapacityDB = snap.child('_capacity').val() || {};
                 if (snap.exists()) {
-                    snap.forEach(c => eventBookingsDB.push({ id: c.key, ...c.val() }));
+                    snap.forEach(c => { if(c.key !== '_capacity') eventBookingsDB.push({ id: c.key, ...c.val() }); });
                 }
                 if (currentCat === 'events') renderEventsCatalog();
             });
