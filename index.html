@@ -3218,7 +3218,7 @@
                     <label for="eventBookingDate">التاريخ<input id="eventBookingDate" name="date" readonly></label>
                     <label for="eventBookingTime">الوقت<input id="eventBookingTime" name="time" readonly></label>
                 </div>
-                <label for="eventBookingTable">رقم الطاولة<select id="eventBookingTable" name="tableId" required></select></label>
+                <label for="eventBookingTable" id="eventBookingTableLabel">رقم الطاولة<select id="eventBookingTable" name="tableId" required></select></label>
                 <div class="form-grid">
                     <label for="eventCustomerName">الاسم<input id="eventCustomerName" name="name" required autocomplete="name"></label>
                     <label for="eventCustomerPhone">رقم الهاتف<input type="tel" id="eventCustomerPhone" name="phone" required autocomplete="tel"></label>
@@ -3886,7 +3886,7 @@
         }
 
         let activeEventDetailsId = null;
-        function eventTableCapacity(ev) { const raw = (ev?.id === 'candle_day' || ev?.isCandleDay === true) ? (ev?.capacity ?? 12) : (ev?.tableCount ?? 30); return Math.max(0, Number(raw) || 0); }
+        function eventTableCapacity(ev) { const isCandleDay=ev?.id==='candle_day'||ev?.isCandleDay===true; const raw=isCandleDay?(ev?.capacity??12):(eventCapacityDB?.[ev?.id]?.total??ev?.tableCount??30); return Math.max(0,Number(raw)||0); }
         function confirmedEventTables(eventId) {
             const saved = Number(eventCapacityDB?.[eventId]?.reserved);
             return Number.isFinite(saved) ? saved : eventBookingsDB.filter(b => b.eventId === eventId && String(b.status || '').trim().toLowerCase() === 'confirmed').length;
@@ -4265,6 +4265,15 @@
         function renderEventBookingTableOptions(ev, sourceTables = tablesDB) {
             const tableSel = document.getElementById("eventBookingTable");
             if (!tableSel || !ev) return;
+            const isCandleDay = ev.id === 'candle_day' || ev.isCandleDay === true;
+            const label = document.getElementById('eventBookingTableLabel');
+            if (!isCandleDay) {
+                if (label?.firstChild) label.firstChild.textContent = 'عدد الطاولات';
+                tableSel.disabled = false;
+                tableSel.innerHTML = '<option value="1" selected>1 — طاولة واحدة لكل طلب</option>';
+                return;
+            }
+            if (label?.firstChild) label.firstChild.textContent = 'رقم الطاولة';
             const activeTables = sourceTables.filter(t => t && t.isActive !== false);
             tableSel.innerHTML = activeTables.length ?
                 activeTables.map(t => {
@@ -4331,15 +4340,17 @@
             const ev = eventsDB.find(x => x.id === eventId), isCandle = eventId === 'candle_day' || ev?.isCandleDay === true;
             if (!ev || (!isCandle && eventTableCapacity(ev) > 0 && confirmedEventTables(eventId) >= eventTableCapacity(ev))) return showToast('اكتملت جميع الطاولات.','error');
             const bookingId = isCandle ? bookingKey(eventId, date, tableId) : 'WB-' + Date.now().toString(36).toUpperCase() + '-' + Math.random().toString(36).slice(2,7).toUpperCase();
+            const tableCount = 1;
 
             const bookingData = {
                 eventId, eventName, date, time, startTime: time, tableId, tableName, name, phone,
+                ...(!isCandle ? { tableCount } : {}),
                 price: Number(eventsDB.find(x => x.id === eventId)?.price || 0),
                 status: isCandle ? 'confirmed' : 'pending',
                 createdAt: firebase.database.ServerValue.TIMESTAMP
             };
 
-            const msg = `طلب حجز ورشة في 101 COFFEE 🎉\n\nالفعالية: ${eventName}\n👤 الاسم: ${name}\n📱 الهاتف: ${phone}\n📅 التاريخ: ${date}\n⏰ الوقت: ${time}\n🪑 عدد الطاولات: 1\nرقم الطلب: ${bookingId}\n`;
+            const msg = `طلب حجز ورشة في 101 COFFEE 🎉\n\nالفعالية: ${eventName}\n👤 الاسم: ${name}\n📱 الهاتف: ${phone}\n📅 التاريخ: ${date}\n⏰ الوقت: ${time}\n🪑 عدد الطاولات: ${tableCount}\nرقم الطلب: ${bookingId}\n`;
             const cleanPhone = (settings.whatsapp || "9647800000000").replace(/\D/g, "").replace(/^0/, "964");
             const waWindow = window.open('about:blank', '_blank');
             db.ref(`eventBookings/${bookingId}`).set({ ...bookingData, bookingId }).then(() => {
@@ -5638,6 +5649,8 @@
                 }
                 if (currentCat === 'events') renderEventsCatalog();
                 if (activeEventDetailsId) renderEventDetails();
+                const bookingEvent=eventsDB.find(item=>item.id===document.getElementById('eventBookingId')?.value);
+                if(bookingEvent&&document.getElementById('eventBookingModal')?.classList.contains('open'))renderEventBookingCapacity(bookingEvent);
             });
 
             // Public menu reads only the non-identifying, authoritative counter node.
