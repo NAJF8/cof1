@@ -1646,9 +1646,94 @@ function saveTable(){if(!eventCanManage())return;const id=document.getElementByI
 function editTable(id){if(!eventCanManage())return;const t=tablesDB.find(x=>x.id===id);if(!t)return;document.getElementById('tableId').value=id;document.getElementById('tableName').value=t.name||'';showSection('tables');}
 function toggleTable(id){if(!eventCanManage())return;const t=tablesDB.find(x=>x.id===id);if(t)db.ref('tables/'+id+'/isActive').set(t.isActive===false);}
 function deleteTable(id){if(!eventCanManage()||!confirm('حذف الطاولة؟'))return;db.ref('tables/'+id).remove();}
-function renderEventsAdmin(){const confirmed=e=>Number(eventCapacityDB[e.id]?.reserved??eventBookingsDB.filter(b=>b.eventId===e.id&&b.status==='confirmed').length),remaining=e=>Math.max(0,30-confirmed(e));const tb=document.getElementById('eventsTable');if(tb)tb.innerHTML=eventsDB.map(e=>`<tr><td><b>${esc(e.name)}</b><br><small>${esc(e.description||'')}</small></td><td>${esc(e.date||'—')}<br>${esc(e.startTime||'')} ${e.endTime?'– '+esc(e.endTime):''}</td><td>${money(e.price||0)}</td><td>30<br><small>مؤكد: ${confirmed(e)} | متبقٍ: ${remaining(e)} | معلق: ${eventBookingsDB.filter(b=>b.eventId===e.id&&b.status==='pending').length}</small></td><td>${e.isActive!==false&&e.status!=='cancelled'?'🟢 مفعلة':'🔴 موقفة'}</td><td><button class="btn-edit" onclick="editEvent('${e.id}')">تعديل</button> <button class="btn-outline" onclick="toggleEvent('${e.id}')">${e.isActive!==false&&e.status!=='cancelled'?'إيقاف':'تفعيل'}</button> <button class="btn-delete" onclick="deleteEvent('${e.id}')">حذف</button></td></tr>`).join('')||'<tr><td colspan="6" style="text-align:center;padding:20px">لا توجد فعاليات.</td></tr>';const stats=document.getElementById('eventCapacityStats');if(stats)stats.innerHTML=eventsDB.map(e=>`<div class="stat-card"><h3>${remaining(e)}</h3><p>${esc(e.name)} — طاولات متبقية</p><small>إجمالي 30 | مؤكد ${confirmed(e)} | معلق ${eventBookingsDB.filter(b=>b.eventId===e.id&&b.status==='pending').length}</small></div>`).join('');const bt=document.getElementById('eventBookingsTable');if(bt)bt.innerHTML=eventBookingsDB.sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)).map(b=>`<tr><td>${esc(b.bookingId||'—')}</td><td>${esc(b.eventName)}</td><td>${esc(b.name)}</td><td dir="ltr">${esc(b.phone)}</td><td>${esc(b.tableName||'تخصيص عند التأكيد')}</td><td>${esc(b.date)}<br>${esc(b.startTime||'')}</td><td>${money(b.price||0)}</td><td dir="ltr" style="font-size:12px;">${b.createdAt?new Date(b.createdAt).toLocaleString('ar-IQ'):'—'}</td><td><select onchange="updateEventBookingStatus('${b.id}',this.value)"><option value="pending" ${b.status==='pending'?'selected':''}>⏳ بانتظار التأكيد</option><option value="confirmed" ${b.status==='confirmed'?'selected':''}>✅ مؤكد</option><option value="cancelled" ${b.status==='cancelled'?'selected':''}>❌ ملغى</option><option value="completed" ${b.status==='completed'?'selected':''}>مكتمل</option></select></td></tr>`).join('')||'<tr><td colspan="9" style="text-align:center;padding:20px">لا توجد حجوزات.</td></tr>';}
+let eventCapacitySeedInFlight=false;
+async function ensureEventCapacityRecords(){
+  if(eventCapacitySeedInFlight||!eventCanManage()||!eventsDB.length)return;
+  const missing=eventsDB.some(event=>{const capacity=(event.id==='candle_day'||event.isCandleDay===true)?(event.capacity??12):(event.tableCount??30);return !eventCapacityDB[event.id]||Number(eventCapacityDB[event.id].total)!==Number(capacity);});
+  if(!missing)return;
+  eventCapacitySeedInFlight=true;
+  try{
+    const result=await db.ref('eventBookings').transaction(all=>{
+      if(!all)return;
+      const next={...all},capacityMap={...(all._capacity||{})};let changed=false;
+      for(const event of eventsDB){
+        if(!event?.id)continue;
+        const isCandle=event.id==='candle_day'||event.isCandleDay===true,total=Math.max(1,Number(isCandle?(event.capacity??12):(event.tableCount??30))||30);
+        const confirmed=Object.entries(all).filter(([key,row])=>key!=='_capacity'&&row&&String(row.eventId||'')===event.id&&normalizeEventBookingStatus(row.status)==='confirmed').length;
+        const saved=capacityMap[event.id];
+        if(!saved){capacityMap[event.id]={total,reserved:confirmed};changed=true;}
+        else if(Number(saved.total)!==total){capacityMap[event.id]={...saved,total};changed=true;}
+      }
+      if(!changed)return all;
+      next._capacity=capacityMap;return next;
+    },undefined,false);
+    if(!result.committed&&result.snapshot?.exists())console.warn('[EVENT_CAPACITY_SEED_NOT_COMMITTED]');
+  }catch(error){console.error('[EVENT_CAPACITY_SEED_FAILED]',{code:error?.code||'UNKNOWN',message:error?.message||String(error)});}
+  finally{eventCapacitySeedInFlight=false;}
+}
+function renderEventsAdmin(){const capacity=e=>Math.max(1,Number((e.id==='candle_day'||e.isCandleDay===true)?(e.capacity??12):(e.tableCount??30))||30),confirmed=e=>Number(eventCapacityDB[e.id]?.reserved??eventBookingsDB.filter(b=>b.eventId===e.id&&normalizeEventBookingStatus(b.status)==='confirmed').length),remaining=e=>Math.max(0,Number(eventCapacityDB[e.id]?.total??capacity(e))-confirmed(e));const tb=document.getElementById('eventsTable');if(tb)tb.innerHTML=eventsDB.map(e=>{const total=Number(eventCapacityDB[e.id]?.total??capacity(e)),count=confirmed(e),left=remaining(e),pending=eventBookingsDB.filter(b=>b.eventId===e.id&&normalizeEventBookingStatus(b.status)==='pending').length;return `<tr><td><b>${esc(e.name)}</b><br><small>${esc(e.description||'')}</small></td><td>${esc(e.date||'—')}<br>${esc(e.startTime||'')} ${e.endTime?'– '+esc(e.endTime):''}</td><td>${money(e.price||0)}</td><td>${total}<br><small>مؤكد: ${count} | متبقٍ: ${left} | معلق: ${pending}</small></td><td>${e.isActive!==false&&e.status!=='cancelled'?'🟢 مفعلة':'🔴 موقفة'}</td><td><button class="btn-edit" onclick="editEvent('${e.id}')">تعديل</button> <button class="btn-outline" onclick="toggleEvent('${e.id}')">${e.isActive!==false&&e.status!=='cancelled'?'إيقاف':'تفعيل'}</button> <button class="btn-delete" onclick="deleteEvent('${e.id}')">حذف</button></td></tr>`}).join('')||'<tr><td colspan="6" style="text-align:center;padding:20px">لا توجد فعاليات.</td></tr>';const stats=document.getElementById('eventCapacityStats');if(stats)stats.innerHTML=eventsDB.map(e=>`<div class="stat-card"><h3>${remaining(e)}</h3><p>${esc(e.name)} — طاولات متبقية</p><small>إجمالي ${Number(eventCapacityDB[e.id]?.total??capacity(e))} | مؤكد ${confirmed(e)} | معلق ${eventBookingsDB.filter(b=>b.eventId===e.id&&normalizeEventBookingStatus(b.status)==='pending').length}</small></div>`).join('');const bt=document.getElementById('eventBookingsTable');if(bt)bt.innerHTML=eventBookingsDB.sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)).map(b=>{const state=normalizeEventBookingStatus(b.status)||'pending';return `<tr><td>${esc(b.bookingId||'—')}</td><td>${esc(b.eventName||'—')}</td><td>${esc(b.name||'—')}</td><td dir="ltr">${esc(b.phone||'—')}</td><td>${esc(b.tableName||'تخصيص عند التأكيد')}</td><td>${esc(b.date||'—')}<br>${esc(b.startTime||b.time||'')}</td><td>${money(b.price||0)}</td><td dir="ltr" style="font-size:12px;">${b.createdAt?new Date(b.createdAt).toLocaleString('ar-IQ'):'—'}</td><td><select id="event-booking-status-${b.id}" onchange="updateEventBookingStatus('${b.id}',this.value)"><option value="pending" ${state==='pending'?'selected':''}>⏳ بانتظار التأكيد</option><option value="confirmed" ${state==='confirmed'?'selected':''}>✅ مؤكد</option><option value="cancelled" ${state==='cancelled'?'selected':''}>❌ ملغى</option><option value="completed" ${state==='completed'?'selected':''}>مكتمل</option></select></td></tr>`}).join('')||'<tr><td colspan="9" style="text-align:center;padding:20px">لا توجد حجوزات.</td></tr>';}
 function renderTablesAdmin(){const tb=document.getElementById('tablesTable');if(tb)tb.innerHTML=tablesDB.map(t=>`<tr><td>${esc(t.name)}</td><td>${t.isActive!==false?'🟢 مفعلة':'🔴 معطلة'}</td><td><button class="btn-edit" onclick="editTable('${t.id}')">تعديل</button> <button class="btn-outline" onclick="toggleTable('${t.id}')">${t.isActive!==false?'تعطيل':'تفعيل'}</button> <button class="btn-delete" onclick="deleteTable('${t.id}')">حذف</button></td></tr>`).join('')||'<tr><td colspan="3" style="text-align:center;padding:20px">لا توجد طاولات.</td></tr>';}
-async function updateEventBookingStatus(id,status){if(!eventCanManage())return;const booking=eventBookingsDB.find(b=>b.id===id);if(!booking)return;const ev=eventsDB.find(e=>e.id===booking.eventId),isCandle=booking.eventId==='candle_day'||ev?.isCandleDay===true;if(isCandle){try{await db.ref('eventBookings/'+id+'/status').set(status);showNotif('تم تحديث حالة الحجز.');}catch(e){showNotif('تعذر تحديث حالة الحجز.','error');}return;}if(!['confirmed','cancelled','completed'].includes(status))return;const ref=db.ref('eventBookings'),eventId=String(booking.eventId||'');try{const result=await ref.transaction(all=>{if(!all||!all[id])return;const row={...all[id]},old=row.status||'pending';if(old===status)return all;if(old==='cancelled'||(old==='completed'&&status!=='cancelled')||(old==='confirmed'&&status==='pending'))return;const next={...all},map={...(all._capacity||{})};if(status==='confirmed'&&old!=='confirmed'){const n=Object.values(all).filter(b=>b&&b.eventId===eventId&&b.status==='confirmed').length,entry={...(map[eventId]||{}),total:30,reserved:Number(map[eventId]?.reserved??n)};if(entry.reserved>=30)return;entry.reserved++;map[eventId]=entry;next._capacity=map;}else if(status==='cancelled'&&old==='confirmed'){const n=Object.values(all).filter(b=>b&&b.eventId===eventId&&b.status==='confirmed').length,entry={...(map[eventId]||{}),total:30,reserved:Number(map[eventId]?.reserved??n)};entry.reserved=Math.max(0,entry.reserved-1);map[eventId]=entry;next._capacity=map;}next[id]={...row,status,updatedAt:firebase.database.ServerValue.TIMESTAMP};return next;},undefined,false);if(!result.committed)return showNotif('لا توجد طاولات متبقية أو تغيرت حالة الحجز.','error');showNotif(status==='confirmed'?'تم تأكيد الحجز وحجز طاولة واحدة.':status==='cancelled'?'تم إلغاء الحجز وإعادة الطاولة.':'تم تحديث حالة الحجز.');}catch(e){showNotif('تعذر إكمال تحديث الحجز. تحقق من حالته قبل إعادة المحاولة.','error');}}
+async function updateEventBookingStatus(id,status){
+  if(!eventCanManage())return;
+  const booking=eventBookingsDB.find(b=>b.id===id);
+  if(!booking)return showNotif('لم يتم العثور على الحجز. حدّث القائمة وحاول مجدداً.','error');
+  const target=String(status||'').trim().toLowerCase();
+  if(!['confirmed','cancelled','completed'].includes(target))return showNotif('حالة الحجز غير صالحة.','error');
+  const eventId=String(booking.eventId||'').trim();
+  if(!eventId)return showNotif('بيانات الحجز القديمة تحتاج معالجة: رقم الورشة (eventId) غير موجود.','error');
+  const event=eventsDB.find(e=>e.id===eventId);
+  if(!event)return showNotif('بيانات الورشة غير موجودة لهذا الحجز.','error');
+  const isCandle=eventId==='candle_day'||event.isCandleDay===true;
+  if(isCandle){
+    const old=String(booking.status||'pending').trim().toLowerCase();
+    if(old===target)return showNotif('الحجز يحمل هذه الحالة مسبقاً.','info');
+    try{await db.ref('eventBookings/'+id).update({status:target,updatedAt:firebase.database.ServerValue.TIMESTAMP});showNotif('تم تحديث حالة الحجز.');}
+    catch(error){console.error('[EVENT_BOOKING_STATUS_FAILED]',{code:error?.code||'UNKNOWN',message:error?.message||String(error),bookingId:id,eventId,from:old,to:target});showNotif(eventBookingStatusErrorMessage(error),'error');}
+    return;
+  }
+  const rawCapacity=(eventId==='candle_day'||event.isCandleDay===true)?(event.capacity??12):(event.tableCount??30),total=Math.max(1,Number(rawCapacity)||30),ref=db.ref('eventBookings');
+  let transactionReason='TRANSACTION_NOT_COMMITTED',alreadyApplied=false;
+  try{
+    const result=await ref.transaction(all=>{
+      if(!all||!all[id]){transactionReason='BOOKING_NOT_FOUND';return;}
+      const row=all[id],old=normalizeEventBookingStatus(row.status);
+      if(!row.eventId){transactionReason='MISSING_EVENT_ID';return;}
+      if(String(row.eventId)!==eventId){transactionReason='EVENT_ID_CHANGED';return;}
+      if(!old){transactionReason='UNKNOWN_BOOKING_STATUS';return;}
+      if(old===target){alreadyApplied=true;transactionReason='ALREADY_APPLIED';return all;}
+      if(old==='cancelled'){transactionReason='ALREADY_CANCELLED';return;}
+      if(old==='completed'&&target!=='cancelled'){transactionReason='ALREADY_COMPLETED';return;}
+      if(old==='confirmed'&&target==='pending'){transactionReason='INVALID_TRANSITION';return;}
+      const next={...all},capacityMap={...(all._capacity||{})};
+      if(target==='confirmed'&&old!=='confirmed'){
+        const confirmed=Object.entries(all).filter(([key,item])=>key!=='_capacity'&&item&&String(item.eventId||'')===eventId&&normalizeEventBookingStatus(item.status)==='confirmed').length;
+        const record={...(capacityMap[eventId]||{}),total:Number(capacityMap[eventId]?.total??total),reserved:Math.max(Number(capacityMap[eventId]?.reserved)||0,confirmed)};
+        if(record.reserved>=record.total){transactionReason='CAPACITY_FULL';return;}
+        record.reserved+=1;capacityMap[eventId]=record;next._capacity=capacityMap;
+      }else if(target==='cancelled'&&old==='confirmed'){
+        const confirmed=Object.entries(all).filter(([key,item])=>key!=='_capacity'&&item&&String(item.eventId||'')===eventId&&normalizeEventBookingStatus(item.status)==='confirmed').length;
+        const record={...(capacityMap[eventId]||{}),total:Number(capacityMap[eventId]?.total??total),reserved:Math.max(Number(capacityMap[eventId]?.reserved)||0,confirmed)};
+        record.reserved=Math.max(0,record.reserved-1);capacityMap[eventId]=record;next._capacity=capacityMap;
+      }
+      next[id]={...row,status:target,updatedAt:firebase.database.ServerValue.TIMESTAMP};
+      transactionReason='UPDATED';return next;
+    },undefined,false);
+    if(!result.committed){
+      restoreEventBookingStatusSelect(id,booking.status);
+      const messages={BOOKING_NOT_FOUND:'لم يتم العثور على الحجز.',MISSING_EVENT_ID:'بيانات الحجز القديمة تحتاج معالجة: رقم الورشة (eventId) غير موجود.',EVENT_ID_CHANGED:'تغيرت بيانات الورشة أثناء التحديث. حدّث القائمة وحاول مجدداً.',UNKNOWN_BOOKING_STATUS:'بيانات الحالة القديمة غير معروفة؛ لم يتم تغيير الحجز.',ALREADY_CANCELLED:'الحجز ملغي مسبقاً.',ALREADY_COMPLETED:'الحجز مكتمل مسبقاً ولا يمكن نقله إلى هذه الحالة.',INVALID_TRANSITION:'انتقال حالة الحجز غير مسموح.',CAPACITY_FULL:'اكتملت جميع الطاولات.'};
+      return showNotif(messages[transactionReason]||'تعذر تحديث الحجز؛ لم تُحفظ أي تغييرات.','error');
+    }
+    if(alreadyApplied)return showNotif('الحجز مؤكد مسبقاً؛ لم يتغير عدد الطاولات.','info');
+    showNotif(target==='confirmed'?'تم تأكيد الحجز وحجز طاولة واحدة.':target==='cancelled'&&normalizeEventBookingStatus(booking.status)==='confirmed'?'تم إلغاء الحجز وإعادة طاولة واحدة.':target==='cancelled'?'تم إلغاء الحجز المعلق دون تغيير عدد الطاولات.':'تم تحديث حالة الحجز.');
+  }catch(error){
+    restoreEventBookingStatusSelect(id,booking.status);
+    console.error('[EVENT_BOOKING_STATUS_FAILED]',{code:error?.code||'UNKNOWN',message:error?.message||String(error),bookingId:id,eventId,from:booking.status||'pending',to:target,reason:transactionReason});
+    showNotif(eventBookingStatusErrorMessage(error),'error');
+  }
+}
+function restoreEventBookingStatusSelect(id,status){const select=document.getElementById(`event-booking-status-${id}`);if(select)select.value=normalizeEventBookingStatus(status)||'pending';}
+function normalizeEventBookingStatus(value){const status=String(value||'').trim().toLowerCase();return status==='canceled'?'cancelled':(['pending','confirmed','cancelled','completed'].includes(status)?status:null);}
+function eventBookingStatusErrorMessage(error){const code=String(error?.code||'').toLowerCase(),message=String(error?.message||'').toLowerCase();if(code.includes('permission')||message.includes('permission_denied')||message.includes('permission denied'))return 'لا توجد صلاحية لتحديث الحجز.';if(message.includes('capacity'))return 'اكتملت جميع الطاولات.';return 'تعذر تحديث الحجز بسبب خطأ في الاتصال بقاعدة البيانات. راجع Console للتفاصيل.';}
 
 
 // ══════════════════════════════════════════════════════════
@@ -2647,9 +2732,9 @@ function startFirebaseListeners(){
   db.ref('subscriptions').on('value', snap => { clubSubscriptionsReadBlocked=false; clubSubscriptions=[]; const keys=[],statusValues=new Set(); snap.forEach(child=>{const normalized=normalizeClubSubscriptionRecord(child.key,child.val());keys.push(child.key);statusValues.add(normalized.normalizedStatus);clubSubscriptions.push(normalized);});clubActiveSnapshotCount=snap.numChildren();console.info('[CLUB_ACTIVE_SNAPSHOT_COUNT]',clubActiveSnapshotCount);console.info('[CLUB_ACTIVE_STATUS_VALUES]',JSON.stringify([...statusValues]));console.info('[CLUB_ACTIVE_KEYS]',JSON.stringify(keys));console.info('[CLUB_LISTENER_RERENDER]',JSON.stringify({dataset:'subscriptions',rerender:true}));renderClubCustomers(); }, error => { clubSubscriptionsReadBlocked=true; console.error('[CLUB_SUBSCRIPTIONS_LISTENER_FAILED]',error?.code||error?.message||String(error)); loadClubSubscriptionsFallback(); });
   db.ref('subscription_account_claims').on('value', snap => { clubAccountClaims=[]; snap.forEach(c=>clubAccountClaims.push({id:c.key,...(c.val()||{})})); renderClubAccountClaims(); });
   db.ref('subscription_settings').on('value', snap => { clubSettings=snap.val()||{}; const field=document.getElementById('clubWhatsAppTemplate'); if(field&&document.activeElement!==field)field.value=clubSettings.whatsappActivationMessage||clubDefaultWhatsAppTemplate(); const set=(id,value)=>{const el=document.getElementById(id);if(el&&document.activeElement!==el)el.value=value||'';};set('clubTransferAccountNumber',clubSettings.transferAccountNumber);set('clubTransferPhone',clubSettings.transferPhone);set('clubTransferNote',clubSettings.transferNote||'يرجى تحويل مبلغ الاشتراك إلى أحد الحسابات التالية، ثم تأكيد التحويل بعد التحقق من وصول المبلغ.'); renderClubMessagePreview(); });
-  db.ref('events').on('value',snap=>{const v=snap.val();eventsDB=v?Object.entries(v).map(([id,x])=>({id,...x})):[];renderEventsAdmin();});
+  db.ref('events').on('value',snap=>{const v=snap.val();eventsDB=v?Object.entries(v).map(([id,x])=>({id,...x})):[];renderEventsAdmin();ensureEventCapacityRecords();});
   db.ref('tables').on('value',snap=>{const v=snap.val();tablesDB=v?Object.entries(v).map(([id,x])=>({id,...x})):[];renderTablesAdmin();});
-  db.ref('eventBookings').on('value',snap=>{const v=snap.val();eventCapacityDB=snap.child('_capacity').val()||{};eventBookingsDB=v?Object.entries(v).filter(([id])=>id!=='_capacity').map(([id,x])=>({id,...x})):[];renderEventsAdmin();const eb=document.getElementById('stat-event-bookings');if(eb)eb.textContent=eventBookingsDB.length;});
+  db.ref('eventBookings').on('value',snap=>{const v=snap.val();eventCapacityDB=snap.child('_capacity').val()||{};eventBookingsDB=v?Object.entries(v).filter(([id])=>id!=='_capacity').map(([id,x])=>({id,...x})):[];renderEventsAdmin();ensureEventCapacityRecords();const eb=document.getElementById('stat-event-bookings');if(eb)eb.textContent=eventBookingsDB.length;});
   db.ref('orders').on('value', snap => {
     ordersDB = [];
     if (snap.exists()) snap.forEach(c => ordersDB.push({ id:c.key, ...c.val() }));
