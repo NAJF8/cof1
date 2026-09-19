@@ -3353,7 +3353,7 @@
             if (path === '/api/loyalty/provision-google') console.info('[NEW_LOYALTY_PROVISION_STATUS]', { ok: response.ok, status: response.status, provisionStatus: data?.status || null, profileStatus: data?.profileStatus || null, hasProfile: Boolean(data?.profile?.membershipNumber), error: data?.error || null });
             if (path === '/api/loyalty/provision-google') mobileAuthTrace('PROVISION_RESULT', { ok: response.ok, status: response.status, profileStatus: data?.profileStatus || null });
             if (path === '/api/loyalty/profile') mobileAuthTrace('PROFILE_RESULT', { ok: response.ok, status: response.status, profileStatus: data?.status || null });
-            if (!response.ok) { const error = new Error(data.error || 'LOYALTY_SECURITY_FAILED'); error.code = `functions/${data.error || 'internal'}`; error.httpStatus = response.status; error.loyaltyStage = 'WORKER_RESPONSE'; throw error; }
+            if (!response.ok) { const error = new Error(data.error || 'LOYALTY_SECURITY_FAILED'); error.code = `functions/${data.error || 'internal'}`; error.httpStatus = response.status; error.requestId = typeof data?.requestId === 'string' ? data.requestId : ''; error.loyaltyStage = 'WORKER_RESPONSE'; throw error; }
             return { data };
         }
         try {
@@ -4730,7 +4730,8 @@
                 const safeCode = String(error?.code || 'unknown').replace(/[^A-Za-z0-9_/-]/g, '').slice(0, 80) || 'unknown';
                 const safeStage = error?.loyaltyStage || (String(error?.code || '').startsWith('functions/') ? 'WORKER_RESPONSE' : 'UNKNOWN');
                 console.warn('[LOYALTY_PIN_FAILURE]', { stage: String(safeStage).slice(0, 40), status: Number.isInteger(error?.httpStatus) ? error.httpStatus : null, code: safeCode });
-                if (message) message.textContent = (error?.code === 'functions/unauthenticated' || error?.code === 'functions/invalid-argument') ? 'تأكد من رقم العضوية والـPIN.' : 'تعذر تسجيل الدخول، حاول مرة أخرى.';
+                const requestId = error?.requestId || '';
+                if (message) message.textContent = (error?.code === 'functions/unauthenticated' || error?.code === 'functions/invalid-argument') ? 'تأكد من رقم العضوية والـPIN.' : `تعذر تسجيل الدخول${requestId ? ` — رقم المتابعة: ${requestId}` : ''}، حاول مرة أخرى.`;
             } finally {
                 isLoyaltyLoginInProgress = false;
                 if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = originalBtnText; }

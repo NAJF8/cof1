@@ -22,6 +22,8 @@ function origins(env) { return String(env.ALLOWED_ORIGINS || 'https://najf8.gith
 function cors(request, env) { const origin = request.headers.get('Origin'); return origin && origins(env).includes(origin) ? { 'Access-Control-Allow-Origin': origin, 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, Authorization', 'Cache-Control': 'no-store', Vary: 'Origin' } : null; }
 function response(request, env, body, status = 200) { return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', ...(cors(request, env) || {}) } }); }
 function fail(request, env, error, status) { return response(request, env, { ok: false, error }, status); }
+function loginRequestId() { return crypto.randomUUID(); }
+function loginFailure(request, env, requestId, stage, code, status) { console.warn('[LOYALTY_LOGIN_FAILURE]', { requestId, stage, code }); return response(request, env, { ok: false, error: code, requestId }, status); }
 function giftDiagnostic(marker, details = {}) { console.info(marker, details); }
 function giftId(value) { const id = String(value || '').trim(); return /^[A-Za-z0-9_-]{1,160}$/.test(id) ? id : ''; }
 function firebaseHttpStatus(error) { const match = String(error?.message || '').match(/^FIREBASE_(\d{3})$/); return match ? Number(match[1]) : null; }
@@ -92,32 +94,50 @@ async function uploadWorkshopImage(request, env, current) { await staff(env, cur
 async function uploadBackgroundVideo(request, env, current) { await staff(env, current, 'manage-settings'); const file = (await request.formData()).get('video'); if (!file || typeof file.arrayBuffer !== 'function') throw Error('VIDEO_REQUIRED'); const type = String(file.type || '').toLowerCase(), extension = videoExtension(file.name); if (Number(file.size) > MAX_BACKGROUND_VIDEO_BYTES) throw Error('VIDEO_TOO_LARGE'); if (!BACKGROUND_VIDEO_TYPES.has(type) || (type === 'video/mp4' && extension !== 'mp4') || (type === 'video/webm' && extension !== 'webm')) throw Error('VIDEO_TYPE_UNSUPPORTED'); const bytes = new Uint8Array(await file.arrayBuffer()); if (backgroundVideoType(bytes) !== type) throw Error('VIDEO_TYPE_UNSUPPORTED'); const safeExtension = type === 'video/mp4' ? 'mp4' : 'webm', filename = `bg_video_${Date.now()}_${crypto.randomUUID().replace(/-/g, '')}.${safeExtension}`, path = `assets/backgrounds/${filename}`; try { await githubContentsUpload(env, path, bytes, 'chore: upload background video', '101-coffee-background-video-uploader'); } catch (error) { if (error.message === 'GITHUB_UPLOAD_NOT_CONFIGURED') throw Error('VIDEO_STORAGE_NOT_CONFIGURED'); throw Error('VIDEO_UPLOAD_FAILED'); } return response(request, env, { ok: true, url: `https://101coffees.com/${path}`, path }); }
 async function uploadBackgroundPoster(request, env, current) { await staff(env, current, 'manage-settings'); const file = (await request.formData()).get('poster'); if (!file || typeof file.arrayBuffer !== 'function') throw Error('POSTER_REQUIRED'); if (Number(file.size) > MAX_BACKGROUND_POSTER_BYTES) throw Error('POSTER_TOO_LARGE'); const type = String(file.type || '').toLowerCase(), bytes = new Uint8Array(await file.arrayBuffer()); if (type !== 'image/webp' || backgroundPosterType(bytes) !== type) throw Error('POSTER_TYPE_UNSUPPORTED'); const filename = `bg_poster_${Date.now()}_${crypto.randomUUID().replace(/-/g, '')}.webp`, path = `assets/backgrounds/posters/${filename}`; try { await githubContentsUpload(env, path, bytes, 'chore: upload background video poster', '101-coffee-background-poster-uploader'); } catch (error) { if (error.message === 'GITHUB_UPLOAD_NOT_CONFIGURED') throw Error('POSTER_STORAGE_NOT_CONFIGURED'); throw Error('POSTER_UPLOAD_FAILED'); } return response(request, env, { ok: true, posterUrl: `https://101coffees.com/${path}`, path }); }
 async function login(request, env) {
-  const payload = await body(request), membership = security.normalizeMembershipNumber(payload.membershipNumber), pin = String(payload.pin || ''), pepper = String(env.LOYALTY_PIN_PEPPER || '');
-  if (!membership || !security.validPin(pin) || !pepper) return fail(request, env, 'INVALID_CREDENTIALS', 401);
-  const key = await security.attemptKey(membership, request.headers.get('CF-Connecting-IP') || 'unknown', pepper), state = await firebaseAdminRequest(env, `loyalty_login_attempts/${key}`) || {}, now = Date.now();
-  if (Number(state.lockedUntil) > now || Number(state.failedAttempts) >= security.MAX_FAILURES && now - Number(state.firstFailureAt || 0) < security.WINDOW_MS) return fail(request, env, 'RATE_LIMITED', 429);
-  const [customer, credential] = await Promise.all([firebaseAdminRequest(env, `loyalty_customers/${membership}`), firebaseAdminRequest(env, `loyalty_credentials/${membership}`)]);
-  const tokenUid = await resolvePinLoginUid(env, membership, customer);
-  if (!tokenUid) return fail(request, env, 'PROFILE_NOT_FOUND', 404);
-  let valid = false, migrated = false;
-  try { valid = await security.timingSafePinMatch(pin, credential, pepper); } catch { valid = false; }
-  const legacyPin = customer?.pin;
-  if (!valid && customer && security.validPin(legacyPin) && !credentialShapeIsUsable(credential)) {
-    valid = security.timingSafeEqual(new TextEncoder().encode(pin), new TextEncoder().encode(String(legacyPin)));
-    if (valid) {
-      const nextCredential = await security.createCredential(pin, pepper, now);
-      await saveCredentialAndRemoveLegacyPin(env, membership, nextCredential);
-      migrated = true;
+  const requestId = loginRequestId(); let stage = 'START';
+  try {
+    stage = 'INPUT_VALIDATION';
+    const payload = await body(request), membership = security.normalizeMembershipNumber(payload.membershipNumber), pin = String(payload.pin || ''), pepper = String(env.LOYALTY_PIN_PEPPER || '');
+    if (!membership || !security.validPin(pin) || !pepper) return loginFailure(request, env, requestId, stage, 'INVALID_CREDENTIALS', 401);
+    stage = 'RATE_LIMIT_READ';
+    const key = await security.attemptKey(membership, request.headers.get('CF-Connecting-IP') || 'unknown', pepper), state = await firebaseAdminRequest(env, `loyalty_login_attempts/${key}`) || {}, now = Date.now();
+    if (Number(state.lockedUntil) > now || Number(state.failedAttempts) >= security.MAX_FAILURES && now - Number(state.firstFailureAt || 0) < security.WINDOW_MS) return loginFailure(request, env, requestId, stage, 'RATE_LIMITED', 429);
+    stage = 'CUSTOMER_CREDENTIAL_READ';
+    const [customer, credential] = await Promise.all([firebaseAdminRequest(env, `loyalty_customers/${membership}`), firebaseAdminRequest(env, `loyalty_credentials/${membership}`)]);
+    stage = 'UID_LINK_RESOLVE';
+    const tokenUid = await resolvePinLoginUid(env, membership, customer);
+    if (!tokenUid) return loginFailure(request, env, requestId, stage, 'PROFILE_NOT_FOUND', 404);
+    let valid = false, migrated = false;
+    stage = 'HASH_VERIFY';
+    try { valid = await security.timingSafePinMatch(pin, credential, pepper); } catch { valid = false; }
+    const legacyPin = customer?.pin;
+    if (!valid && customer && security.validPin(legacyPin) && !credentialShapeIsUsable(credential)) {
+      stage = 'LEGACY_VERIFY';
+      valid = security.timingSafeEqual(new TextEncoder().encode(pin), new TextEncoder().encode(String(legacyPin)));
+      if (valid) {
+        stage = 'LEGACY_MIGRATION';
+        const nextCredential = await security.createCredential(pin, pepper, now);
+        await saveCredentialAndRemoveLegacyPin(env, membership, nextCredential);
+        migrated = true;
+      }
     }
+    if (!customer || !valid) {
+      const within = Number(state.firstFailureAt) > 0 && now - Number(state.firstFailureAt) < security.WINDOW_MS, failures = within ? Number(state.failedAttempts || 0) + 1 : 1;
+      stage = 'FAILURE_RECORD';
+      await firebaseAdminRequest(env, `loyalty_login_attempts/${key}`, { method: 'PUT', body: { failedAttempts: failures, firstFailureAt: within ? Number(state.firstFailureAt) : now, lastFailureAt: now, lockedUntil: failures >= security.MAX_FAILURES ? now + security.WINDOW_MS : 0 } });
+      return loginFailure(request, env, requestId, stage, failures >= security.MAX_FAILURES ? 'RATE_LIMITED' : 'INVALID_CREDENTIALS', failures >= security.MAX_FAILURES ? 429 : 401);
+    }
+    stage = 'FIREBASE_AUTH';
+    await firebaseAdminRequest(env, `loyalty_login_attempts/${key}`, { method: 'DELETE' });
+    const token = await customToken(env, tokenUid);
+    console.info('[LOYALTY_LOGIN_SUCCESS]', { requestId, stage, migrated, hasToken: Boolean(token) });
+    return response(request, env, { ok: true, token, profile: safeCustomer(membership, customer) });
+  } catch (error) {
+    if (stage === 'INPUT_VALIDATION' && ['INVALID_CONTENT_TYPE', 'PAYLOAD_TOO_LARGE'].includes(error?.message)) return loginFailure(request, env, requestId, stage, error.message, error.message === 'PAYLOAD_TOO_LARGE' ? 413 : 415);
+    if (stage === 'INPUT_VALIDATION' && error?.name === 'SyntaxError') return loginFailure(request, env, requestId, stage, 'REQUEST_FAILED', 400);
+    const code = String(error?.message || '').startsWith('FIREBASE_') ? 'FIREBASE_BACKEND_ERROR' : stage === 'UID_LINK_RESOLVE' ? 'UID_LINK_RESOLUTION_FAILED' : stage === 'FIREBASE_AUTH' ? 'FIREBASE_AUTH_FAILED' : stage === 'LEGACY_MIGRATION' ? 'PIN_MIGRATION_FAILED' : stage === 'HASH_VERIFY' || stage === 'LEGACY_VERIFY' ? 'PIN_VERIFICATION_FAILED' : 'LOGIN_BACKEND_ERROR';
+    return loginFailure(request, env, requestId, stage, code, 500);
   }
-  console.info('[LOYALTY_LOGIN_RESULT]', { membership: Boolean(membership), customer: Boolean(customer), credential: Boolean(credential?.pinHash && credential?.salt), migrated, valid });
-  if (!customer || !valid) {
-    const within = Number(state.firstFailureAt) > 0 && now - Number(state.firstFailureAt) < security.WINDOW_MS, failures = within ? Number(state.failedAttempts || 0) + 1 : 1;
-    await firebaseAdminRequest(env, `loyalty_login_attempts/${key}`, { method: 'PUT', body: { failedAttempts: failures, firstFailureAt: within ? Number(state.firstFailureAt) : now, lastFailureAt: now, lockedUntil: failures >= security.MAX_FAILURES ? now + security.WINDOW_MS : 0 } });
-    return fail(request, env, failures >= security.MAX_FAILURES ? 'RATE_LIMITED' : 'INVALID_CREDENTIALS', failures >= security.MAX_FAILURES ? 429 : 401);
-  }
-  await firebaseAdminRequest(env, `loyalty_login_attempts/${key}`, { method: 'DELETE' });
-  return response(request, env, { ok: true, token: await customToken(env, tokenUid), profile: safeCustomer(membership, customer) });
 }
 async function saveCredentialAndRemoveLegacyPin(env, membership, credential) {
   await firebaseAdminRequest(env, `loyalty_credentials/${membership}`, { method: 'PUT', body: credential });
