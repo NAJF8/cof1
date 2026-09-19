@@ -4641,8 +4641,12 @@
             if (!preserveAuth) renderClubAccount();
         }
 
+        let isLoyaltyLoginInProgress = false;
+
         window.handleMembershipLogin = async function(event) {
             if (event) event.preventDefault();
+            if (isLoyaltyLoginInProgress) return;
+            isLoyaltyLoginInProgress = true;
             console.log('[LOYALTY_PIN_CLICK]');
             loyaltyLoginRequested = true;
             const membership = document.getElementById('membershipLoginId')?.value.trim();
@@ -4655,6 +4659,7 @@
             if (!membership || !pin) {
                 if (message) message.textContent = 'تأكد من رقم العضوية والـPIN.';
                 console.log('[LOYALTY_PIN_FAILED]');
+                isLoyaltyLoginInProgress = false;
                 return;
             }
             if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'جاري التحقق...'; }
@@ -4662,6 +4667,7 @@
                 if (message) message.textContent = 'خدمة الدخول الآمن غير متاحة حاليًا.'; 
                 if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = originalBtnText; }
                 console.log('[LOYALTY_PIN_FAILED]');
+                isLoyaltyLoginInProgress = false;
                 return; 
             }
             try {
@@ -4669,14 +4675,22 @@
                 const result = await callLoyaltySecurity('/api/loyalty/login', { method: 'POST', body: { membershipNumber: membership, pin } });
                 console.log('[LOYALTY_PIN_RESULT]');
                 if (!result.data?.token) throw new Error('Missing custom token');
-                await auth.signInWithCustomToken(result.data.token);
+                try {
+                    await auth.signInWithCustomToken(result.data.token);
+                } catch (authError) {
+                    console.error('[LOYALTY_PIN_AUTH_FAILED]', { stage: 'CUSTOM_TOKEN_SIGN_IN', code: String(authError?.code || 'unknown').slice(0, 80) });
+                    throw Object.assign(authError, { loyaltyStage: 'CUSTOM_TOKEN_SIGN_IN' });
+                }
                 document.getElementById('loyaltyLoginModal')?.classList.remove('open');
                 if (event && event.target && event.target.reset) event.target.reset();
                 console.log('[LOYALTY_PIN_SUCCESS]');
             } catch (error) {
                 console.log('[LOYALTY_PIN_FAILED]');
-                if (message) message.textContent = (error?.code === 'functions/unauthenticated' || error?.code === 'functions/invalid-argument') ? 'تأكد من رقم العضوية والـPIN.' : 'تعذر تسجيل الدخول، حاول مرة أخرى.';
+                const safeCode = String(error?.code || 'unknown').replace(/[^A-Za-z0-9_/-]/g, '').slice(0, 80) || 'unknown';
+                const safeStage = error?.loyaltyStage || (String(error?.code || '').startsWith('functions/') ? 'WORKER_RESPONSE' : 'UNKNOWN');
+                if (message) message.textContent = (error?.code === 'functions/unauthenticated' || error?.code === 'functions/invalid-argument') ? 'تأكد من رقم العضوية والـPIN.' : تعذر تسجيل الدخول (:)، حاول مرة أخرى.;
             } finally {
+                isLoyaltyLoginInProgress = false;
                 if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = originalBtnText; }
             }
         };
@@ -5507,7 +5521,7 @@
             document.getElementById("areaSelect")?.addEventListener("change", updateCheckoutSummary);
             document.getElementById("checkoutForm")?.addEventListener("submit", handleCheckoutSubmit);
             document.getElementById("eventBookingForm")?.addEventListener("submit", handleEventBookingSubmit);
-            document.getElementById('membershipLoginForm')?.addEventListener('submit', window.handleMembershipLogin);
+
             document.getElementById('welcomeStartBtn')?.addEventListener('click', () => setModalOpen(document.getElementById('welcomeModal'), false));
             document.getElementById('aiAssistantBtn')?.addEventListener('click', window.toggleAIChatDrawer);
             document.getElementById('aiChatCloseBtn')?.addEventListener('click', window.closeChatbot);
