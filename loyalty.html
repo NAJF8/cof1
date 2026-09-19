@@ -206,6 +206,7 @@ body { font-family: 'Cairo', sans-serif; background: var(--bg-gradient); color: 
         <div style="display:flex;align-items:center;gap:8px;">
           <span class="prof-card" id="custCardDisplay">--</span>
           <button id="saEditIdBtn" onclick="editCustomerId()" style="display:none;background:var(--surface2);color:var(--text);border:1px solid var(--border);padding:2px 6px;border-radius:6px;font-size:11px;cursor:pointer;font-family:Cairo;font-weight:700;" title="تعديل رقم العضوية (Super Admin)">✏️ تعديل</button>
+          <button id="setLoyaltyPinBtn" onclick="setLoyaltyPin()" style="display:none;background:var(--surface2);color:var(--text);border:1px solid var(--border);padding:2px 6px;border-radius:6px;font-size:11px;cursor:pointer;font-family:Cairo;font-weight:700;" title="إصدار PIN جديد">🔐 إصدار PIN</button>
         </div>
       </div>
       <button onclick="deleteCurrentCustomer()" style="background:rgba(229,57,53,0.15); color:#e53935; border:1px solid rgba(229,57,53,0.3); padding:6px 12px; border-radius:8px; font-size:12px; font-weight:700; font-family:Cairo; cursor:pointer;">
@@ -467,6 +468,20 @@ async function callLoyaltySecurity(path, options = {}) {
   const data = await response.json().catch(() => ({}));
   if (!response.ok) { const error = new Error(data.error || 'LOYALTY_SECURITY_FAILED'); error.code = data.error || 'LOYALTY_SECURITY_FAILED'; throw error; }
   return data;
+}
+
+async function setLoyaltyPin() {
+  if (!currentCustomer || !requirePermission('manage_customers')) return;
+  const pin = prompt('أدخل PIN جديدًا من 4 إلى 6 أرقام للعضو. لا يمكن استرجاع PIN قديم:');
+  if (pin === null) return;
+  const cleanPin = pin.trim();
+  if (!/^\d{4,6}$/.test(cleanPin)) return showToast('❌ يجب أن يتكون PIN من 4 إلى 6 أرقام.');
+  try {
+    await callLoyaltySecurity('/api/admin/loyalty/set-pin', { method: 'POST', body: { membership: currentCustomer.id, pin: cleanPin } });
+    showToast('✅ تم إصدار PIN جديد وحفظه بشكل آمن.');
+  } catch (error) {
+    showToast('❌ تعذر إصدار PIN جديد: ' + (error?.code || error?.message || 'خطأ غير معروف'));
+  }
 }
 const loyaltyPersistenceReady = auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(async error => {
   console.warn('[LOYALTY_AUTH_PERSISTENCE_FAILED]', { code:error?.code||'unknown' });
@@ -978,6 +993,7 @@ function renderProfile() {
   document.getElementById('custTypeDisplay').textContent = typeBadge;
   document.getElementById('addHeartBtn').style.display = (can('manage_points') || can('add_points')) ? '' : 'none';
   document.getElementById('deductHeartBtn').style.display = can('manage_points') ? '' : 'none';
+  document.getElementById('setLoyaltyPinBtn').style.display = can('manage_customers') ? '' : 'none';
   document.querySelector('#customerProfile button[onclick="setCustomHearts()"]').style.display = can('manage_points') ? '' : 'none';
   document.querySelector('#customerProfile button[onclick="deleteCurrentCustomer()"]').style.display = can('manage_customers') ? '' : 'none';
 
@@ -1550,8 +1566,6 @@ async function submitNewCustomer() {
   
   try {
     pin = pin || await generateUniqueLoyaltyPin();
-    const duplicatePin = await db.ref('loyalty_customers').orderByChild('pin').equalTo(pin).once('value');
-    if (duplicatePin.exists()) return alert('رمز العضوية مستخدم بالفعل. اختر رمزًا آخر.');
     const counterSnap = await db.ref('loyalty_counter').transaction(c => (Number(c)||0) + 1);
     const nextNum = counterSnap.snapshot.val() || 1;
     const newCardId = '101-' + nextNum;
@@ -1563,12 +1577,12 @@ async function submitNewCustomer() {
       totalEarned: hearts,
       totalSpent: 0,
       memberType: memberType,
-      pin: pin,
       createdAt: Date.now(),
       createdBy: currentCashier ? currentCashier.name : 'كاشير'
     };
     
     await db.ref('loyalty_customers/' + newCardId).set(newCustData);
+    await callLoyaltySecurity('/api/admin/loyalty/set-pin', { method: 'POST', body: { membership: newCardId, pin } });
     
     await db.ref('loyalty_logs').push({
       type: 'register',

@@ -1,6 +1,6 @@
 const enc=new TextEncoder(),ITERATIONS=100000,LEGACY_ITERATIONS=310000,MAX_FAILURES=5,WINDOW_MS=900000;
 const SAFE_CRYPTO_ERROR_NAMES=new Set(['OperationError','InvalidAccessError','NotSupportedError','TypeError','QuotaExceededError','AbortError','UnknownError']);
-function normalizeMembershipNumber(v){const n=String(v||'').trim().toUpperCase().replace(/\s+/g,'');return /^101-[1-9]\d{0,11}$/.test(n)?n:null;}
+function normalizeMembershipNumber(v){let n=String(v||'').trim().toUpperCase().replace(/\s+/g,'');if(n.startsWith('CLUB-'))n=n.slice(5);return /^101-[1-9]\d{0,11}$/.test(n)?n:null;}
 function validPin(v){return /^\d{4,6}$/.test(String(v||''));}
 function b64(v){let s=String(v||'').replace(/-/g,'+').replace(/_/g,'/');while(s.length%4)s+='=';return Uint8Array.from(atob(s),c=>c.charCodeAt(0));}
 function out(v){let s='';for(const x of v)s+=String.fromCharCode(x);return btoa(s);}
