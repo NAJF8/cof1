@@ -15,6 +15,13 @@ assert.match(index, /if \(isLoyaltyLoginInProgress\) return;/);
 assert.match(index, /isLoyaltyLoginInProgress = false;[\s\S]*?finally/);
 assert.match(index, /console\.warn\('\[LOYALTY_PIN_FAILURE\]'/);
 assert.doesNotMatch(index, /تعذر تسجيل الدخول \(\:\)، حاول مرة أخرى/);
+assert.match(index, /id=["']loyaltyErrorActions["']/);
+assert.match(index, /id=["']loyaltyErrorLogout["']/);
+assert.match(index, /id=["']loyaltyErrorLogin["']/);
+assert.match(index, /window\.returnToLoyaltyLogin/);
+assert.match(index, /loyaltyProfileRetryInFlight/);
+assert.match(index, /await auth\.signOut\(\)/);
+assert.match(index, /Unavailable until the account loads\./);
 
 const inlineScripts = [...index.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/gi)]
   .map(match => match[1])

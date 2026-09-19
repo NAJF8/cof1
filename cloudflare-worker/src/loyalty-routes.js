@@ -97,7 +97,7 @@ async function login(request, env) {
   const key = await security.attemptKey(membership, request.headers.get('CF-Connecting-IP') || 'unknown', pepper), state = await firebaseAdminRequest(env, `loyalty_login_attempts/${key}`) || {}, now = Date.now();
   if (Number(state.lockedUntil) > now || Number(state.failedAttempts) >= security.MAX_FAILURES && now - Number(state.firstFailureAt || 0) < security.WINDOW_MS) return fail(request, env, 'RATE_LIMITED', 429);
   const [customer, credential] = await Promise.all([firebaseAdminRequest(env, `loyalty_customers/${membership}`), firebaseAdminRequest(env, `loyalty_credentials/${membership}`)]);
-  const tokenUid = String(customer?.uid || '').trim();
+  const tokenUid = await resolvePinLoginUid(env, membership, customer);
   if (!tokenUid) return fail(request, env, 'PROFILE_NOT_FOUND', 404);
   let valid = false, migrated = false;
   try { valid = await security.timingSafePinMatch(pin, credential, pepper); } catch { valid = false; }
@@ -408,6 +408,18 @@ async function resolveLoyaltyMembership(env, current) {
   if (emailMatches.length === 1) return { membership: security.normalizeMembershipNumber(emailMatches[0][0]), customer: emailMatches[0][1], source: 'legacy-email' };
   if (emailMatches.length > 1) throw Error('PROFILE_LINK_CONFLICT');
   return null;
+}
+async function resolvePinLoginUid(env, membership, customer) {
+  const directUid = String(customer?.uid || '').trim();
+  const links = await firebaseAdminRequest(env, 'loyalty_links') || {};
+  const matches = [...new Set(Object.entries(links)
+    .filter(([, linkedMembership]) => security.normalizeMembershipNumber(linkedMembership) === membership)
+    .map(([uid]) => String(uid || '').trim())
+    .filter(Boolean))];
+  if (matches.length > 1) throw Error('PROFILE_LINK_CONFLICT');
+  if (directUid && matches.length === 1 && matches[0] !== directUid) throw Error('PROFILE_LINK_CONFLICT');
+  if (directUid) return directUid;
+  return matches[0] || '';
 }
 async function profile(request, env, current) { const resolved = await resolveLoyaltyMembership(env, current); if (!resolved?.membership || !resolved.customer) return fail(request, env, 'PROFILE_NOT_FOUND', 404); return response(request, env, { ok: true, status: 'active', profile: safeCustomer(resolved.membership, resolved.customer) }); }
 async function revealPin(request, env, current) {

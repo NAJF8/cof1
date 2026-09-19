@@ -1226,6 +1226,8 @@
         .pin-unavailable-note { display:block; color:#F1D2A7; font-size:11px; margin-top:5px; max-width:190px; }
         .loyalty-summary-logout { width:100%; margin-top:12px; padding:10px; background:transparent; border:1px solid rgba(247,224,192,.5); border-radius:11px; color:#F7E0C0; font:800 13px Cairo; cursor:pointer; }
         .loyalty-summary-logout:hover { background:rgba(247,224,192,.1); }
+        .loyalty-error-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+        .loyalty-error-actions .btn-card-action { flex:1 1 140px; min-height:40px; }
         .loyalty-summary-copy { color:#D8C0A9; font-size:13px; margin:0 0 16px; }
         #loyaltyAuthStatus { min-height:20px; margin:10px auto 0; max-width:420px; color:#F1D2A7; font-size:12px; text-align:center; }
         .card-contact-row { display:flex; justify-content:space-between; gap:12px; color:#C4D1BD; font-size:11px; margin:-3px 0 14px; direction:ltr; }
@@ -2896,6 +2898,10 @@
                     <div class="loyalty-summary-hearts"><strong data-i18n="loyalty_current_balance">رصيد المكافآت</strong><div class="loyalty-stamp-row" aria-label="0 من 5"><span class="loyalty-stamp"></span><span class="loyalty-stamp"></span><span class="loyalty-stamp"></span><span class="loyalty-stamp"></span><span class="loyalty-stamp"></span></div></div>
                     <p id="loyaltyAuthStatus" role="status" aria-live="polite"></p>
                     <button class="primary-btn" id="loyaltyAuthAction" type="button" onclick="openLoyalty()" data-i18n="loyalty_login_account">تسجيل الدخول للمكافآت</button>
+                    <div class="loyalty-error-actions" id="loyaltyErrorActions" hidden>
+                        <button class="btn-card-action" id="loyaltyErrorLogout" type="button" onclick="logoutGoogle()">تسجيل الخروج</button>
+                        <button class="btn-card-action" id="loyaltyErrorLogin" type="button" onclick="returnToLoyaltyLogin()">العودة لتسجيل الدخول</button>
+                    </div>
                 </div>
                 <div class="loyalty-member-summary" id="loyaltyMemberContent">
                     <div class="loyalty-summary-top"><div class="loyalty-card-brand"><img src="logo.jpg" alt="101 COFFEE"><div><strong>101 COFFEE</strong><small>REWARDS CARD</small></div></div><span class="loyalty-summary-id" id="summaryDisplayId">—</span></div>
@@ -4659,6 +4665,8 @@
             if (authStatus) authStatus.textContent = '';
             const action = document.getElementById('loyaltyAuthAction');
             if (action) { action.textContent = currentLang === 'en' ? 'Sign in to rewards' : 'تسجيل الدخول للمكافآت'; action.onclick = window.openLoyalty; }
+            const errorActions = document.getElementById('loyaltyErrorActions');
+            if (errorActions) errorActions.hidden = true;
             const values = { cardDisplayId:'—', cardDisplayName:'—', cardDisplayMemberType:'—', cardDisplayHeartsText:'0 / 5 ❤️', cardDisplayTotalEarned:'0', cardDisplayTotalSpent:'0', cardDisplayPhone:'—', cardDisplayEmail:'—', cardDisplayPin:'••••' };
             Object.entries(values).forEach(([id, value]) => { const el = document.getElementById(id); if (el) el.textContent = value; });
             const hearts = document.getElementById('cardDisplayHeartsVisual');
@@ -4674,6 +4682,7 @@
         }
 
         let isLoyaltyLoginInProgress = false;
+        let loyaltyProfileRetryInFlight = false;
 
         window.handleMembershipLogin = async function(event) {
             if (event) event.preventDefault();
@@ -4731,7 +4740,8 @@
         window.handleCardAuthAction = () => window.signInForLoyalty();
 
         window.logoutGoogle = async function() {
-            try { if (auth?.currentUser) await auth.signOut(); } finally { resetLoyaltyGuestUI(); }
+            loyaltyAuthInProgress = true;
+            try { if (auth?.currentUser) await auth.signOut(); } finally { loyaltyAuthInProgress = false; resetLoyaltyGuestUI(); }
         };
 
         async function onAuthChanged(user) {
@@ -4816,6 +4826,8 @@
                 : (failed ? 'تم تسجيل الدخول بنجاح، لكن تعذر حفظ طلب تفعيل المكافآت.' : 'تم تسجيل الدخول بنجاح. حساب المكافآت بانتظار التفعيل.');
             const action = document.getElementById('loyaltyAuthAction');
             if (action) { action.textContent = currentLang === 'en' ? 'Sign out' : 'تسجيل الخروج'; action.onclick = window.logoutGoogle; }
+            const errorActions = document.getElementById('loyaltyErrorActions');
+            if (errorActions) errorActions.hidden = true;
             const copy = document.querySelector('#loyaltyGuestContent > p');
             if (copy) copy.textContent = currentLang === 'en' ? 'Your 101 rewards account is being activated.' : 'حساب مكافآت 101 الخاص بك قيد التفعيل.';
             mobileAuthTrace('RENDER_OK', { state: 'pending' });
@@ -4861,6 +4873,8 @@
                     if (member) member.style.display = 'block';
                     const action = document.getElementById('loyaltyAuthAction');
                     if (action) { action.textContent = currentLang === 'en' ? 'Sign out' : 'تسجيل الخروج'; action.onclick = window.logoutGoogle; }
+                    const errorActions = document.getElementById('loyaltyErrorActions');
+                    if (errorActions) errorActions.hidden = true;
                     const summaryId = document.getElementById('summaryDisplayId');
                     const summaryName = document.getElementById('summaryDisplayName');
                     const summaryMemberType = document.getElementById('summaryDisplayMemberType');
@@ -5068,10 +5082,26 @@
         }
 
         async function retryLoyaltyProfile() {
-            if (!currentFirebaseUser || authStateProcessing) return;
+            if (!currentFirebaseUser || authStateProcessing || loyaltyProfileRetryInFlight) return;
+            loyaltyProfileRetryInFlight = true;
+            const buttons = [...document.querySelectorAll('#loyaltyAuthAction, #loyaltyErrorActions button')];
+            buttons.forEach(button => { button.disabled = true; });
             loyaltyAuthStatusKey = '';
-            await onAuthChanged(currentFirebaseUser);
+            try { await onAuthChanged(currentFirebaseUser); }
+            finally { loyaltyProfileRetryInFlight = false; buttons.forEach(button => { button.disabled = false; }); }
         }
+
+        window.returnToLoyaltyLogin = async function() {
+            if (loyaltyProfileRetryInFlight) return;
+            loyaltyAuthInProgress = true;
+            try { if (auth?.currentUser) await auth.signOut(); }
+            finally {
+                loyaltyAuthInProgress = false;
+                loyaltyLoginRequested = false;
+                resetLoyaltyGuestUI();
+                document.getElementById('loyaltyLoginModal')?.classList.add('open');
+            }
+        };
 
         function showLoyaltyErrorState(user) {
             console.error('[NEW_LOYALTY_RENDER_ERROR]', { hasUser: Boolean(user) });
@@ -5083,6 +5113,14 @@
             if (status) status.textContent = currentLang === 'en' ? 'Your rewards balance is temporarily unavailable. No account was changed.' : 'رصيد المكافآت غير متاح مؤقتًا. لم يتم تغيير حسابك.';
             const action = document.getElementById('loyaltyAuthAction');
             if (action) { action.textContent = currentLang === 'en' ? 'Retry' : 'إعادة المحاولة'; action.onclick = retryLoyaltyProfile; }
+            const errorActions = document.getElementById('loyaltyErrorActions');
+            if (errorActions) {
+                errorActions.hidden = false;
+                const logout = document.getElementById('loyaltyErrorLogout');
+                const login = document.getElementById('loyaltyErrorLogin');
+                if (logout) logout.textContent = currentLang === 'en' ? 'Sign out' : 'تسجيل الخروج';
+                if (login) login.textContent = currentLang === 'en' ? 'Back to sign in' : 'العودة لتسجيل الدخول';
+            }
             const balance = document.querySelector('#loyaltyGuestContent .loyalty-summary-hearts');
             if (balance) balance.innerHTML = `<strong>${currentLang === 'en' ? 'Rewards balance' : 'رصيد المكافآت'}</strong><p class="pin-unavailable-note" style="margin:0">${currentLang === 'en' ? 'Unavailable until the account loads.' : 'سيظهر بعد تحميل حسابك بنجاح.'}</p>`;
             mobileAuthTrace('RENDER_OK', { state: 'error' });
