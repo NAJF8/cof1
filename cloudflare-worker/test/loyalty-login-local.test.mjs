@@ -27,6 +27,11 @@ async function login(membershipNumber, pin) {
   return { status: response.status, body: await response.json() };
 }
 
+function decodeTokenPayload(token) {
+  const encoded = String(token).split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+  return JSON.parse(Buffer.from(encoded, 'base64').toString('utf8'));
+}
+
 let result = await login('CLUB-101-100', '1234');
 assert.equal(result.status, 200);
 assert.equal(result.body.ok, true);
@@ -34,6 +39,10 @@ assert.equal(root.loyalty_customers['101-100'].pin, undefined);
 assert.equal(root.loyalty_credentials['101-100'].pinHash.length > 20, true);
 assert.equal(result.body.profile.currentHearts, 2);
 assert.equal('pin' in result.body.profile, false);
+let tokenPayload = decodeTokenPayload(result.body.token);
+assert.equal(tokenPayload.sub, env.FIREBASE_SERVICE_ACCOUNT_EMAIL);
+assert.equal(tokenPayload.uid, 'loyalty-member:101-100');
+assert.equal(tokenPayload.claims.loyaltyMembership, '101-100');
 
 result = await login('101-101', '9999');
 assert.equal(result.status, 401);
@@ -42,6 +51,9 @@ assert.equal(result.body.error, 'INVALID_CREDENTIALS');
 result = await login('101-101', '5678');
 assert.equal(result.status, 200);
 assert.equal(result.body.ok, true);
+tokenPayload = decodeTokenPayload(result.body.token);
+assert.equal(tokenPayload.sub, env.FIREBASE_SERVICE_ACCOUNT_EMAIL);
+assert.equal(tokenPayload.uid, 'loyalty-member:101-101');
 
 result = await login('101-103', '1357');
 assert.equal(result.status, 200);
