@@ -4688,7 +4688,8 @@
                 console.log('[LOYALTY_PIN_FAILED]');
                 const safeCode = String(error?.code || 'unknown').replace(/[^A-Za-z0-9_/-]/g, '').slice(0, 80) || 'unknown';
                 const safeStage = error?.loyaltyStage || (String(error?.code || '').startsWith('functions/') ? 'WORKER_RESPONSE' : 'UNKNOWN');
-                if (message) message.textContent = (error?.code === 'functions/unauthenticated' || error?.code === 'functions/invalid-argument') ? 'تأكد من رقم العضوية والـPIN.' : تعذر تسجيل الدخول (:)، حاول مرة أخرى.;
+                console.warn('[LOYALTY_PIN_FAILURE]', { stage: String(safeStage).slice(0, 40), code: safeCode });
+                if (message) message.textContent = (error?.code === 'functions/unauthenticated' || error?.code === 'functions/invalid-argument') ? 'تأكد من رقم العضوية والـPIN.' : 'تعذر تسجيل الدخول، حاول مرة أخرى.';
             } finally {
                 isLoyaltyLoginInProgress = false;
                 if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = originalBtnText; }
