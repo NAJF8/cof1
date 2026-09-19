@@ -63,7 +63,7 @@ async function verifyIdToken(token) { const parts = String(token || '').split('.
 async function auth(request) { const header = request.headers.get('Authorization') || ''; if (!header.startsWith('Bearer ')) throw Error('AUTH_REQUIRED'); return verifyIdToken(header.slice(7).trim()); }
 async function optionalAuth(request) { const header = request.headers.get('Authorization') || ''; if (!header) return null; if (!header.startsWith('Bearer ')) throw Error('AUTH_INVALID'); return verifyIdToken(header.slice(7).trim()); }
 async function customToken(env, uid) { const email = String(env.FIREBASE_SERVICE_ACCOUNT_EMAIL || '').trim(), privateKey = String(env.FIREBASE_SERVICE_ACCOUNT_PRIVATE_KEY || ''); if (!email || !privateKey) throw Error('FIREBASE_SERVICE_ACCOUNT_NOT_CONFIGURED'); const fingerprint = privateKey.slice(0, 24); if (customTokenKey.fingerprint !== fingerprint) customTokenKey = { fingerprint, value: await crypto.subtle.importKey('pkcs8', pemBytes(privateKey), { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']) }; const now = Math.floor(Date.now() / 1000), head = jsonPart({ alg: 'RS256', typ: 'JWT' }), claim = jsonPart({ iss: email, sub: email, aud: 'https://identitytoolkit.googleapis.com/google.identity.identitytoolkit.v1.IdentityToolkit', iat: now, exp: now + 3600, uid, claims: { loyaltyMembership: uid.replace('loyalty-member:', '') } }), signature = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', customTokenKey.value, new TextEncoder().encode(`${head}.${claim}`)); return `${head}.${claim}.${b64url(signature)}`; }
-function safeCustomer(membership, customer) { return { ...security.publicProfile(membership, customer), pinDisplayAvailable: security.validPin(customer?.pin) }; }
+function safeCustomer(membership, customer) { return { ...security.publicProfile(membership, customer), pinDisplayAvailable: false }; }
 function credentialShapeIsUsable(credential) { return Boolean(credential && typeof credential.pinHash === 'string' && typeof credential.salt === 'string' && /^[A-Za-z0-9+/_-]+={0,2}$/.test(credential.pinHash) && /^[A-Za-z0-9+/_-]+={0,2}$/.test(credential.salt)); }
 function generateLoyaltyPin() { return String(Math.floor(Math.random() * 10000)).padStart(4, '0'); }
 function requestId(payload) { const value = String(payload?.requestId || payload?.idempotencyKey || '').trim(); if (!value) return ''; if (!/^[A-Za-z0-9._:-]{1,120}$/.test(value)) throw Error('INVALID_ARGUMENT'); return value; }
@@ -97,6 +97,8 @@ async function login(request, env) {
   const key = await security.attemptKey(membership, request.headers.get('CF-Connecting-IP') || 'unknown', pepper), state = await firebaseAdminRequest(env, `loyalty_login_attempts/${key}`) || {}, now = Date.now();
   if (Number(state.lockedUntil) > now || Number(state.failedAttempts) >= security.MAX_FAILURES && now - Number(state.firstFailureAt || 0) < security.WINDOW_MS) return fail(request, env, 'RATE_LIMITED', 429);
   const [customer, credential] = await Promise.all([firebaseAdminRequest(env, `loyalty_customers/${membership}`), firebaseAdminRequest(env, `loyalty_credentials/${membership}`)]);
+  const tokenUid = String(customer?.uid || '').trim();
+  if (!tokenUid) return fail(request, env, 'PROFILE_NOT_FOUND', 404);
   let valid = false, migrated = false;
   try { valid = await security.timingSafePinMatch(pin, credential, pepper); } catch { valid = false; }
   const legacyPin = customer?.pin;
@@ -115,7 +117,6 @@ async function login(request, env) {
     return fail(request, env, failures >= security.MAX_FAILURES ? 'RATE_LIMITED' : 'INVALID_CREDENTIALS', failures >= security.MAX_FAILURES ? 429 : 401);
   }
   await firebaseAdminRequest(env, `loyalty_login_attempts/${key}`, { method: 'DELETE' });
-  const tokenUid = String(customer.uid || '').trim() || `loyalty-member:${membership}`;
   return response(request, env, { ok: true, token: await customToken(env, tokenUid), profile: safeCustomer(membership, customer) });
 }
 async function saveCredentialAndRemoveLegacyPin(env, membership, credential) {
@@ -416,12 +417,8 @@ async function revealPin(request, env, current) {
   const resolved = await resolveLoyaltyMembership(env, current);
   if (!resolved?.membership || !resolved.customer) throw Error('PROFILE_NOT_FOUND');
   console.info('[PIN_MEMBERSHIP_FOUND]', { source: resolved.source });
-  console.info('[PIN_OWNER_OK]');
-  console.info('[PIN_RECORD_FOUND]');
-  let pin = String(resolved.customer.pin || '');
-  if (!security.validPin(pin)) { console.info('[PIN_NOT_AVAILABLE]'); return response(request, env, { ok: true, available: false, error: 'PIN_NOT_AVAILABLE' }); }
-  console.info('[PIN_AVAILABLE]');
-  return response(request, env, { ok: true, available: true, pin });
+  console.info('[PIN_REVEAL_DISABLED]');
+  return response(request, env, { ok: true, available: false, error: 'PIN_NOT_DISPLAYABLE' });
 }
 async function provision(request, env, current, superAdmin = false) {
   if (!current.emailVerified || !current.email) return fail(request, env, 'VERIFIED_EMAIL_REQUIRED', 403);

@@ -6,7 +6,7 @@ import { handleLoyaltyRoutes } from '../src/loyalty-routes.js';
 const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
 const privateKeyPem = privateKey.export({ type: 'pkcs8', format: 'pem' });
 const env = { ALLOWED_ORIGINS: 'https://101coffees.com', FIREBASE_DATABASE_URL: 'https://fixture.firebaseio.test', FIREBASE_SERVICE_ACCOUNT_EMAIL: 'fixture@example.test', FIREBASE_SERVICE_ACCOUNT_PRIVATE_KEY: privateKeyPem, LOYALTY_PIN_PEPPER: 'fixture-pepper' };
-const root = { loyalty_customers: { '101-100': { name: 'Legacy Fixture', hearts: 2, pin: '1234' }, '101-101': { name: 'Hashed Fixture', uid: 'existing-google-uid', hearts: 5, currentHearts: 5 }, '101-102': { name: 'Broken Credential Fixture', hearts: 4, pin: '2468' }, '101-103': { name: 'Malformed Credential Fixture', hearts: 5, pin: '1357' } }, loyalty_credentials: { '101-101': await createCredential('5678', env.LOYALTY_PIN_PEPPER), '101-102': { pinHash: 'old-but-incomplete' }, '101-103': { pinHash: '%%%not-base64%%%', salt: '%%%not-base64%%%', algorithm: 'PBKDF2-SHA512', iterations: 100000 } }, loyalty_login_attempts: {} };
+const root = { loyalty_customers: { '101-100': { name: 'Legacy Fixture', hearts: 2, pin: '1234' }, '101-101': { name: 'Hashed Fixture', uid: 'existing-google-uid', hearts: 5, currentHearts: 5 }, '101-102': { name: 'Broken Credential Fixture', uid: 'existing-google-uid-2', hearts: 4, pin: '2468' }, '101-103': { name: 'Malformed Credential Fixture', uid: 'existing-google-uid-3', hearts: 5, pin: '1357' } }, loyalty_credentials: { '101-101': await createCredential('5678', env.LOYALTY_PIN_PEPPER), '101-102': { pinHash: 'old-but-incomplete' }, '101-103': { pinHash: '%%%not-base64%%%', salt: '%%%not-base64%%%', algorithm: 'PBKDF2-SHA512', iterations: 100000 } }, loyalty_login_attempts: {} };
 let failCredentialPut = false;
 
 function setPath(path, value) { const parts = path.split('/'); let target = root; for (const part of parts.slice(0, -1)) target = target[part] ||= {}; if (value === null) delete target[parts.at(-1)]; else target[parts.at(-1)] = value; }
@@ -33,16 +33,10 @@ function decodeTokenPayload(token) {
 }
 
 let result = await login('CLUB-101-100', '1234');
-assert.equal(result.status, 200);
-assert.equal(result.body.ok, true);
-assert.equal(root.loyalty_customers['101-100'].pin, undefined);
-assert.equal(root.loyalty_credentials['101-100'].pinHash.length > 20, true);
-assert.equal(result.body.profile.currentHearts, 2);
-assert.equal('pin' in result.body.profile, false);
-let tokenPayload = decodeTokenPayload(result.body.token);
-assert.equal(tokenPayload.sub, env.FIREBASE_SERVICE_ACCOUNT_EMAIL);
-assert.equal(tokenPayload.uid, 'loyalty-member:101-100');
-assert.equal(tokenPayload.claims.loyaltyMembership, '101-100');
+assert.equal(result.status, 404);
+assert.equal(result.body.error, 'PROFILE_NOT_FOUND');
+assert.equal(root.loyalty_customers['101-100'].pin, '1234');
+assert.equal(root.loyalty_credentials['101-100'], undefined);
 
 result = await login('101-101', '9999');
 assert.equal(result.status, 401);
@@ -52,9 +46,11 @@ result = await login('101-101', '5678');
 assert.equal(result.status, 200);
 assert.equal(result.body.profile.currentHearts, 5);
 assert.equal(result.body.ok, true);
-tokenPayload = decodeTokenPayload(result.body.token);
+let tokenPayload = decodeTokenPayload(result.body.token);
 assert.equal(tokenPayload.sub, env.FIREBASE_SERVICE_ACCOUNT_EMAIL);
 assert.equal(tokenPayload.uid, 'existing-google-uid');
+assert.equal(result.body.profile.name, 'Hashed Fixture');
+assert.equal(result.body.profile.pinDisplayAvailable, false);
 
 result = await login('101-103', '1357');
 assert.equal(result.status, 200);

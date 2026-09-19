@@ -46,6 +46,7 @@ assert.match(worker, /PROFILE_LINK_CONFLICT/);
 assert.match(worker, /ownsLinkedProfile/);
 assert.match(worker, /pinDisplayAvailable/);
 assert.doesNotMatch(worker, /PIN_BACKFILL_MISSING/);
+assert.match(worker, /PIN_NOT_DISPLAYABLE/);
 assert.match(worker, /firebaseAdminConditionalPut/);
 assert.match(worker, /async function subscriptionMe/);
 assert.match(worker, /\/api\/subscription\/me/);
