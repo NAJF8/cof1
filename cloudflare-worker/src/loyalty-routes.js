@@ -115,7 +115,8 @@ async function login(request, env) {
     return fail(request, env, failures >= security.MAX_FAILURES ? 'RATE_LIMITED' : 'INVALID_CREDENTIALS', failures >= security.MAX_FAILURES ? 429 : 401);
   }
   await firebaseAdminRequest(env, `loyalty_login_attempts/${key}`, { method: 'DELETE' });
-  return response(request, env, { ok: true, token: await customToken(env, `loyalty-member:${membership}`), profile: safeCustomer(membership, customer) });
+  const tokenUid = String(customer.uid || '').trim() || `loyalty-member:${membership}`;
+  return response(request, env, { ok: true, token: await customToken(env, tokenUid), profile: safeCustomer(membership, customer) });
 }
 async function saveCredentialAndRemoveLegacyPin(env, membership, credential) {
   await firebaseAdminRequest(env, `loyalty_credentials/${membership}`, { method: 'PUT', body: credential });
