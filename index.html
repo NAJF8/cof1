@@ -3294,6 +3294,7 @@
         // Update this one value after the first Worker deployment. Keep the API key in Cloudflare only.
         const AI_CHAT_ENDPOINT = 'https://coffee-101-ai-chat.coffee101.workers.dev/api/chat';
         const LOYALTY_SECURITY_ENDPOINT = 'https://coffee-101-ai-chat.coffee101.workers.dev';
+        const LOYALTY_REQUEST_TIMEOUT_MS = 15000;
         let db = null, auth = null;
         let authRedirectPending = true;
         let authInitComplete = false;
@@ -3304,7 +3305,16 @@
         const maskAuthId = value => { const text = String(value || ''); return text ? `${text.slice(0, 4)}…${text.slice(-2)}` : null; };
         const mobileAuthTrace = (stage, details = {}) => { if (isMobileLoyaltyAuth()) console.info(`[MOBILE_${stage}]`, details); };
         const mobileAuthError = (stage, error) => { if (isMobileLoyaltyAuth()) console.warn('[MOBILE_AUTH_ERROR]', { stage, code: String(error?.code || error?.message || 'unknown').slice(0, 80) }); };
+        function withLoyaltyTimeout(task, stage) {
+            let timer = null;
+            const timeout = new Promise((_, reject) => {
+                timer = setTimeout(() => reject(Object.assign(new Error('LOYALTY_REQUEST_TIMEOUT'), { code: 'REQUEST_TIMEOUT', loyaltyStage: stage })), LOYALTY_REQUEST_TIMEOUT_MS);
+            });
+            return Promise.race([Promise.resolve().then(task), timeout]).finally(() => { if (timer) clearTimeout(timer); });
+        }
         async function callLoyaltySecurity(path, options = {}) {
+            const isPinLogin = path === '/api/loyalty/login';
+            if (isPinLogin) console.info('[LOYALTY_PIN_STAGE]', { stage: 'WORKER_REQUEST_START' });
             if (path === '/api/loyalty/profile') { console.info('[LOYALTY_PROFILE_FETCH_START]'); mobileAuthTrace('PROFILE_HTTP', { method: options.method || 'GET' }); }
             if (path === '/api/loyalty/provision-google') { console.info('[LOYALTY_PROVISION_START]'); mobileAuthTrace('PROVISION_HTTP', { method: options.method || 'POST' }); }
             const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
@@ -3318,13 +3328,24 @@
                     throw error;
                 }
             }
-            const response = await fetch(`${LOYALTY_SECURITY_ENDPOINT}${path}`, { ...options, headers, body: options.body && typeof options.body !== 'string' ? JSON.stringify(options.body) : options.body });
-            const data = await response.json().catch(() => ({}));
+            const controller = new AbortController();
+            let response, data;
+            try {
+                ({ response, data } = await withLoyaltyTimeout(async () => {
+                    const response = await fetch(`${LOYALTY_SECURITY_ENDPOINT}${path}`, { ...options, headers, signal: controller.signal, body: options.body && typeof options.body !== 'string' ? JSON.stringify(options.body) : options.body });
+                    return { response, data: await response.json().catch(() => ({})) };
+                }, isPinLogin ? 'WORKER_REQUEST_TIMEOUT' : 'LOYALTY_REQUEST_TIMEOUT'));
+            } catch (error) {
+                try { controller.abort(); } catch (_) {}
+                if (isPinLogin) console.warn('[LOYALTY_PIN_FAILURE]', { stage: String(error?.loyaltyStage || 'WORKER_NETWORK').slice(0, 40), status: null, code: String(error?.code || 'unknown').replace(/[^A-Za-z0-9_/-]/g, '').slice(0, 80) || 'unknown' });
+                throw error;
+            }
+            if (isPinLogin) console.info('[LOYALTY_PIN_HTTP_RESULT]', { ok: response.ok, status: response.status, error: String(data?.error || '').slice(0, 80), hasToken: Boolean(data?.token) });
             if (path === '/api/loyalty/profile') console.info('[NEW_LOYALTY_PROFILE_STATUS]', { ok: response.ok, status: response.status, profileStatus: data?.status || null, hasProfile: Boolean(data?.profile?.membershipNumber), error: data?.error || null });
             if (path === '/api/loyalty/provision-google') console.info('[NEW_LOYALTY_PROVISION_STATUS]', { ok: response.ok, status: response.status, provisionStatus: data?.status || null, profileStatus: data?.profileStatus || null, hasProfile: Boolean(data?.profile?.membershipNumber), error: data?.error || null });
             if (path === '/api/loyalty/provision-google') mobileAuthTrace('PROVISION_RESULT', { ok: response.ok, status: response.status, profileStatus: data?.profileStatus || null });
             if (path === '/api/loyalty/profile') mobileAuthTrace('PROFILE_RESULT', { ok: response.ok, status: response.status, profileStatus: data?.status || null });
-            if (!response.ok) { const error = new Error(data.error || 'LOYALTY_SECURITY_FAILED'); error.code = `functions/${data.error || 'internal'}`; throw error; }
+            if (!response.ok) { const error = new Error(data.error || 'LOYALTY_SECURITY_FAILED'); error.code = `functions/${data.error || 'internal'}`; error.httpStatus = response.status; error.loyaltyStage = 'WORKER_RESPONSE'; throw error; }
             return { data };
         }
         try {
@@ -4674,12 +4695,12 @@
                 console.log('[LOYALTY_PIN_LOOKUP_START]');
                 const result = await callLoyaltySecurity('/api/loyalty/login', { method: 'POST', body: { membershipNumber: membership, pin } });
                 console.log('[LOYALTY_PIN_RESULT]');
-                if (!result.data?.token) throw new Error('Missing custom token');
+                if (!result.data?.token) throw Object.assign(new Error('Missing custom token'), { loyaltyStage: 'WORKER_RESPONSE', code: 'MISSING_CUSTOM_TOKEN' });
                 try {
-                    await auth.signInWithCustomToken(result.data.token);
+                    await withLoyaltyTimeout(() => auth.signInWithCustomToken(result.data.token), 'CUSTOM_TOKEN_SIGN_IN_TIMEOUT');
                 } catch (authError) {
-                    console.error('[LOYALTY_PIN_AUTH_FAILED]', { stage: 'CUSTOM_TOKEN_SIGN_IN', code: String(authError?.code || 'unknown').slice(0, 80) });
-                    throw Object.assign(authError, { loyaltyStage: 'CUSTOM_TOKEN_SIGN_IN' });
+                    console.error('[LOYALTY_PIN_AUTH_FAILED]', { stage: String(authError?.loyaltyStage || 'CUSTOM_TOKEN_SIGN_IN').slice(0, 40), code: String(authError?.code || 'unknown').slice(0, 80) });
+                    throw Object.assign(authError, { loyaltyStage: authError?.loyaltyStage || 'CUSTOM_TOKEN_SIGN_IN' });
                 }
                 document.getElementById('loyaltyLoginModal')?.classList.remove('open');
                 if (event && event.target && event.target.reset) event.target.reset();
@@ -4688,7 +4709,7 @@
                 console.log('[LOYALTY_PIN_FAILED]');
                 const safeCode = String(error?.code || 'unknown').replace(/[^A-Za-z0-9_/-]/g, '').slice(0, 80) || 'unknown';
                 const safeStage = error?.loyaltyStage || (String(error?.code || '').startsWith('functions/') ? 'WORKER_RESPONSE' : 'UNKNOWN');
-                console.warn('[LOYALTY_PIN_FAILURE]', { stage: String(safeStage).slice(0, 40), code: safeCode });
+                console.warn('[LOYALTY_PIN_FAILURE]', { stage: String(safeStage).slice(0, 40), status: Number.isInteger(error?.httpStatus) ? error.httpStatus : null, code: safeCode });
                 if (message) message.textContent = (error?.code === 'functions/unauthenticated' || error?.code === 'functions/invalid-argument') ? 'تأكد من رقم العضوية والـPIN.' : 'تعذر تسجيل الدخول، حاول مرة أخرى.';
             } finally {
                 isLoyaltyLoginInProgress = false;

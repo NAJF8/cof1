@@ -22,10 +22,12 @@ const inlineScripts = [...index.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/scrip
 assert.ok(inlineScripts.length > 0, 'index.html must contain inline application code');
 for (const script of inlineScripts) new vm.Script(script);
 
+const helperStart = index.indexOf('function withLoyaltyTimeout');
+const helperEnd = index.indexOf('async function callLoyaltySecurity', helperStart);
 const start = index.indexOf('window.handleMembershipLogin = async function(event) {');
 const end = index.indexOf('window.handleCardAuthAction', start);
-assert.ok(start >= 0 && end > start, 'membership login handler must be extractable');
-const handlerSource = index.slice(start, end);
+assert.ok(helperStart >= 0 && helperEnd > helperStart && start >= 0 && end > start, 'membership login timeout and handler must be extractable');
+const handlerSource = `const LOYALTY_REQUEST_TIMEOUT_MS = 20;\n${index.slice(helperStart, helperEnd)}\n${index.slice(start, end)}`;
 
 function harness(callLoyaltySecurity, signInWithCustomToken = async () => {}) {
   const button = { disabled: false, textContent: 'تسجيل الدخول' };
@@ -38,6 +40,8 @@ function harness(callLoyaltySecurity, signInWithCustomToken = async () => {}) {
     loyaltyLoginRequested: false,
     auth: { signInWithCustomToken },
     callLoyaltySecurity,
+    setTimeout,
+    clearTimeout,
     console: { log(...args) { logs.push(args); }, warn() {}, error() {} },
     document: { getElementById(id) { return ({ membershipLoginId: { value: '101-1' }, membershipLoginPin: { value: '1234' }, loyaltyLoginError: message, membershipLoginSubmit: button, loyaltyLoginModal: { classList: { remove() {} } }, membershipLoginForm: form })[id] || null; } }
   };
@@ -78,5 +82,9 @@ const authFailure = harness(async () => ({ data: { token: 'fixture-token' } }), 
 });
 await authFailure.handler({ preventDefault() {}, target: authFailure.form });
 assert.equal(authFailure.button.disabled, false, 'button must be re-enabled after Firebase Auth failure');
+
+const authTimeout = harness(async () => ({ data: { token: 'fixture-token' } }), () => new Promise(() => {}));
+await authTimeout.handler({ preventDefault() {}, target: authTimeout.form });
+assert.equal(authTimeout.button.disabled, false, 'button must be re-enabled after Firebase Auth timeout');
 
 console.log('frontend loyalty login regression checks: PASS');
