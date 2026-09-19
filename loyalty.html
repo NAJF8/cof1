@@ -10,7 +10,7 @@
 <link rel="manifest" href="./manifest-loyalty.webmanifest">
 <link rel="icon" type="image/png" sizes="48x48" href="./assets/pwa/favicon-48.png">
 <link rel="apple-touch-icon" sizes="180x180" href="./assets/pwa/apple-touch-icon.png">
-  <title>101 COFFEE - لوحة العضوية</title>
+  <title>101 COFFEE - لوحة المكافآت</title>
 <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap" rel="stylesheet">
 <style>
 /* ── Variables (Dark Green Theme as requested) ── */
@@ -87,7 +87,7 @@ body { font-family: 'Cairo', sans-serif; background: var(--bg-gradient); color: 
 <div id="loginScreen" class="auth-wrap">
   <div class="auth-card">
     <h1 class="auth-title">101 COFFEE</h1>
-    <p class="auth-sub">نظام العضوية | دخول الكاشير</p>
+    <p class="auth-sub">نظام المكافآت | دخول الكاشير</p>
     <button class="google-btn" id="googleBtn" onclick="signInCashier()">
       <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" width="22" height="22" alt="Google">
       تسجيل الدخول باستخدام Google
@@ -107,7 +107,7 @@ body { font-family: 'Cairo', sans-serif; background: var(--bg-gradient); color: 
     </div>
   </header>
 
-  <nav class="loyalty-nav" aria-label="أقسام لوحة العضوية">
+  <nav class="loyalty-nav" aria-label="أقسام لوحة المكافآت">
     <button class="active" data-nav="overview" onclick="showLoyaltySection('overview')">📊 الرئيسية</button>
     <button data-nav="club" onclick="showLoyaltySection('club')">☕ 101 CLUB</button>
     <button data-nav="customers" onclick="showLoyaltySection('customers')">👥 العملاء</button>
@@ -126,7 +126,7 @@ body { font-family: 'Cairo', sans-serif; background: var(--bg-gradient); color: 
       <div class="stat"><b id="statRedeemed">0</b><span>مكافآت مستبدلة</span></div><div class="stat"><b id="statTodayOps">0</b><span>عمليات اليوم</span></div>
       <div class="stat"><b id="statCashiers">0</b><span>الكاشيرات</span></div><div class="stat"><b id="statManagers">0</b><span>المدراء</span></div>
     </div>
-    <div class="card"><h2 class="card-title">❤️ أهلاً بك في لوحة العضوية</h2><p class="muted">تُحدَّث الأرقام والعمليات مباشرةً من Firebase. استخدم الأقسام لإدارة العملاء والمكافآت وفريق العمل.</p></div>
+    <div class="card"><h2 class="card-title">❤️ أهلاً بك في لوحة المكافآت</h2><p class="muted">تُحدَّث الأرقام والعمليات مباشرةً من Firebase. استخدم الأقسام لإدارة العملاء والمكافآت وفريق العمل.</p></div>
   </section>
 
   <section id="loyalty-club" class="dash-section">

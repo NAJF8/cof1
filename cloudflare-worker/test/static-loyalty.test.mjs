@@ -38,11 +38,14 @@ assert.doesNotMatch(safeDiagnostics, /token|pin|hash|salt|pepper|uid|phone|body|
 assert.equal(JSON.parse(rules).rules.loyalty_links.$uid['.read'], false);
 assert.equal(JSON.parse(rules).rules.loyalty_links.$uid['.write'], false);
 assert.doesNotMatch(index, /httpsCallable\(['"](?:loginWithMembership|getMyLoyaltyProfile|provisionGoogleLoyalty|provisionGoogleSuperAdmin)['"]\)/);
+assert.match(index, /Your rewards balance is temporarily unavailable/);
+assert.match(index, /إعادة المحاولة/);
+assert.match(index, /تسجيل الدخول للمكافآت/);
 const worker = await readFile(join(root, 'cloudflare-worker', 'src', 'loyalty-routes.js'), 'utf8');
 assert.match(worker, /PROFILE_LINK_CONFLICT/);
 assert.match(worker, /ownsLinkedProfile/);
-assert.match(worker, /LEGACY_PIN_BACKFILL_MEMBERSHIP/);
-assert.match(worker, /PIN_BACKFILL_MISSING/);
+assert.match(worker, /pinDisplayAvailable/);
+assert.doesNotMatch(worker, /PIN_BACKFILL_MISSING/);
 assert.match(worker, /firebaseAdminConditionalPut/);
 assert.match(worker, /async function subscriptionMe/);
 assert.match(worker, /\/api\/subscription\/me/);

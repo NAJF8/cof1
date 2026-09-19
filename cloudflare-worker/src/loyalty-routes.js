@@ -14,7 +14,6 @@ const WORKSHOP_IMAGE_TYPES = PRODUCT_IMAGE_TYPES;
 const BACKGROUND_VIDEO_TYPES = new Set(['video/mp4', 'video/webm']);
 const PRODUCT_IMAGE_RATE_LIMIT = 30;
 const PRODUCT_IMAGE_RATE_WINDOW_MS = 10 * 60 * 1000;
-const LEGACY_PIN_BACKFILL_MEMBERSHIP = '101-15';
 const productImageRateBuckets = new Map();
 let publicKeys = { expiresAt: 0, value: {} };
 let customTokenKey = { fingerprint: '', value: null };
@@ -64,10 +63,9 @@ async function verifyIdToken(token) { const parts = String(token || '').split('.
 async function auth(request) { const header = request.headers.get('Authorization') || ''; if (!header.startsWith('Bearer ')) throw Error('AUTH_REQUIRED'); return verifyIdToken(header.slice(7).trim()); }
 async function optionalAuth(request) { const header = request.headers.get('Authorization') || ''; if (!header) return null; if (!header.startsWith('Bearer ')) throw Error('AUTH_INVALID'); return verifyIdToken(header.slice(7).trim()); }
 async function customToken(env, uid) { const email = String(env.FIREBASE_SERVICE_ACCOUNT_EMAIL || '').trim(), privateKey = String(env.FIREBASE_SERVICE_ACCOUNT_PRIVATE_KEY || ''); if (!email || !privateKey) throw Error('FIREBASE_SERVICE_ACCOUNT_NOT_CONFIGURED'); const fingerprint = privateKey.slice(0, 24); if (customTokenKey.fingerprint !== fingerprint) customTokenKey = { fingerprint, value: await crypto.subtle.importKey('pkcs8', pemBytes(privateKey), { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']) }; const now = Math.floor(Date.now() / 1000), head = jsonPart({ alg: 'RS256', typ: 'JWT' }), claim = jsonPart({ iss: email, sub: email, aud: 'https://identitytoolkit.googleapis.com/google.identity.identitytoolkit.v1.IdentityToolkit', iat: now, exp: now + 3600, uid, claims: { loyaltyMembership: uid.replace('loyalty-member:', '') } }), signature = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', customTokenKey.value, new TextEncoder().encode(`${head}.${claim}`)); return `${head}.${claim}.${b64url(signature)}`; }
-function safeCustomer(membership, customer) { return security.publicProfile(membership, customer); }
+function safeCustomer(membership, customer) { return { ...security.publicProfile(membership, customer), pinDisplayAvailable: security.validPin(customer?.pin) }; }
 function credentialShapeIsUsable(credential) { return Boolean(credential && typeof credential.pinHash === 'string' && typeof credential.salt === 'string' && /^[A-Za-z0-9+/_-]+={0,2}$/.test(credential.pinHash) && /^[A-Za-z0-9+/_-]+={0,2}$/.test(credential.salt)); }
 function generateLoyaltyPin() { return String(Math.floor(Math.random() * 10000)).padStart(4, '0'); }
-function legacyPinBackfillAudit(membership, current, createdAt) { return { type: 'PIN_BACKFILL_MISSING', membership, uid: current.uid, createdAt }; }
 function requestId(payload) { const value = String(payload?.requestId || payload?.idempotencyKey || '').trim(); if (!value) return ''; if (!/^[A-Za-z0-9._:-]{1,120}$/.test(value)) throw Error('INVALID_ARGUMENT'); return value; }
 function operationPath(kind, request) { return request ? `loyalty_operation_requests/${kind}/${encodeURIComponent(request).replace(/%/g, '_')}` : ''; }
 function replayOrPlan(root, kind, request) { if (!request) return null; const saved = root.loyalty_operation_requests?.[kind]?.[encodeURIComponent(request).replace(/%/g, '_')]; return saved?.result ? { replay: true, result: saved.result } : null; }
@@ -420,31 +418,6 @@ async function revealPin(request, env, current) {
   console.info('[PIN_OWNER_OK]');
   console.info('[PIN_RECORD_FOUND]');
   let pin = String(resolved.customer.pin || '');
-  if (!security.validPin(pin) && resolved.membership === LEGACY_PIN_BACKFILL_MEMBERSHIP) {
-    const auditId = `pin_backfill_${resolved.membership}`;
-    for (let attempt = 0; attempt < 12; attempt += 1) {
-      const snapshot = await firebaseAdminReadWithEtag(env, `loyalty_customers/${resolved.membership}`);
-      const customer = snapshot.data;
-      if (!customer || !customerBelongsTo(current, customer)) throw Error('PROFILE_NOT_FOUND');
-      const existingPin = String(customer.pin || '');
-      if (security.validPin(existingPin)) {
-        pin = existingPin;
-        if (customer.pinBackfillAuditId === auditId) await firebaseAdminRequest(env, `loyalty_logs/${auditId}`, { method: 'PUT', body: legacyPinBackfillAudit(resolved.membership, current, Number(customer.pinBackfilledAt) || Date.now()) });
-        break;
-      }
-      const now = Date.now();
-      const nextCustomer = { ...customer, pin: generateLoyaltyPin(), pinBackfillAuditId: auditId, pinBackfilledAt: now, updatedAt: now };
-      try {
-        await firebaseAdminConditionalPut(env, `loyalty_customers/${resolved.membership}`, nextCustomer, snapshot.etag);
-        pin = nextCustomer.pin;
-        await firebaseAdminRequest(env, `loyalty_logs/${auditId}`, { method: 'PUT', body: legacyPinBackfillAudit(resolved.membership, current, now) });
-        console.info('[PIN_BACKFILL_MISSING]', { membership: resolved.membership, created: true });
-        break;
-      } catch (error) {
-        if (error?.message !== 'FIREBASE_ETAG_CONFLICT' || attempt === 11) throw error;
-      }
-    }
-  }
   if (!security.validPin(pin)) { console.info('[PIN_NOT_AVAILABLE]'); return response(request, env, { ok: true, available: false, error: 'PIN_NOT_AVAILABLE' }); }
   console.info('[PIN_AVAILABLE]');
   return response(request, env, { ok: true, available: true, pin });
@@ -772,4 +745,4 @@ async function handleBackgroundPosterRoute(request, env, url) {
   }
 }
 async function handleLoyaltyRoutes(request, env, url) { return await handleBackgroundVideoRoute(request, env, url) || await handleBackgroundPosterRoute(request, env, url) || await handleProductImageRoute(request, env, url) || await handleWorkshopImageRoute(request, env, url) || route(request, env, url); }
-export { handleLoyaltyRoutes, clubSearchQuery, normalizeIraqiPhone, normalizeClubMembership, safeClubCustomer, safeSubscriptionMe, backgroundVideoType, backgroundPosterType, videoExtension, subscriptionActivationFailure };
+export { handleLoyaltyRoutes, clubSearchQuery, normalizeIraqiPhone, normalizeClubMembership, safeCustomer, safeClubCustomer, safeSubscriptionMe, backgroundVideoType, backgroundPosterType, videoExtension, subscriptionActivationFailure };

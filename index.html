@@ -1223,6 +1223,7 @@
         .loyalty-summary-pin { display:flex; justify-content:space-between; align-items:center; gap:12px; border:1px solid rgba(247,224,192,.22); background:rgba(255,255,255,.055); border-radius:12px; padding:10px 12px; color:#D8C0A9; font-size:12px; }
         .loyalty-summary-pin strong { color:#FDFBF7; font-family:monospace; letter-spacing:3px; font-size:15px; }
         .loyalty-summary-pin button { border:0; background:transparent; color:#F7E0C0; font-size:16px; cursor:pointer; padding:3px; }
+        .pin-unavailable-note { display:block; color:#F1D2A7; font-size:11px; margin-top:5px; max-width:190px; }
         .loyalty-summary-logout { width:100%; margin-top:12px; padding:10px; background:transparent; border:1px solid rgba(247,224,192,.5); border-radius:11px; color:#F7E0C0; font:800 13px Cairo; cursor:pointer; }
         .loyalty-summary-logout:hover { background:rgba(247,224,192,.1); }
         .loyalty-summary-copy { color:#D8C0A9; font-size:13px; margin:0 0 16px; }
@@ -2832,7 +2833,7 @@
         </nav>
         <div class="header-actions">
             <button class="header-loyalty-btn" id="headerGiftBtn" type="button" onclick="openGiftExperience()" aria-label="إهداء هدية">🎁 <span>إهداء هدية</span></button>
-            <button class="header-loyalty-btn" id="headerLoyaltyBtn" type="button" onclick="openLoyalty()" aria-label="فتح حساب العضوية">❤️ <span data-i18n="header_loyalty">العضوية</span></button>
+            <button class="header-loyalty-btn" id="headerLoyaltyBtn" type="button" onclick="openLoyalty()" aria-label="فتح حساب المكافآت">❤️ <span data-i18n="header_loyalty">المكافآت</span></button>
             <button class="header-loyalty-btn" id="headerClubBtn" type="button" onclick="openClubAccount()" aria-label="حساب 101 CLUB">☕ <span>حسابي</span></button>
             <div class="search-wrap" id="searchWrap" role="search">
                 <button class="s-icon" id="searchToggleBtn" type="button" aria-label="فتح البحث" aria-expanded="false">🔍</button>
@@ -2886,25 +2887,25 @@
 
 
         <!-- ═══════════════════════ LOYALTY (5 HEARTS CARD) ═══════════════════ -->
-        <section class="container" id="loyaltySection" style="margin-bottom:36px" aria-label="برنامج العضوية">
+        <section class="container" id="loyaltySection" style="margin-bottom:36px" aria-label="نظام المكافآت">
             <div class="loyalty-explorer" id="loyaltyExplorer">
                 <div id="loyaltyGuestContent">
-                    <div class="loyalty-summary-top"><div class="loyalty-card-brand"><img src="logo.jpg" alt="101 COFFEE"><div><strong>101 COFFEE</strong><small>LOYALTY CARD</small></div></div><span class="loyalty-summary-id">—</span></div>
+                    <div class="loyalty-summary-top"><div class="loyalty-card-brand"><img src="logo.jpg" alt="101 COFFEE"><div><strong>101 COFFEE</strong><small>REWARDS CARD</small></div></div><span class="loyalty-summary-id">—</span></div>
                     <h2 data-i18n="loyalty_guest_title">مكافآت 101</h2>
                     <p data-i18n="loyalty_guest_copy">كل زيارة تقرّبك أكثر من مفاجأتك.</p>
-                    <div class="loyalty-summary-hearts"><strong data-i18n="loyalty_current_balance">رصيد العضوية</strong><div class="loyalty-stamp-row" aria-label="0 من 5"><span class="loyalty-stamp"></span><span class="loyalty-stamp"></span><span class="loyalty-stamp"></span><span class="loyalty-stamp"></span><span class="loyalty-stamp"></span></div></div>
+                    <div class="loyalty-summary-hearts"><strong data-i18n="loyalty_current_balance">رصيد المكافآت</strong><div class="loyalty-stamp-row" aria-label="0 من 5"><span class="loyalty-stamp"></span><span class="loyalty-stamp"></span><span class="loyalty-stamp"></span><span class="loyalty-stamp"></span><span class="loyalty-stamp"></span></div></div>
                     <p id="loyaltyAuthStatus" role="status" aria-live="polite"></p>
-                    <button class="primary-btn" id="loyaltyAuthAction" type="button" onclick="openLoyalty()" data-i18n="loyalty_login_account">تسجيل الدخول للعضوية</button>
+                    <button class="primary-btn" id="loyaltyAuthAction" type="button" onclick="openLoyalty()" data-i18n="loyalty_login_account">تسجيل الدخول للمكافآت</button>
                 </div>
                 <div class="loyalty-member-summary" id="loyaltyMemberContent">
-                    <div class="loyalty-summary-top"><div class="loyalty-card-brand"><img src="logo.jpg" alt="101 COFFEE"><div><strong>101 COFFEE</strong><small>LOYALTY CARD</small></div></div><span class="loyalty-summary-id" id="summaryDisplayId">—</span></div>
+                    <div class="loyalty-summary-top"><div class="loyalty-card-brand"><img src="logo.jpg" alt="101 COFFEE"><div><strong>101 COFFEE</strong><small>REWARDS CARD</small></div></div><span class="loyalty-summary-id" id="summaryDisplayId">—</span></div>
                     <div style="margin-top:16px"><span class="eyebrow" data-i18n="loyalty_member_label">اسم العضو</span><h2 class="loyalty-summary-name" id="summaryDisplayName">—</h2><span class="card-member-badge" id="summaryDisplayMemberType">—</span></div>
                     <div class="loyalty-summary-hearts"><strong id="summaryDisplayHearts">0 / 5</strong><div class="loyalty-stamp-row" id="summaryDisplayStamps" aria-label="0 من 5"><span class="loyalty-stamp"></span><span class="loyalty-stamp"></span><span class="loyalty-stamp"></span><span class="loyalty-stamp"></span><span class="loyalty-stamp"></span></div></div>
-                    <div class="loyalty-summary-pin"><span data-i18n="loyalty_pin_label">رمز PIN الخاص بك</span><div><strong id="summaryDisplayPin">••••</strong><button type="button" id="summaryPinToggle" onclick="togglePinVisibility()" aria-label="إظهار رمز PIN">👁</button></div></div>
+                    <div class="loyalty-summary-pin"><span data-i18n="loyalty_pin_label">رمز PIN الخاص بك</span><div><strong id="summaryDisplayPin">••••</strong><button type="button" id="summaryPinToggle" onclick="togglePinVisibility()" aria-label="إظهار رمز PIN">👁</button><small id="summaryPinNote" class="pin-unavailable-note" hidden>لا يمكن عرض الرمز الحالي لأسباب أمنية.</small></div></div>
                     <button class="loyalty-summary-logout" type="button" onclick="logoutGoogle()" data-i18n="btn_logout">تسجيل الخروج</button>
                 </div>
             </div>
-            <div class="modal-backdrop" id="loyaltyDetailsBackdrop" role="dialog" aria-modal="true" aria-label="تفاصيل بطاقة العضوية">
+            <div class="modal-backdrop" id="loyaltyDetailsBackdrop" role="dialog" aria-modal="true" aria-label="تفاصيل بطاقة المكافآت">
             <div class="loyalty-card-ref" id="loyaltyCardRefBox" style="display:none">
                 <button class="close-btn" type="button" onclick="closeLoyaltyDetails()" aria-label="إغلاق">×</button>
                 <div class="card-top-bar">
@@ -2912,7 +2913,7 @@
                         <img src="logo.jpg" alt="101 COFFEE Logo">
                         <div>
                             <strong>101 COFFEE</strong>
-                            <small>LOYALTY CARD</small>
+                            <small>REWARDS CARD</small>
                         </div>
                     </div>
                     <div class="card-id-pill" id="cardDisplayId">—</div>
@@ -2928,7 +2929,7 @@
 
                 <div class="card-hearts-container">
                     <div class="card-hearts-title">
-                        <span data-i18n="loyalty_current_balance">رصيد العضوية:</span>
+                        <span data-i18n="loyalty_current_balance">رصيد المكافآت:</span>
                         <strong style="color:#e53935;font-size:15px;" id="cardDisplayHeartsText">0 / 5 ❤️</strong>
                     </div>
                     <div class="card-hearts-row" id="cardDisplayHeartsVisual">
@@ -2942,6 +2943,7 @@
                         <span class="card-pin-display" id="cardDisplayPin">••••</span>
                     </div>
                     <button type="button" class="btn-pin-toggle" onclick="toggleCardPinReveal()" aria-label="إظهار الرمز">👁️</button>
+                    <small id="cardPinNote" class="pin-unavailable-note" hidden>لا يمكن عرض الرمز الحالي لأسباب أمنية.</small>
                 </div>
 
                 <div style="display:flex;justify-content:space-between;font-size:11px;color:#C4D1BD;margin-bottom:14px;">
@@ -2961,9 +2963,9 @@
         <div class="modal-backdrop" id="loyaltyLoginModal" role="dialog" aria-modal="true" aria-labelledby="loyaltyLoginTitle">
             <div class="modal loyalty-login-modal">
                 <button class="close-btn" data-close aria-label="إغلاق">×</button>
-                <span class="eyebrow">LOYALTY PROGRAM</span>
+                <span class="eyebrow">REWARDS PROGRAM</span>
                 <h2 id="loyaltyLoginTitle">تسجيل الدخول إلى مكافآت 101</h2>
-                <p class="loyalty-login-subtitle" id="loyaltyLoginSubtitle">اختر طريقة تسجيل الدخول إلى حساب العضوية</p>
+                <p class="loyalty-login-subtitle" id="loyaltyLoginSubtitle">اختر طريقة تسجيل الدخول إلى حساب المكافآت</p>
                 <button class="google-loyalty-btn" id="loyaltyGoogleBtn" type="button" onclick="signInForLoyalty()"><svg class="google-logo-mark" viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M21.35 12.18c0-.72-.06-1.25-.19-1.8H12v3.44h5.38c-.11.86-.71 2.15-2.04 3.02l-.02.12 2.96 2.29.21.02c1.92-1.77 3.03-4.37 3.03-7.09Z"/><path fill="#34A853" d="M12 21.68c2.63 0 4.84-.87 6.45-2.37l-3.07-2.38c-.82.57-1.92.97-3.38.97a5.85 5.85 0 0 1-5.54-4.05l-.11.01-3.08 2.38-.04.1A9.75 9.75 0 0 0 12 21.68Z"/><path fill="#FBBC05" d="M6.46 13.85A5.93 5.93 0 0 1 6.15 12c0-.64.11-1.26.3-1.85v-.13L3.33 7.6l-.1.05A9.75 9.75 0 0 0 2.2 12c0 1.57.37 3.05 1.03 4.35l3.23-2.5Z"/><path fill="#EA4335" d="M12 6.1c1.84 0 3.08.8 3.79 1.46l2.77-2.7C16.83 3.25 14.63 2.3 12 2.3a9.75 9.75 0 0 0-8.77 5.35l3.22 2.5A5.87 5.87 0 0 1 12 6.1Z"/></svg><span class="google-login-label">تسجيل الدخول بواسطة Google</span></button>
                 <p class="google-login-msg" id="loyaltyLoginError" role="alert" aria-live="polite"></p>
                 <div class="login-divider" id="loyaltyLoginDivider">أو</div>
@@ -2984,7 +2986,7 @@
                     <div><small id="welcomeMembershipLabel">رقم عضويتك</small><strong id="welcomeMembership">—</strong></div>
                     <div><small id="welcomePinLabel">رمز PIN الخاص بك</small><strong id="welcomePin">—</strong></div>
                 </div>
-                <p class="form-help" id="welcomeHelp">احتفظ برقم العضوية ورمز PIN، يمكنك استخدامهما للدخول إلى حساب العضوية لاحقًا.</p>
+                <p class="form-help" id="welcomeHelp">احتفظ برقم العضوية ورمز PIN، يمكنك استخدامهما للدخول إلى حساب المكافآت لاحقًا.</p>
                 <button class="primary-btn full" type="button" id="welcomeStartBtn">ابدأ الآن</button>
             </div>
         </div>
@@ -3084,7 +3086,7 @@
         <div class="modal-backdrop" id="clubExperienceModal" role="dialog" aria-modal="true" aria-labelledby="clubExperienceTitle">
             <div class="modal club-experience">
                 <button class="close-btn" type="button" onclick="closeClubExperience()" aria-label="إغلاق">×</button>
-                <div class="modal-title"><h2 id="clubExperienceTitle">101 CLUB ☕</h2><p>اشتراك مستقل تماماً عن برنامج العضوية.</p></div>
+                <div class="modal-title"><h2 id="clubExperienceTitle">101 CLUB ☕</h2><p>اشتراك مستقل تماماً عن نظام المكافآت.</p></div>
                 <div id="clubRegistrationPanel"><button class="google-loyalty-btn" id="clubGoogleBtn" type="button" onclick="signInForClub()">المتابعة بواسطة Google</button><div class="login-divider">أو سجّل بياناتك</div><div class="club-account-form"><label>الاسم الكامل *<input id="clubCustomerName" autocomplete="name" placeholder="اسم المشترك"></label><label>رقم هاتف WhatsApp *<input id="clubCustomerPhone" type="tel" inputmode="tel" autocomplete="tel" placeholder="07xxxxxxxxx"></label></div><button class="primary-btn" type="button" style="width:100%;margin-top:12px" onclick="continueClubRegistration()">متابعة</button></div>
                 <div class="club-plans-grid" id="clubPlansGrid" hidden></div>
                 <div id="clubRequestPayment" style="display:none;margin-top:14px"></div>
@@ -3409,7 +3411,7 @@
                 nav_room: "حجز الغرفة",
                 nav_about: "من نحن",
                 nav_location: "الموقع",
-                header_loyalty: "العضوية",
+                header_loyalty: "المكافآت",
                 hero_eyebrow: "COFFEE • SWEETS • DRINKS",
                 hero_title: "مزاجك يستاهل<br><em class=\"shop-name-txt\">101 COFFEE HOUSE</em>",
                 hero_sub: "اختار طلبك واستمتع بأشهى أنواع القهوة والمشروبات",
@@ -3443,7 +3445,7 @@
                 rating_sub: "رأيك يهمنا في 101 COFFEE لنقدم لك دائماً أفضل جودة ومذاق!",
                 btn_send_rating: "إرسال التقييم ⭐",
                 loyalty_member_label: "اسم العضو",
-                loyalty_current_balance: "رصيد العضوية:",
+                loyalty_current_balance: "رصيد المكافآت:",
                 loyalty_pin_label: "رمز PIN الخاص بك:",
                 btn_my_rewards: "🎁 مكافآتي المستحقة",
                 btn_login_google: "تسجيل الدخول بـ Google / حسابي",
@@ -3527,7 +3529,7 @@
         function updateLanguageDependentUI() {
             const en = currentLang === 'en';
             setText('loyaltyLoginTitle', en ? 'Sign in to 101 Rewards' : 'تسجيل الدخول إلى مكافآت 101');
-            setText('loyaltyLoginSubtitle', en ? 'Choose how you would like to access your membership account' : 'اختر طريقة تسجيل الدخول إلى حساب العضوية');
+            setText('loyaltyLoginSubtitle', en ? 'Choose how you would like to access your rewards account' : 'اختر طريقة تسجيل الدخول إلى حساب المكافآت');
             setText('loyaltyLoginDivider', en ? 'or' : 'أو');
             setText('membershipLoginIdLabel', en ? 'Membership Number' : 'رقم العضوية');
             setText('membershipLoginPinLabel', en ? 'PIN' : 'رمز PIN');
@@ -3536,7 +3538,7 @@
             setText('welcomeCopy', en ? 'We are delighted to welcome you to the 101 COFFEE family.' : 'يسعدنا انضمامك إلى عائلة 101 COFFEE.');
             setText('welcomeMembershipLabel', en ? 'Your membership number' : 'رقم عضويتك');
             setText('welcomePinLabel', en ? 'Your private PIN' : 'رمز PIN الخاص بك');
-            setText('welcomeHelp', en ? 'Keep these details so you can access your membership account later.' : 'احتفظ برقم العضوية ورمز PIN، يمكنك استخدامهما للدخول إلى حساب العضوية لاحقًا.');
+            setText('welcomeHelp', en ? 'Keep these details so you can access your rewards account later.' : 'احتفظ برقم العضوية ورمز PIN، يمكنك استخدامهما للدخول إلى حساب المكافآت لاحقًا.');
             setText('welcomeStartBtn', en ? 'Start now' : 'ابدأ الآن');
             setText('aiChatTitle', en ? 'Welcome ♥\nHow can I help today?' : 'أهلاً بك ♥\nكيف أگدر أساعدك اليوم؟');
             setText('aiChatSubtitle', en ? 'Ready to help you choose ☕' : 'جاهزة أساعدك تختار ☕');
@@ -4515,9 +4517,17 @@
             userPinRaw = '••••';
             applyPinVisibility();
         }
+        function applyPinAvailability(available) {
+            const canReveal = available === true;
+            const revealButtons = [document.querySelector('.btn-pin-toggle'), document.getElementById('summaryPinToggle')].filter(Boolean);
+            const notes = [document.getElementById('cardPinNote'), document.getElementById('summaryPinNote')].filter(Boolean);
+            revealButtons.forEach(button => { button.hidden = !canReveal; button.disabled = false; });
+            notes.forEach(note => { note.hidden = canReveal; });
+        }
         window.togglePinVisibility = async function() {
             if (isPinRevealed) { hidePinVisibility(); return; }
             if (!currentFirebaseUser || !loyaltyCustomer) return window.openLoyalty();
+            if (loyaltyCustomer.pinDisplayAvailable !== true) return;
             const buttons = [document.querySelector('.btn-pin-toggle'), document.getElementById('summaryPinToggle')].filter(Boolean);
             buttons.forEach(button => { button.disabled = true; });
             try {
@@ -4648,7 +4658,7 @@
             const authStatus = document.getElementById('loyaltyAuthStatus');
             if (authStatus) authStatus.textContent = '';
             const action = document.getElementById('loyaltyAuthAction');
-            if (action) { action.textContent = currentLang === 'en' ? 'Sign in to loyalty' : 'تسجيل الدخول للولاء'; action.onclick = window.openLoyalty; }
+            if (action) { action.textContent = currentLang === 'en' ? 'Sign in to rewards' : 'تسجيل الدخول للمكافآت'; action.onclick = window.openLoyalty; }
             const values = { cardDisplayId:'—', cardDisplayName:'—', cardDisplayMemberType:'—', cardDisplayHeartsText:'0 / 5 ❤️', cardDisplayTotalEarned:'0', cardDisplayTotalSpent:'0', cardDisplayPhone:'—', cardDisplayEmail:'—', cardDisplayPin:'••••' };
             Object.entries(values).forEach(([id, value]) => { const el = document.getElementById(id); if (el) el.textContent = value; });
             const hearts = document.getElementById('cardDisplayHeartsVisual');
@@ -4659,6 +4669,7 @@
             if (summaryStamps) summaryStamps.innerHTML = Array.from({length:5}, () => '<span class="loyalty-stamp"></span>').join('');
             const summaryPinBtn = document.getElementById('summaryPinToggle');
             if (summaryPinBtn) summaryPinBtn.textContent = '👁';
+            applyPinAvailability(false);
             if (!preserveAuth) renderClubAccount();
         }
 
@@ -4863,6 +4874,7 @@
                     if (summaryStamps) summaryStamps.innerHTML = Array.from({length:5}, (_, i) => `<span class="loyalty-stamp ${i < h ? 'filled' : ''}"></span>`).join('');
 
                     userPinRaw = '••••';
+                    applyPinAvailability(loyaltyCustomer.pinDisplayAvailable === true);
                     const pinDisplay = document.getElementById('cardDisplayPin');
                     if (pinDisplay) pinDisplay.textContent = isPinRevealed ? userPinRaw : '••••';
                     if (summaryPin) summaryPin.textContent = isPinRevealed ? userPinRaw : '••••';
@@ -5055,6 +5067,12 @@
             return result.data;
         }
 
+        async function retryLoyaltyProfile() {
+            if (!currentFirebaseUser || authStateProcessing) return;
+            loyaltyAuthStatusKey = '';
+            await onAuthChanged(currentFirebaseUser);
+        }
+
         function showLoyaltyErrorState(user) {
             console.error('[NEW_LOYALTY_RENDER_ERROR]', { hasUser: Boolean(user) });
             const guest = document.getElementById('loyaltyGuestContent');
@@ -5062,9 +5080,11 @@
             if (guest) guest.style.display = 'block';
             if (member) member.style.display = 'none';
             const status = document.getElementById('loyaltyAuthStatus');
-            if (status) status.textContent = currentLang === 'en' ? 'Your rewards account could not be created. Please try again.' : 'تعذر إنشاء حساب المكافآت. حاول مرة أخرى.';
+            if (status) status.textContent = currentLang === 'en' ? 'Your rewards balance is temporarily unavailable. No account was changed.' : 'رصيد المكافآت غير متاح مؤقتًا. لم يتم تغيير حسابك.';
             const action = document.getElementById('loyaltyAuthAction');
-            if (action) { action.textContent = currentLang === 'en' ? 'Sign out' : 'تسجيل الخروج'; action.onclick = window.logoutGoogle; }
+            if (action) { action.textContent = currentLang === 'en' ? 'Retry' : 'إعادة المحاولة'; action.onclick = retryLoyaltyProfile; }
+            const balance = document.querySelector('#loyaltyGuestContent .loyalty-summary-hearts');
+            if (balance) balance.innerHTML = `<strong>${currentLang === 'en' ? 'Rewards balance' : 'رصيد المكافآت'}</strong><p class="pin-unavailable-note" style="margin:0">${currentLang === 'en' ? 'Unavailable until the account loads.' : 'سيظهر بعد تحميل حسابك بنجاح.'}</p>`;
             mobileAuthTrace('RENDER_OK', { state: 'error' });
         }
 
