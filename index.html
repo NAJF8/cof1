@@ -3636,6 +3636,7 @@
             currentFirebaseUser = null,
             clubPlans = {},
             loyaltyLoginRequested = false,
+            loyaltyPinAuthSession = false,
             loyaltyAuthStatusKey = '',
             isPinRevealed = false,
             pinRevealTimer = null,
@@ -4586,6 +4587,7 @@
             }
             loyaltyAuthInProgress = true;
             loyaltyLoginRequested = true;
+            loyaltyPinAuthSession = false;
             const btn = document.getElementById('loyaltyGoogleBtn');
             const label = btn?.querySelector('.google-login-label');
             const message = document.getElementById('loyaltyLoginError');
@@ -4690,6 +4692,7 @@
             isLoyaltyLoginInProgress = true;
             console.log('[LOYALTY_PIN_CLICK]');
             loyaltyLoginRequested = true;
+            loyaltyPinAuthSession = true;
             const membership = document.getElementById('membershipLoginId')?.value.trim();
             const pin = document.getElementById('membershipLoginPin')?.value.trim();
             console.log('[LOYALTY_PIN_VALIDATE]');
@@ -4742,7 +4745,7 @@
 
         window.logoutGoogle = async function() {
             loyaltyAuthInProgress = true;
-            try { if (auth?.currentUser) await auth.signOut(); } finally { loyaltyAuthInProgress = false; resetLoyaltyGuestUI(); }
+            try { if (auth?.currentUser) await auth.signOut(); } finally { loyaltyAuthInProgress = false; loyaltyLoginRequested = false; loyaltyPinAuthSession = false; resetLoyaltyGuestUI(); }
         };
 
         async function onAuthChanged(user) {
@@ -4759,7 +4762,8 @@
                     try {
                         profileResult = await callLoyaltySecurity('/api/loyalty/profile', { method: 'GET' });
                     } catch (profileError) {
-                        if (!['functions/PROFILE_NOT_FOUND', 'functions/PROFILE_LINK_CONFLICT'].includes(profileError?.code)) throw profileError;
+                        if (profileError?.code === 'functions/PROFILE_LINK_CONFLICT') throw profileError;
+                        if (profileError?.code !== 'functions/PROFILE_NOT_FOUND' || loyaltyPinAuthSession || !loyaltyLoginRequested) throw profileError;
                         provisionAttempted = true;
                         profileResult = { data: await requestGoogleLoyaltyProvisioning() };
                         if (profileResult.data?.profileStatus !== 'pending') profileResult = await callLoyaltySecurity('/api/loyalty/profile', { method: 'GET' });
@@ -4776,7 +4780,7 @@
                         loyaltyAuthStatusKey = 'auth_success';
                         watchLoyaltyLink(user.uid);
                         console.info('[LOYALTY_AUTH_PROFILE_READY]', { state: 'active' });
-                    } else if (loyaltyLoginRequested) {
+                    } else if (loyaltyLoginRequested && !loyaltyPinAuthSession) {
                         const provisioned = await requestGoogleLoyaltyProvisioning();
                         if (provisioned.profileStatus === 'pending') {
                             loyaltyAuthStatusKey = 'provision_pending';
@@ -5099,6 +5103,7 @@
             finally {
                 loyaltyAuthInProgress = false;
                 loyaltyLoginRequested = false;
+                loyaltyPinAuthSession = false;
                 resetLoyaltyGuestUI();
                 document.getElementById('loyaltyLoginModal')?.classList.add('open');
             }
