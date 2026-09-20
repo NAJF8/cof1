@@ -2907,6 +2907,7 @@
                     <div class="loyalty-summary-top"><div class="loyalty-card-brand"><img src="logo.jpg" alt="101 COFFEE"><div><strong>101 COFFEE</strong><small>REWARDS CARD</small></div></div><span class="loyalty-summary-id" id="summaryDisplayId">—</span></div>
                     <div style="margin-top:16px"><span class="eyebrow" data-i18n="loyalty_member_label">اسم العضو</span><h2 class="loyalty-summary-name" id="summaryDisplayName">—</h2><span class="card-member-badge" id="summaryDisplayMemberType">—</span></div>
                     <div class="loyalty-summary-hearts"><strong id="summaryDisplayHearts">0 / 5</strong><div class="loyalty-stamp-row" id="summaryDisplayStamps" aria-label="0 من 5"><span class="loyalty-stamp"></span><span class="loyalty-stamp"></span><span class="loyalty-stamp"></span><span class="loyalty-stamp"></span><span class="loyalty-stamp"></span></div></div>
+                    <button class="primary-btn" id="summaryRedeemButton" type="button" onclick="redeemLoyaltyReward()" style="display:none;margin-top:12px;width:100%;">استبدال المكافأة</button>
                     <div class="loyalty-summary-pin"><span data-i18n="loyalty_pin_label">رمز PIN الخاص بك</span><div><strong id="summaryDisplayPin">••••</strong><button type="button" id="summaryPinToggle" onclick="togglePinVisibility()" aria-label="إظهار رمز PIN" hidden>🐵</button></div></div>
                     <button class="loyalty-summary-logout" type="button" onclick="logoutGoogle()" data-i18n="btn_logout">تسجيل الخروج</button>
                 </div>
@@ -2955,6 +2956,7 @@
                     <span>إجمالي المكتسب: <b id="cardDisplayTotalEarned" style="color:#FDFBF7;">3</b> ❤️</span>
                     <span>المستبدل: <b id="cardDisplayTotalSpent" style="color:#FDFBF7;">0</b> 🎁</span>
                 </div>
+                <button class="primary-btn" id="cardRedeemButton" type="button" onclick="redeemLoyaltyReward()" style="display:none;width:100%;margin-bottom:14px;">استبدال المكافأة</button>
                 <div class="card-contact-row"><span id="cardDisplayPhone">—</span><span id="cardDisplayEmail">—</span></div>
 
                 <div class="card-actions-grid">
@@ -4905,8 +4907,10 @@
                     if (summaryId) summaryId.textContent = memId;
                     if (summaryName) summaryName.textContent = loyaltyCustomer.name || 'عضو 101';
                     if (summaryMemberType) summaryMemberType.textContent = loyaltyCustomer.memberType || loyaltyCustomer.membershipStatus || 'عضو مميز';
-                    if (summaryHearts) summaryHearts.textContent = `${h} / 5`;
-                    if (summaryStamps) summaryStamps.innerHTML = Array.from({length:5}, (_, i) => `<span class="loyalty-stamp ${i < h ? 'filled' : ''}"></span>`).join('');
+                      if (summaryHearts) summaryHearts.textContent = `${h} / 5`;
+                      if (summaryStamps) summaryStamps.innerHTML = Array.from({length:5}, (_, i) => `<span class="loyalty-stamp ${i < h ? 'filled' : ''}"></span>`).join('');
+                      const canRedeem = h === 5;
+                      ['summaryRedeemButton', 'cardRedeemButton'].forEach(id => { const button = document.getElementById(id); if (button) { button.style.display = canRedeem ? 'block' : 'none'; button.disabled = false; button.textContent = 'استبدال المكافأة'; } });
 
                     syncPinMemoryForAccount(memId);
                     applyPinVisibility();
@@ -4921,6 +4925,27 @@
                 showLoyaltyErrorState(currentFirebaseUser);
             });
         }
+
+        let loyaltyRedemptionInProgress = false;
+        window.redeemLoyaltyReward = async function() {
+            if (loyaltyRedemptionInProgress || !loyaltyCustomer || Number(loyaltyCustomer.currentHearts ?? loyaltyCustomer.hearts ?? 0) !== 5) return;
+            if (!confirm('هل تريد استبدال 5 قلوب بالمكافأة؟')) return;
+            const buttons = ['summaryRedeemButton', 'cardRedeemButton'].map(id => document.getElementById(id)).filter(Boolean);
+            loyaltyRedemptionInProgress = true;
+            buttons.forEach(button => { button.disabled = true; button.textContent = 'جارٍ التحقق...'; });
+            try {
+                const requestId = globalThis.crypto?.randomUUID ? crypto.randomUUID() : `redeem-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+                const result = await callLoyaltySecurity('/api/loyalty/redeem', { method: 'POST', body: { requestId } });
+                const profile = result.data?.profile;
+                if (!profile || Number(profile.currentHearts) !== 0) throw new Error('REDEMPTION_RESULT_INVALID');
+                loadCustomerData(String(profile.membershipNumber || loyaltyCustomer.membershipNumber), profile);
+                showToast('✅ تم استبدال المكافأة وتصفير القلوب بنجاح.');
+            } catch (error) {
+                console.error('[LOYALTY_REDEMPTION_FAILED]', { code: error?.code || error?.message || 'unknown' });
+                showToast(error?.code === 'functions/INSUFFICIENT_HEARTS' ? 'لا يمكن الاستبدال قبل جمع 5 قلوب.' : '❌ تعذر إتمام الاستبدال. لم يتغير الرصيد.', 'error');
+                buttons.forEach(button => { button.disabled = false; button.textContent = 'استبدال المكافأة'; });
+            } finally { loyaltyRedemptionInProgress = false; }
+        };
 
          function clubPlanName(plan) { return currentLang==='en' ? (plan?.nameEn || String(plan?.id||'').toUpperCase()) : (plan?.nameAr || String(plan?.id||'').toUpperCase()); }
         const DEFAULT_CLUB_TRANSFER_NOTE = 'يرجى تحويل مبلغ الاشتراك إلى أحد الحسابات التالية، ثم تأكيد التحويل بعد التحقق من وصول المبلغ.';

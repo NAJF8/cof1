@@ -273,11 +273,12 @@ body { font-family: 'Cairo', sans-serif; background: var(--bg-gradient); color: 
             <th style="padding:10px;">البريد</th>
             <th style="padding:10px;">الهاتف</th>
             <th style="padding:10px; text-align:center;">النقاط</th>
+            <th style="padding:10px; text-align:center;">مرات الاستبدال</th>
             <th style="padding:10px; text-align:center;">إجراءات سريعة</th>
           </tr>
         </thead>
         <tbody id="allCustomersTbody">
-          <tr><td colspan="6" style="text-align:center; padding:20px; color:var(--text-muted);">جارٍ التحميل...</td></tr>
+          <tr><td colspan="7" style="text-align:center; padding:20px; color:var(--text-muted);">جارٍ التحميل...</td></tr>
         </tbody>
       </table>
     </div>
@@ -497,7 +498,13 @@ let currentCashier = null;
 let currentCustomer = null;
 let rewardRules = [];
 let currentCustomerRef = null;
-let customers = [], staff = [], logs = [];
+let customers = [], staff = [], logs = [], redemptionLogs = [];
+function loyaltyRedemptionCount(customer) {
+  const keys = new Set(), add = item => { const requestId = String(item?.requestId || '').trim(); keys.add(requestId ? `request:${requestId}` : `entry:${keys.size}`); };
+  redemptionLogs.filter(l => String(l.membership || '') === String(customer.id)).forEach(add);
+  logs.filter(l => ['REWARD_REDEEMED','REDEEM_REWARD'].includes(l.type) && String(l.customerId || l.cardId || '') === String(customer.id)).forEach(add);
+  return Math.max(Number(customer.totalRedemptions || 0), keys.size);
+}
 let loyaltyLogsRef = null;
 let loyaltyLogsValueCallback = null;
 let loyaltyLogsErrorCallback = null;
@@ -964,6 +971,7 @@ function renderCustomerTable() {
         <td style="padding:12px;" dir="ltr">${esc(c.email || '-')}</td>
         <td style="padding:12px;" dir="ltr">${esc(c.phone || '-')}</td>
         <td style="padding:12px;text-align:center;font-size:18px;font-weight:900;color:#e53935;">${c.hearts||0} ❤️</td>
+        <td style="padding:12px;text-align:center;font-weight:800;">${loyaltyRedemptionCount(c)}</td>
         <td style="padding:12px;text-align:center;">
           <div style="display:inline-flex;gap:6px;">
              ${can('manage_points')?`<button onclick="quickAddPoint('${c.id}', 1)" title="إضافة نقطة" style="background:var(--primary);color:#2A3824;border:none;padding:5px 9px;border-radius:6px;font-weight:900;cursor:pointer;">+1</button><button onclick="quickAddPoint('${c.id}', -1)" title="خصم نقطة" style="background:rgba(229,57,53,0.15);color:#e53935;border:1px solid rgba(229,57,53,0.3);padding:5px 9px;border-radius:6px;font-weight:900;cursor:pointer;">-1</button>`:''}
@@ -1699,6 +1707,7 @@ function startLoyaltyLogsListener() {
     scheduleLoyaltyLogsRetry();
   };
   loyaltyLogsRef.on('value', loyaltyLogsValueCallback, loyaltyLogsErrorCallback);
+  db.ref('loyalty_redemption_logs').on('value', snap => { redemptionLogs = []; snap.forEach(c => redemptionLogs.push({id:c.key,...c.val()})); renderCustomerTable(); renderStats(); });
 }
 let giftRequests = [];
 const giftRequestStatusLabel = { pending: '⏳ بانتظار الموافقة', approved: '✅ تمت الموافقة', rejected: '❌ مرفوضة', redeemed: '🎁 تم التسليم', expired: '⌛ منتهية' };

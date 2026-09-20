@@ -572,7 +572,7 @@ body,.top-bar,.card,.stat-card,.main-content,.sidebar,.auth-card,.table-wrap,tab
         <div class="table-wrap">
           <table>
              <thead>
-               <tr><th>الاسم</th><th>العضوية</th><th>الهاتف</th><th>القلوب</th><th>المكتسب</th><th>الطلبات</th><th>المصروف</th><th>آخر طلب</th><th>إجراء</th></tr>
+               <tr><th>الاسم</th><th>العضوية</th><th>الهاتف</th><th>القلوب</th><th>المكتسب</th><th>مرات الاستبدال</th><th>الطلبات</th><th>المصروف</th><th>آخر طلب</th><th>إجراء</th></tr>
              </thead>
              <tbody id="adminCustTable"></tbody>
           </table>
@@ -3085,7 +3085,13 @@ window.approveClubAccountClaim=async function(uid){
   if(!confirm(`ربط حساب ${claim.displayName||claim.email||'العميل'} بالمشترك ${customer.name||customer.clubNumber}؟`))return;
   try{await callLoyaltySecurity('/api/admin/subscription/approve-claim',{method:'POST',body:{claimId:uid}});showNotif('تم ربط حساب العميل بالاشتراك بنجاح.');}catch(error){console.error('CLUB_ACCOUNT_CLAIM_APPROVAL_FAILED',{code:error?.code||error?.message||'unknown'});showNotif('تعذر ربط الحساب.','error');}
 };
-let adminLogs = [];
+let adminLogs = [], adminRedemptionLogs = [];
+function adminRedemptionCount(customer) {
+   const keys = new Set(), add = item => { const requestId = String(item?.requestId || '').trim(); keys.add(requestId ? `request:${requestId}` : `entry:${keys.size}`); };
+   adminRedemptionLogs.filter(l => String(l.membership || '') === String(customer.id)).forEach(add);
+   adminLogs.filter(l => ['REWARD_REDEEMED','REDEEM_REWARD'].includes(l.type) && String(l.customerId || l.cardId || '') === String(customer.id)).forEach(add);
+   return Math.max(Number(customer.totalRedemptions || 0), keys.size);
+}
 
 function renderAdminCustomers() {
    const tb = document.getElementById('adminCustTable');
@@ -3123,6 +3129,7 @@ function renderAdminCustomers() {
          <td dir="ltr">${esc(c.phone||'-')}</td>
          <td style="color:#e53935;font-weight:bold;">${Number(c.currentHearts ?? c.hearts)||0} / 5 ❤️</td>
          <td>${Number(c.totalHeartsEarned ?? c.totalEarned)||0}</td>
+         <td>${adminRedemptionCount(c)}</td>
          <td>${customerOrders.length}</td>
          <td>${money(total)}</td>
          <td dir="ltr">${last?.createdAt ? new Date(last.createdAt).toLocaleDateString('ar-IQ') : '-'}</td>
@@ -3357,6 +3364,11 @@ db.ref('loyalty_logs').limitToLast(500).on('value', snap => {
     snap.forEach(l => { adminLogs.push({id: l.key, ...l.val()}); });
     adminLogs.sort((a,b) => (b.timestamp||0) - (a.timestamp||0));
     renderAdminLogs();
+});
+db.ref('loyalty_redemption_logs').on('value', snap => {
+    adminRedemptionLogs = [];
+    snap.forEach(l => { adminRedemptionLogs.push({id: l.key, ...l.val()}); });
+    renderAdminCustomers();
 });
 }
 auth.onAuthStateChanged(user => { if(user) startAdminDetailListeners(); });
