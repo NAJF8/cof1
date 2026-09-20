@@ -1999,11 +1999,18 @@ function generateAdminPin(){
 
 async function activateLoyaltyPending(uid){
   if(!can('manage_loyalty_pending')) return showNotif('ليس لديك صلاحية تفعيل العضويات.','error');
+  const storageKey=`loyalty-activation-operation:${uid}`;
+  const operationId=sessionStorage.getItem(storageKey)||crypto.randomUUID();
+  sessionStorage.setItem(storageKey,operationId);
   try{
-    const result=await callLoyaltySecurity('/api/admin/loyalty/activate-pending',{method:'POST',body:{uid}});
-    showNotif(`تم تفعيل العضوية ${result.membershipNumber||''} بنجاح.`);
+    const result=await callLoyaltySecurity('/api/admin/loyalty/activate-pending',{method:'POST',body:{uid,requestId:operationId}});
+    if(result.pin){
+      showNotif(`تم تفعيل العضوية ${result.membershipNumber||''}. PIN للمشرف المصرح فقط: ${result.pin}. لا يتم تسليمه للعميل تلقائياً.`);
+      try{ await callLoyaltySecurity('/api/admin/loyalty/activate-pending/ack',{method:'POST',body:{requestId:operationId}}); sessionStorage.removeItem(storageKey); }catch(ackError){ console.error('LOYALTY_PENDING_ACTIVATION_ACK_FAILED',{code:ackError?.code||'ACK_FAILED'}); }
+    } else if(result.pinDelivery==='acknowledged') { sessionStorage.removeItem(storageKey); showNotif(`تم تفعيل العضوية ${result.membershipNumber||''}. تم تسليم PIN سابقاً للمشرف ولا يمكن إعادة عرضه.`); }
+    else showNotif(`تم تفعيل العضوية ${result.membershipNumber||''} بنجاح.`);
   }catch(error){
-    console.error('LOYALTY_PENDING_ACTIVATION_FAILED:',error?.code,error?.message,error);
+    console.error('LOYALTY_PENDING_ACTIVATION_FAILED',{code:error?.code||error?.message||'ACTIVATION_FAILED'});
     showNotif('تعذر تفعيل العضوية: '+(error.message||'خطأ غير معروف'),'error');
   }
 }
