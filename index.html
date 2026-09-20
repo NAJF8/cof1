@@ -4534,17 +4534,16 @@
         window.togglePinVisibility = async function() {
             if (isPinRevealed) { hidePinVisibility(); return; }
             if (!currentFirebaseUser || !loyaltyCustomer) return window.openLoyalty();
-            if (loyaltyCustomer.pinDisplayAvailable !== true) return;
             const buttons = [document.querySelector('.btn-pin-toggle'), document.getElementById('summaryPinToggle')].filter(Boolean);
             buttons.forEach(button => { button.disabled = true; });
             try {
-                const result = await callLoyaltySecurity('/api/loyalty/reveal-pin', { method: 'POST', body: {} });
-                const pin = String(result.data?.pin || '');
-                if (result.data?.available !== true || !/^\d{4,6}$/.test(pin)) {
-                    showToast(currentLang === 'en' ? 'This PIN cannot be displayed.' : 'لا يمكن عرض هذا الرمز لهذا الحساب.', 'error');
-                    return;
-                }
-                userPinRaw = pin;
+                const entered = window.prompt(currentLang === 'en' ? 'Enter your current 4–6 digit PIN to verify it:' : 'أدخل رمز PIN الحالي من 4 إلى 6 أرقام للتحقق منه:');
+                if (entered === null) return;
+                const cleanPin = String(entered).trim();
+                if (!/^\d{4,6}$/.test(cleanPin)) { showToast(currentLang === 'en' ? 'PIN must contain 4–6 digits.' : 'يجب أن يتكون PIN من 4 إلى 6 أرقام.', 'error'); return; }
+                const result = await callLoyaltySecurity('/api/loyalty/verify-pin-for-reveal', { method: 'POST', body: { pin: cleanPin } });
+                if (result.data?.verified !== true) throw new Error('INVALID_PIN');
+                userPinRaw = cleanPin;
                 isPinRevealed = true;
                 applyPinVisibility();
                 pinRevealTimer = setTimeout(hidePinVisibility, 15000);
@@ -4893,7 +4892,7 @@
                     if (summaryStamps) summaryStamps.innerHTML = Array.from({length:5}, (_, i) => `<span class="loyalty-stamp ${i < h ? 'filled' : ''}"></span>`).join('');
 
                     userPinRaw = '••••';
-                    applyPinAvailability(loyaltyCustomer.pinDisplayAvailable === true);
+                    applyPinAvailability(true);
                     const pinDisplay = document.getElementById('cardDisplayPin');
                     if (pinDisplay) pinDisplay.textContent = isPinRevealed ? userPinRaw : '••••';
                     if (summaryPin) summaryPin.textContent = isPinRevealed ? userPinRaw : '••••';

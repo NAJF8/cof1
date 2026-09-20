@@ -59,7 +59,6 @@ let tokenPayload = decodeTokenPayload(result.body.token);
 assert.equal(tokenPayload.sub, env.FIREBASE_SERVICE_ACCOUNT_EMAIL);
 assert.equal(tokenPayload.uid, 'existing-google-uid');
 assert.equal(result.body.profile.name, 'Hashed Fixture');
-assert.equal(result.body.profile.pinDisplayAvailable, false);
 
 result = await login('101-103', '1357');
 assert.equal(result.status, 200);

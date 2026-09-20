@@ -13,13 +13,14 @@ publicJwk.kid = 'pin-test-key';
 const privateKey = await crypto.subtle.exportKey('pkcs8', keyPair.privateKey);
 const privatePem = `-----BEGIN PRIVATE KEY-----\n${Buffer.from(privateKey).toString('base64')}\n-----END PRIVATE KEY-----`;
 const hashed = await createCredential('5678', 'fixture-pepper');
+const legacyCredential = await createCredential('1234', 'fixture-pepper');
 const root = {
   loyalty_links: { 'member-uid': '101-5', 'legacy-uid': '101-6' },
   loyalty_customers: {
     '101-5': { uid: 'member-uid', name: 'Hashed Fixture', currentHearts: 5, pin: undefined },
     '101-6': { uid: 'legacy-uid', name: 'Legacy Fixture', currentHearts: 2, pin: '1234' }
   },
-  loyalty_credentials: { '101-5': hashed }
+  loyalty_credentials: { '101-5': hashed, '101-6': legacyCredential }
 };
 let writes = 0;
 globalThis.fetch = async (input, options = {}) => {
@@ -46,18 +47,16 @@ let response = await call('/api/loyalty/profile', 'member-uid');
 let body = await response.json();
 assert.equal(response.status, 200);
 assert.equal(body.profile.currentHearts, 5);
-assert.equal(body.profile.pinDisplayAvailable, false);
 assert.equal('pin' in body.profile, false);
-response = await call('/api/loyalty/reveal-pin', 'member-uid');
+response = await call('/api/loyalty/verify-pin-for-reveal', 'member-uid');
 body = await response.json();
-assert.equal(response.status, 200);
-assert.equal(body.available, false);
+assert.equal(response.status, 400);
+assert.equal(body.error, 'INVALID_ARGUMENT');
 assert.equal(writes, 0);
-response = await call('/api/loyalty/reveal-pin', 'legacy-uid');
+response = await call('/api/loyalty/verify-pin-for-reveal', 'legacy-uid');
 body = await response.json();
-assert.equal(response.status, 200);
-assert.equal(body.available, false);
-assert.equal(body.error, 'PIN_NOT_DISPLAYABLE');
+assert.equal(response.status, 400);
+assert.equal(body.error, 'INVALID_ARGUMENT');
 assert.equal(writes, 0);
 assert.equal(root.loyalty_customers['101-6'].pin, '1234');
-console.log('PIN display hash/legacy fixtures: PASS');
+console.log('PIN display hash-only fixtures: PASS');
