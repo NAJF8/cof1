@@ -2907,7 +2907,7 @@
                     <div class="loyalty-summary-top"><div class="loyalty-card-brand"><img src="logo.jpg" alt="101 COFFEE"><div><strong>101 COFFEE</strong><small>REWARDS CARD</small></div></div><span class="loyalty-summary-id" id="summaryDisplayId">—</span></div>
                     <div style="margin-top:16px"><span class="eyebrow" data-i18n="loyalty_member_label">اسم العضو</span><h2 class="loyalty-summary-name" id="summaryDisplayName">—</h2><span class="card-member-badge" id="summaryDisplayMemberType">—</span></div>
                     <div class="loyalty-summary-hearts"><strong id="summaryDisplayHearts">0 / 5</strong><div class="loyalty-stamp-row" id="summaryDisplayStamps" aria-label="0 من 5"><span class="loyalty-stamp"></span><span class="loyalty-stamp"></span><span class="loyalty-stamp"></span><span class="loyalty-stamp"></span><span class="loyalty-stamp"></span></div></div>
-                    <div class="loyalty-summary-pin"><span data-i18n="loyalty_pin_label">رمز PIN الخاص بك</span><div><strong id="summaryDisplayPin">••••</strong><button type="button" id="summaryPinToggle" onclick="togglePinVisibility()" aria-label="إظهار رمز PIN">🐵</button><small id="summaryPinNote" class="pin-unavailable-note" hidden>لا يمكن عرض الرمز الحالي لأسباب أمنية.</small></div></div>
+                    <div class="loyalty-summary-pin"><span data-i18n="loyalty_pin_label">رمز PIN الخاص بك</span><div><strong id="summaryDisplayPin">••••</strong><button type="button" id="summaryPinToggle" onclick="togglePinVisibility()" aria-label="إظهار رمز PIN" hidden>🐵</button></div></div>
                     <button class="loyalty-summary-logout" type="button" onclick="logoutGoogle()" data-i18n="btn_logout">تسجيل الخروج</button>
                 </div>
             </div>
@@ -2948,8 +2948,7 @@
                         <span style="color:#C4D1BD;" data-i18n="loyalty_pin_label">رمز PIN الخاص بك:</span>
                         <span class="card-pin-display" id="cardDisplayPin">••••</span>
                     </div>
-                    <button type="button" class="btn-pin-toggle" onclick="toggleCardPinReveal()" aria-label="إظهار الرمز">🐵</button>
-                    <small id="cardPinNote" class="pin-unavailable-note" hidden>لا يمكن عرض الرمز الحالي لأسباب أمنية.</small>
+                    <button type="button" class="btn-pin-toggle" onclick="toggleCardPinReveal()" aria-label="إظهار الرمز" hidden>🐵</button>
                 </div>
 
                 <div style="display:flex;justify-content:space-between;font-size:11px;color:#C4D1BD;margin-bottom:14px;">
@@ -3639,10 +3638,11 @@
             loyaltyPinAuthSession = false,
             loyaltyAuthStatusKey = '',
             isPinRevealed = false,
-            pinRevealSessionToken = '',
             pinRevealTimer = null,
             selectedRatingStars = 5,
-            userPinRaw = "••••",
+            userPinRaw = '',
+            pinMemoryMembership = '',
+            pinMemoryUid = '',
             lastOrderId = '';
 
         const deliveryAreas = [
@@ -4509,56 +4509,58 @@
             }
         };
 
+        function hasPinMemory() {
+            return /^\d{4,6}$/.test(userPinRaw) && Boolean(pinMemoryMembership);
+        }
+        function setPinRevealControls(enabled) {
+            const monkeys = [document.querySelector('.btn-pin-toggle'), document.getElementById('summaryPinToggle')].filter(Boolean);
+            monkeys.forEach(button => { button.hidden = !enabled; button.disabled = false; });
+        }
         function applyPinVisibility() {
             const pinDisplay = document.getElementById('cardDisplayPin');
             const summaryPin = document.getElementById('summaryDisplayPin');
             const pinBtn = document.querySelector('.btn-pin-toggle');
             const summaryPinBtn = document.getElementById('summaryPinToggle');
-            if (pinDisplay) pinDisplay.textContent = isPinRevealed ? userPinRaw : '••••';
-            if (summaryPin) summaryPin.textContent = isPinRevealed ? userPinRaw : '••••';
-            if (pinBtn) pinBtn.textContent = isPinRevealed ? '🙈' : '🐵';
-            if (summaryPinBtn) summaryPinBtn.textContent = isPinRevealed ? '🙈' : '🐵';
+            const visible = isPinRevealed && hasPinMemory();
+            if (pinDisplay) pinDisplay.textContent = visible ? userPinRaw : '••••';
+            if (summaryPin) summaryPin.textContent = visible ? userPinRaw : '••••';
+            if (pinBtn) pinBtn.textContent = visible ? '🙈' : '🐵';
+            if (summaryPinBtn) summaryPinBtn.textContent = visible ? '🙈' : '🐵';
+        }
+        function rememberPinAfterAuth(pin, membership) {
+            userPinRaw = String(pin || '').trim();
+            pinMemoryMembership = String(membership || '').trim();
+            pinMemoryUid = String(auth?.currentUser?.uid || currentFirebaseUser?.uid || '');
+            setPinRevealControls(hasPinMemory());
+            applyPinVisibility();
+        }
+        function syncPinMemoryForAccount(membership) {
+            const activeMembership = String(membership || '').trim();
+            const activeUid = String(currentFirebaseUser?.uid || auth?.currentUser?.uid || '');
+            if (pinMemoryMembership && (pinMemoryMembership !== activeMembership || (pinMemoryUid && activeUid && pinMemoryUid !== activeUid))) clearPinMemory();
+            setPinRevealControls(hasPinMemory() && pinMemoryMembership === activeMembership);
+            applyPinVisibility();
         }
         function hidePinVisibility() {
             if (pinRevealTimer) { clearTimeout(pinRevealTimer); pinRevealTimer = null; }
             isPinRevealed = false;
-            userPinRaw = '••••';
             applyPinVisibility();
         }
-        window.togglePinVisibility = async function() {
-            if (isPinRevealed) { hidePinVisibility(); return; }
-            if (!currentFirebaseUser || !loyaltyCustomer) return window.openLoyalty();
-            const buttons = [document.querySelector('.btn-pin-toggle'), document.getElementById('summaryPinToggle')].filter(Boolean);
-            buttons.forEach(button => { button.disabled = true; });
-            try {
-                if (!pinRevealSessionToken) {
-                    const entered = window.prompt(currentLang === 'en' ? 'Enter your current 4–6 digit PIN to enable secure display:' : 'أدخل رمز PIN الحالي من 4 إلى 6 أرقام لتفعيل الإظهار الآمن:');
-                    if (entered === null) return;
-                    const pin = String(entered).trim();
-                    if (!/^\d{4,6}$/.test(pin)) { showToast(currentLang === 'en' ? 'PIN must contain 4–6 digits.' : 'يجب أن يتكون PIN من 4 إلى 6 أرقام.', 'error'); return; }
-                    await reauthenticateGoogleForPinReveal();
-                    const enabled = await callLoyaltySecurity('/api/loyalty/enable-pin-reveal', { method: 'POST', body: { pin } });
-                    pinRevealSessionToken = String(enabled.data?.sessionToken || '');
-                    if (!pinRevealSessionToken) throw new Error('AUTH_REVEAL_SESSION_REQUIRED');
-                }
-                const result = await callLoyaltySecurity('/api/loyalty/reveal-pin', { method: 'POST', headers: { 'X-PIN-Reveal-Session': pinRevealSessionToken }, body: {} });
-                const pin = String(result.data?.pin || '');
-                if (result.data?.available !== true || !/^\d{4,6}$/.test(pin)) throw new Error('PIN_NOT_AVAILABLE');
-                userPinRaw = pin;
-                isPinRevealed = true;
-                applyPinVisibility();
-                pinRevealTimer = setTimeout(hidePinVisibility, 15000);
-            } catch (error) {
-                if (['AUTH_REVEAL_SESSION_INVALID', 'AUTH_REVEAL_SESSION_REQUIRED'].some(code => String(error?.code || '').includes(code))) pinRevealSessionToken = '';
-                showToast(currentLang === 'en' ? 'Could not reveal your PIN.' : 'تعذر عرض رمز PIN الخاص بك.', 'error');
-            } finally { buttons.forEach(button => { button.disabled = false; }); }
-        };
-        async function reauthenticateGoogleForPinReveal() {
-            if (!auth?.currentUser) throw new Error('AUTH_REAUTH_REQUIRED');
-            const before = String(auth.currentUser.uid || ''), provider = new firebase.auth.GoogleAuthProvider();
-            const result = await auth.currentUser.reauthenticateWithPopup(provider);
-            if (!result?.user || String(result.user.uid || '') !== before) throw new Error('AUTH_REAUTH_REQUIRED');
+        function clearPinMemory() {
+            hidePinVisibility();
+            userPinRaw = '';
+            pinMemoryMembership = '';
+            pinMemoryUid = '';
+            setPinRevealControls(false);
+            applyPinVisibility();
         }
+        window.togglePinVisibility = function() {
+            if (isPinRevealed) { hidePinVisibility(); return; }
+            if (!currentFirebaseUser || !loyaltyCustomer || !hasPinMemory()) return;
+            isPinRevealed = true;
+            applyPinVisibility();
+            pinRevealTimer = setTimeout(hidePinVisibility, 15000);
+        };
         window.toggleCardPinReveal = window.togglePinVisibility;
 
         function loyaltyErrorMessage(error) {
@@ -4657,8 +4659,7 @@
             if (!preserveAuth) currentFirebaseUser = null;
             if (!preserveAuth) { if (clubCustomerRef) clubCustomerRef.off(); clubCustomerRef = null; clubCustomer = null; }
             loyaltyAuthStatusKey = '';
-            userPinRaw = '••••';
-            hidePinVisibility();
+            clearPinMemory();
             document.getElementById('loyaltyCardRefBox')?.style.setProperty('display', 'none');
             document.getElementById('loyaltyExplorer')?.style.setProperty('display', 'block');
             document.getElementById('loyaltyDetailsBackdrop')?.classList.remove('open');
@@ -4686,7 +4687,7 @@
             if (summaryStamps) summaryStamps.innerHTML = Array.from({length:5}, () => '<span class="loyalty-stamp"></span>').join('');
             const summaryPinBtn = document.getElementById('summaryPinToggle');
             if (summaryPinBtn) summaryPinBtn.textContent = '🐵';
-            pinRevealSessionToken = '';
+            applyPinVisibility();
             if (!preserveAuth) renderClubAccount();
         }
 
@@ -4732,6 +4733,7 @@
                     console.error('[LOYALTY_PIN_AUTH_FAILED]', { stage: String(authError?.loyaltyStage || 'CUSTOM_TOKEN_SIGN_IN').slice(0, 40), code: String(authError?.code || 'unknown').slice(0, 80) });
                     throw Object.assign(authError, { loyaltyStage: authError?.loyaltyStage || 'CUSTOM_TOKEN_SIGN_IN' });
                 }
+                rememberPinAfterAuth(pin, membership);
                 document.getElementById('loyaltyLoginModal')?.classList.remove('open');
                 if (event && event.target && event.target.reset) event.target.reset();
                 console.log('[LOYALTY_PIN_SUCCESS]');
@@ -4756,6 +4758,10 @@
         };
 
         async function onAuthChanged(user) {
+            const previousUid = String(currentFirebaseUser?.uid || '');
+            const nextUid = String(user?.uid || '');
+            if (previousUid && previousUid !== nextUid) clearPinMemory();
+            if (!user) clearPinMemory();
             currentFirebaseUser = user;
             mobileAuthTrace('AUTH_STATE', { hasUser: Boolean(user) });
             mobileAuthTrace(user ? 'AUTH_STATE_USER' : 'AUTH_STATE_NULL', { hasUser: Boolean(user), uid: maskAuthId(user?.uid) });
@@ -4899,11 +4905,8 @@
                     if (summaryHearts) summaryHearts.textContent = `${h} / 5`;
                     if (summaryStamps) summaryStamps.innerHTML = Array.from({length:5}, (_, i) => `<span class="loyalty-stamp ${i < h ? 'filled' : ''}"></span>`).join('');
 
-                    userPinRaw = '••••';
-                    pinRevealSessionToken = '';
-                    const pinDisplay = document.getElementById('cardDisplayPin');
-                    if (pinDisplay) pinDisplay.textContent = isPinRevealed ? userPinRaw : '••••';
-                    if (summaryPin) summaryPin.textContent = isPinRevealed ? userPinRaw : '••••';
+                    syncPinMemoryForAccount(memId);
+                    applyPinVisibility();
                     document.getElementById('loyaltyCardRefBox')?.style.setProperty('display', 'none');
                     mobileAuthTrace('RENDER_OK', { state: 'active', memberVisible: member?.style.display === 'block' });
                     mobileAuthTrace('UI_RENDER', { memberVisible: member?.style.display === 'block' });
