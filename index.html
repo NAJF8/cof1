@@ -2907,7 +2907,7 @@
                     <div class="loyalty-summary-top"><div class="loyalty-card-brand"><img src="logo.jpg" alt="101 COFFEE"><div><strong>101 COFFEE</strong><small>REWARDS CARD</small></div></div><span class="loyalty-summary-id" id="summaryDisplayId">—</span></div>
                     <div style="margin-top:16px"><span class="eyebrow" data-i18n="loyalty_member_label">اسم العضو</span><h2 class="loyalty-summary-name" id="summaryDisplayName">—</h2><span class="card-member-badge" id="summaryDisplayMemberType">—</span></div>
                     <div class="loyalty-summary-hearts"><strong id="summaryDisplayHearts">0 / 5</strong><div class="loyalty-stamp-row" id="summaryDisplayStamps" aria-label="0 من 5"><span class="loyalty-stamp"></span><span class="loyalty-stamp"></span><span class="loyalty-stamp"></span><span class="loyalty-stamp"></span><span class="loyalty-stamp"></span></div></div>
-                    <div class="loyalty-summary-pin"><span data-i18n="loyalty_pin_label">رمز PIN الخاص بك</span><div><strong id="summaryDisplayPin">••••</strong><button type="button" id="summaryPinToggle" onclick="togglePinVisibility()" aria-label="إظهار رمز PIN">👁</button><small id="summaryPinNote" class="pin-unavailable-note" hidden>لا يمكن عرض الرمز الحالي لأسباب أمنية.</small></div></div>
+                    <div class="loyalty-summary-pin"><span data-i18n="loyalty_pin_label">رمز PIN الخاص بك</span><div><strong id="summaryDisplayPin">••••</strong><button type="button" id="summaryPinToggle" onclick="togglePinVisibility()" aria-label="إظهار رمز PIN">🐵</button><small id="summaryPinNote" class="pin-unavailable-note" hidden>لا يمكن عرض الرمز الحالي لأسباب أمنية.</small></div></div>
                     <button class="loyalty-summary-logout" type="button" onclick="logoutGoogle()" data-i18n="btn_logout">تسجيل الخروج</button>
                 </div>
             </div>
@@ -2948,7 +2948,7 @@
                         <span style="color:#C4D1BD;" data-i18n="loyalty_pin_label">رمز PIN الخاص بك:</span>
                         <span class="card-pin-display" id="cardDisplayPin">••••</span>
                     </div>
-                    <button type="button" class="btn-pin-toggle" onclick="toggleCardPinReveal()" aria-label="إظهار الرمز">👁️</button>
+                    <button type="button" class="btn-pin-toggle" onclick="toggleCardPinReveal()" aria-label="إظهار الرمز">🐵</button>
                     <small id="cardPinNote" class="pin-unavailable-note" hidden>لا يمكن عرض الرمز الحالي لأسباب أمنية.</small>
                 </div>
 
@@ -4515,8 +4515,8 @@
             const summaryPinBtn = document.getElementById('summaryPinToggle');
             if (pinDisplay) pinDisplay.textContent = isPinRevealed ? userPinRaw : '••••';
             if (summaryPin) summaryPin.textContent = isPinRevealed ? userPinRaw : '••••';
-            if (pinBtn) pinBtn.textContent = isPinRevealed ? '🙈' : '👁️';
-            if (summaryPinBtn) summaryPinBtn.textContent = isPinRevealed ? '🙈' : '👁';
+            if (pinBtn) pinBtn.textContent = isPinRevealed ? '🙈' : '🐵';
+            if (summaryPinBtn) summaryPinBtn.textContent = isPinRevealed ? '🙈' : '🐵';
         }
         function hidePinVisibility() {
             if (pinRevealTimer) { clearTimeout(pinRevealTimer); pinRevealTimer = null; }
@@ -4678,7 +4678,7 @@
             const summaryStamps = document.getElementById('summaryDisplayStamps');
             if (summaryStamps) summaryStamps.innerHTML = Array.from({length:5}, () => '<span class="loyalty-stamp"></span>').join('');
             const summaryPinBtn = document.getElementById('summaryPinToggle');
-            if (summaryPinBtn) summaryPinBtn.textContent = '👁';
+            if (summaryPinBtn) summaryPinBtn.textContent = '🐵';
             applyPinAvailability(false);
             if (!preserveAuth) renderClubAccount();
         }

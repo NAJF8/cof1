@@ -65,7 +65,7 @@ async function verifyIdToken(token) { const parts = String(token || '').split('.
 async function auth(request) { const header = request.headers.get('Authorization') || ''; if (!header.startsWith('Bearer ')) throw Error('AUTH_REQUIRED'); return verifyIdToken(header.slice(7).trim()); }
 async function optionalAuth(request) { const header = request.headers.get('Authorization') || ''; if (!header) return null; if (!header.startsWith('Bearer ')) throw Error('AUTH_INVALID'); return verifyIdToken(header.slice(7).trim()); }
 async function customToken(env, uid, membership) { const email = String(env.FIREBASE_SERVICE_ACCOUNT_EMAIL || '').trim(), privateKey = String(env.FIREBASE_SERVICE_ACCOUNT_PRIVATE_KEY || ''); if (!email || !privateKey) throw Error('FIREBASE_SERVICE_ACCOUNT_NOT_CONFIGURED'); const fingerprint = privateKey.slice(0, 24); if (customTokenKey.fingerprint !== fingerprint) customTokenKey = { fingerprint, value: await crypto.subtle.importKey('pkcs8', pemBytes(privateKey), { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']) }; const now = Math.floor(Date.now() / 1000), head = jsonPart({ alg: 'RS256', typ: 'JWT' }), claim = jsonPart({ iss: email, sub: email, aud: 'https://identitytoolkit.googleapis.com/google.identity.identitytoolkit.v1.IdentityToolkit', iat: now, exp: now + 3600, uid, claims: { loyaltyMembership: membership } }), signature = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', customTokenKey.value, new TextEncoder().encode(`${head}.${claim}`)); return `${head}.${claim}.${b64url(signature)}`; }
-function safeCustomer(membership, customer) { return { ...security.publicProfile(membership, customer), pinDisplayAvailable: false }; }
+function safeCustomer(membership, customer) { return { ...security.publicProfile(membership, customer), pinDisplayAvailable: security.validPin(customer?.pin) }; }
 function credentialShapeIsUsable(credential) { return Boolean(credential && typeof credential.pinHash === 'string' && typeof credential.salt === 'string' && /^[A-Za-z0-9+/_-]+={0,2}$/.test(credential.pinHash) && /^[A-Za-z0-9+/_-]+={0,2}$/.test(credential.salt)); }
 function generateLoyaltyPin() { return String(Math.floor(Math.random() * 10000)).padStart(4, '0'); }
 function requestId(payload) { const value = String(payload?.requestId || payload?.idempotencyKey || '').trim(); if (!value) return ''; if (!/^[A-Za-z0-9._:-]{1,120}$/.test(value)) throw Error('INVALID_ARGUMENT'); return value; }
@@ -442,15 +442,19 @@ async function resolvePinLoginUid(env, membership, customer) {
   return matches[0] || '';
 }
 async function profile(request, env, current) { const resolved = await resolveLoyaltyMembership(env, current); if (!resolved?.membership || !resolved.customer) return fail(request, env, 'PROFILE_NOT_FOUND', 404); return response(request, env, { ok: true, status: 'active', profile: safeCustomer(resolved.membership, resolved.customer) }); }
+async function resolveRevealMembership(env, current) {
+  const membership = security.normalizeMembershipNumber(await firebaseAdminRequest(env, `loyalty_links/${current.uid}`));
+  if (!membership) return null;
+  const customer = await firebaseAdminRequest(env, `loyalty_customers/${membership}`);
+  return customer && (!customer?.uid || customerBelongsTo(current, customer)) ? { membership, customer } : null;
+}
 async function revealPin(request, env, current) {
   await body(request);
-  console.info('[PIN_REVEAL_ENTER]');
-  console.info('[PIN_TOKEN_OK]', { hasUid: Boolean(current.uid) });
-  const resolved = await resolveLoyaltyMembership(env, current);
+  const resolved = await resolveRevealMembership(env, current);
   if (!resolved?.membership || !resolved.customer) throw Error('PROFILE_NOT_FOUND');
-  console.info('[PIN_MEMBERSHIP_FOUND]', { source: resolved.source });
-  console.info('[PIN_REVEAL_DISABLED]');
-  return response(request, env, { ok: true, available: false, error: 'PIN_NOT_DISPLAYABLE' });
+  const pin = String(resolved.customer.pin || '');
+  if (!security.validPin(pin)) return response(request, env, { ok: true, available: false, error: 'PIN_NOT_AVAILABLE' });
+  return response(request, env, { ok: true, available: true, pin });
 }
 async function provision(request, env, current, superAdmin = false) {
   if (!current.emailVerified || !current.email) return fail(request, env, 'VERIFIED_EMAIL_REQUIRED', 403);
