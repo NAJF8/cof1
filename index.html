@@ -3639,6 +3639,7 @@
             loyaltyAuthStatusKey = '',
             isPinRevealed = false,
             pinRevealTimer = null,
+            pinRevealAvailable = false,
             selectedRatingStars = 5,
             userPinRaw = '',
             pinMemoryMembership = '',
@@ -4510,7 +4511,7 @@
         };
 
         function hasPinMemory() {
-            return /^\d{4,6}$/.test(userPinRaw) && Boolean(pinMemoryMembership);
+            return pinRevealAvailable && /^\d{4,6}$/.test(userPinRaw) && Boolean(pinMemoryMembership);
         }
         function setPinRevealControls(enabled) {
             const monkeys = [document.querySelector('.btn-pin-toggle'), document.getElementById('summaryPinToggle')].filter(Boolean);
@@ -4531,7 +4532,8 @@
             userPinRaw = String(pin || '').trim();
             pinMemoryMembership = String(membership || '').trim();
             pinMemoryUid = String(auth?.currentUser?.uid || currentFirebaseUser?.uid || '');
-            setPinRevealControls(hasPinMemory());
+            pinRevealAvailable = /^\d{4,6}$/.test(userPinRaw) && Boolean(pinMemoryMembership);
+            setPinRevealControls(pinRevealAvailable);
             applyPinVisibility();
         }
         function syncPinMemoryForAccount(membership) {
@@ -4551,6 +4553,7 @@
             userPinRaw = '';
             pinMemoryMembership = '';
             pinMemoryUid = '';
+            pinRevealAvailable = false;
             setPinRevealControls(false);
             applyPinVisibility();
         }
