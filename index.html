@@ -3639,6 +3639,7 @@
             loyaltyPinAuthSession = false,
             loyaltyAuthStatusKey = '',
             isPinRevealed = false,
+            pinRevealSessionToken = '',
             pinRevealTimer = null,
             selectedRatingStars = 5,
             userPinRaw = "••••",
@@ -4524,33 +4525,40 @@
             userPinRaw = '••••';
             applyPinVisibility();
         }
-        function applyPinAvailability(available) {
-            const canReveal = available === true;
-            const revealButtons = [document.querySelector('.btn-pin-toggle'), document.getElementById('summaryPinToggle')].filter(Boolean);
-            const notes = [document.getElementById('cardPinNote'), document.getElementById('summaryPinNote')].filter(Boolean);
-            revealButtons.forEach(button => { button.hidden = !canReveal; button.disabled = false; });
-            notes.forEach(note => { note.hidden = canReveal; });
-        }
         window.togglePinVisibility = async function() {
             if (isPinRevealed) { hidePinVisibility(); return; }
             if (!currentFirebaseUser || !loyaltyCustomer) return window.openLoyalty();
             const buttons = [document.querySelector('.btn-pin-toggle'), document.getElementById('summaryPinToggle')].filter(Boolean);
             buttons.forEach(button => { button.disabled = true; });
             try {
-                const entered = window.prompt(currentLang === 'en' ? 'Enter your current 4–6 digit PIN to verify it:' : 'أدخل رمز PIN الحالي من 4 إلى 6 أرقام للتحقق منه:');
-                if (entered === null) return;
-                const cleanPin = String(entered).trim();
-                if (!/^\d{4,6}$/.test(cleanPin)) { showToast(currentLang === 'en' ? 'PIN must contain 4–6 digits.' : 'يجب أن يتكون PIN من 4 إلى 6 أرقام.', 'error'); return; }
-                const result = await callLoyaltySecurity('/api/loyalty/verify-pin-for-reveal', { method: 'POST', body: { pin: cleanPin } });
-                if (result.data?.verified !== true) throw new Error('INVALID_PIN');
-                userPinRaw = cleanPin;
+                if (!pinRevealSessionToken) {
+                    const entered = window.prompt(currentLang === 'en' ? 'Enter your current 4–6 digit PIN to enable secure display:' : 'أدخل رمز PIN الحالي من 4 إلى 6 أرقام لتفعيل الإظهار الآمن:');
+                    if (entered === null) return;
+                    const pin = String(entered).trim();
+                    if (!/^\d{4,6}$/.test(pin)) { showToast(currentLang === 'en' ? 'PIN must contain 4–6 digits.' : 'يجب أن يتكون PIN من 4 إلى 6 أرقام.', 'error'); return; }
+                    await reauthenticateGoogleForPinReveal();
+                    const enabled = await callLoyaltySecurity('/api/loyalty/enable-pin-reveal', { method: 'POST', body: { pin } });
+                    pinRevealSessionToken = String(enabled.data?.sessionToken || '');
+                    if (!pinRevealSessionToken) throw new Error('AUTH_REVEAL_SESSION_REQUIRED');
+                }
+                const result = await callLoyaltySecurity('/api/loyalty/reveal-pin', { method: 'POST', headers: { 'X-PIN-Reveal-Session': pinRevealSessionToken }, body: {} });
+                const pin = String(result.data?.pin || '');
+                if (result.data?.available !== true || !/^\d{4,6}$/.test(pin)) throw new Error('PIN_NOT_AVAILABLE');
+                userPinRaw = pin;
                 isPinRevealed = true;
                 applyPinVisibility();
                 pinRevealTimer = setTimeout(hidePinVisibility, 15000);
             } catch (error) {
+                if (['AUTH_REVEAL_SESSION_INVALID', 'AUTH_REVEAL_SESSION_REQUIRED'].some(code => String(error?.code || '').includes(code))) pinRevealSessionToken = '';
                 showToast(currentLang === 'en' ? 'Could not reveal your PIN.' : 'تعذر عرض رمز PIN الخاص بك.', 'error');
             } finally { buttons.forEach(button => { button.disabled = false; }); }
         };
+        async function reauthenticateGoogleForPinReveal() {
+            if (!auth?.currentUser) throw new Error('AUTH_REAUTH_REQUIRED');
+            const before = String(auth.currentUser.uid || ''), provider = new firebase.auth.GoogleAuthProvider();
+            const result = await auth.currentUser.reauthenticateWithPopup(provider);
+            if (!result?.user || String(result.user.uid || '') !== before) throw new Error('AUTH_REAUTH_REQUIRED');
+        }
         window.toggleCardPinReveal = window.togglePinVisibility;
 
         function loyaltyErrorMessage(error) {
@@ -4678,7 +4686,7 @@
             if (summaryStamps) summaryStamps.innerHTML = Array.from({length:5}, () => '<span class="loyalty-stamp"></span>').join('');
             const summaryPinBtn = document.getElementById('summaryPinToggle');
             if (summaryPinBtn) summaryPinBtn.textContent = '🐵';
-            applyPinAvailability(false);
+            pinRevealSessionToken = '';
             if (!preserveAuth) renderClubAccount();
         }
 
@@ -4892,7 +4900,7 @@
                     if (summaryStamps) summaryStamps.innerHTML = Array.from({length:5}, (_, i) => `<span class="loyalty-stamp ${i < h ? 'filled' : ''}"></span>`).join('');
 
                     userPinRaw = '••••';
-                    applyPinAvailability(true);
+                    pinRevealSessionToken = '';
                     const pinDisplay = document.getElementById('cardDisplayPin');
                     if (pinDisplay) pinDisplay.textContent = isPinRevealed ? userPinRaw : '••••';
                     if (summaryPin) summaryPin.textContent = isPinRevealed ? userPinRaw : '••••';

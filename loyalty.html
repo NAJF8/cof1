@@ -1195,7 +1195,7 @@ async function savePhone() {
 // ── Points Management: Add, Deduct, Set Custom ──
 async function addHeart() {
   if (!requirePermission('manage_points')) return;
-  if (isCashierRole() && !verifyCurrentCustomerPin('إضافة قلب')) return;
+  if (isCashierRole() && !(await verifyCurrentCustomerPin('إضافة قلب'))) return;
   await modifyPoints(1);
 }
 
@@ -1206,7 +1206,7 @@ async function deductHeart() {
     showToast('⚠️ رصيد القلوب 0 بالفعل!');
     return;
   }
-  if (isCashierRole() && !verifyCurrentCustomerPin('خصم قلب')) return;
+  if (isCashierRole() && !(await verifyCurrentCustomerPin('خصم قلب'))) return;
   await modifyPoints(-1);
 }
 
@@ -1222,7 +1222,7 @@ async function setCustomHearts() {
     return;
   }
   const diff = num - current;
-  if (isCashierRole() && diff !== 0 && !verifyCurrentCustomerPin('تعديل الرصيد')) return;
+  if (isCashierRole() && diff !== 0 && !(await verifyCurrentCustomerPin('تعديل الرصيد'))) return;
   await modifyPoints(diff, true, num);
 }
 
@@ -1230,7 +1230,7 @@ async function quickAddPoint(cardId, amount) {
   if (!requirePermission('manage_points')) return;
   const cust=customers.find(c=>c.id===cardId);
   if (!cust) return showToast('تعذر العثور على بيانات العميل.');
-  if (isCashierRole() && !verifyCustomerPin(cust, amount > 0 ? 'إضافة قلب' : 'خصم قلب')) return;
+  if (isCashierRole() && !(await verifyCustomerPin(cust, amount > 0 ? 'إضافة قلب' : 'خصم قلب'))) return;
   // Reuse the scoped balance transaction used by the profile control.  This
   // avoids a second implementation that transactions the entire customer.
   const previousCustomer=currentCustomer;
@@ -1298,13 +1298,12 @@ async function quickAddPoint(cardId, amount) {
   }
 }
 
-function verifyCustomerPin(customer, action) {
+async function verifyCustomerPin(customer, action) {
   if (!customer) { showToast('اختر العميل أولاً.'); return false; }
   const entered=prompt(`تأكيد العملية: ${action}\nليُدخل العميل رمز PIN الخاص به:`);
   if (entered === null) return false;
-  const storedPin=String(customer.pin||'');
-  if (!storedPin || String(entered).trim() !== storedPin) { showToast('❌ رمز PIN غير صحيح. لم تُنفّذ العملية.'); return false; }
-  return true;
+  try { await callLoyaltySecurity('/api/admin/loyalty/verify-pin', { method: 'POST', body: { membership: customer.id, pin: String(entered).trim() } }); return true; }
+  catch { showToast('❌ رمز PIN غير صحيح. لم تُنفّذ العملية.'); return false; }
 }
 function verifyCurrentCustomerPin(action) { return verifyCustomerPin(currentCustomer, action); }
 
@@ -1450,7 +1449,7 @@ async function redeemReward(rewardId, rewardTitle) {
   if (!currentCustomer) return;
   if (!checkPinLockout(currentCustomer.id)) return;
   
-  if (isCashierRole() && !verifyCurrentCustomerPin('استبدال المكافأة')) {
+  if (isCashierRole() && !(await verifyCurrentCustomerPin('استبدال المكافأة'))) {
       recordPinFailure(currentCustomer.id);
       return;
   }
@@ -1790,7 +1789,7 @@ function buildClubSearchRecord(subscription, {requests, customers, loyalty}) {
   const phone = clubFieldValue(sub,['phone','phoneNumber','mobile','mobileNumber']) || clubFieldValue(matchedCustomer,['phone','phoneNumber','mobile','mobileNumber']) || clubFieldValue(matchedRequest,['phone','phoneNumber','mobile','mobileNumber']) || clubFieldValue(matchedLoyalty,['phone','phoneNumber','mobile','mobileNumber']);
   const clubNumber = clubFieldValue(sub,['clubNumber','clubNo','clubId','subscriptionNumber']) || clubFieldValue(matchedCustomer,['clubNumber','clubNo','clubId','subscriptionNumber']) || clubFieldValue(matchedRequest,['clubNumber','clubNo','clubId','subscriptionNumber']);
   const membershipNumber = clubFieldValue(sub,['membershipNumber','membership','cardId','memberId']) || clubFieldValue(matchedCustomer,['membershipNumber','membership','cardId','memberId']) || matchedLoyalty?.id || clubFieldValue(matchedLoyalty,['membershipNumber','membership','cardId','memberId']);
-  return {subscriptionId, name, normalizedName:normalizeSearchText(name), phone, normalizedPhone:normalizeIraqiPhone(phone), clubNumber, normalizedClubNumber:normalizeClubNumber(clubNumber), membershipNumber, normalizedMembershipNumber:normalizeMembershipNumber(membershipNumber), status:sub.status, originalSubscription:sub, matchedRequest, matchedCustomer, matchedLoyalty, pin:matchedCustomer?.pin||matchedLoyalty?.pin||''};
+  return {subscriptionId, name, normalizedName:normalizeSearchText(name), phone, normalizedPhone:normalizeIraqiPhone(phone), clubNumber, normalizedClubNumber:normalizeClubNumber(clubNumber), membershipNumber, normalizedMembershipNumber:normalizeMembershipNumber(membershipNumber), status:sub.status, originalSubscription:sub, matchedRequest, matchedCustomer, matchedLoyalty};
 }
 function clubSubscriptionState(sub){
   if(!sub)return {label:'لا يوجد اشتراك',active:false};

@@ -1,3 +1,4 @@
+const RELEASE_VERSION = 'pin-reveal-2026-09-20';
 const OFFLINE_PAGE = `<!doctype html>
 <html lang="ar" dir="rtl">
 <meta charset="utf-8">

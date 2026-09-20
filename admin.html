@@ -3272,7 +3272,7 @@ async function editCustomerPinAdmin(id){
   if(!newPin) return;
   if(newPin.length !== 4 || isNaN(newPin)) return alert('يجب أن يتكون رمز PIN من 4 أرقام.');
   try {
-    await db.ref('loyalty_customers/'+id+'/pin').set(newPin);
+    await callLoyaltySecurity('/api/admin/loyalty/set-pin', { method: 'POST', body: { membership: id, pin: newPin } });
     showNotif('تم تحديث PIN بنجاح.');
     viewCustomerDetails(id);
   } catch(e){
@@ -3430,7 +3430,7 @@ function openCustDetails(cardId) {
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; font-size:13px; color:var(--text-muted);">
           <div>📱 الهاتف: <strong style="color:var(--text);" dir="ltr">${esc(c.phone || 'غير مسجل')}</strong></div>
           <div>📧 البريد: <strong style="color:var(--text); font-size:11px;">${esc(c.email || 'غير مربوط')}</strong></div>
-          <div>🔐 رمز PIN: <strong style="color:var(--text); font-family:monospace;" dir="ltr">${esc(c.pin || '0224')}</strong></div>
+          <div>🔐 رمز PIN: <strong style="color:var(--text); font-family:monospace;" dir="ltr">••••</strong></div>
           <div>👑 النوع: <strong style="color:var(--text);">${esc(c.memberType || 'زبون')}</strong></div>
           <div>📅 تاريخ الانضمام: <strong style="color:var(--text);">${c.createdAt ? new Date(c.createdAt).toLocaleDateString('ar-IQ') : '-'}</strong></div>
           <div>❤️ رصيد القلوب: <strong style="color:var(--primary-lt); font-size:15px;">${c.hearts || 0} ❤️</strong></div>
