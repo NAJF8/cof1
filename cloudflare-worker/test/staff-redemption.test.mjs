@@ -12,6 +12,7 @@ function applyUpdates(root, updates) {
 const base = () => ({
   loyalty_customers: { '101-77': { name: 'Fixture', hearts: 5, currentHearts: 5, totalRedemptions: 2 } },
   loyalty_redemption_logs: { old: { membership: '101-77', requestId: 'old-request', createdAt: 10 } },
+  loyalty_logs: { legacy: { type: 'REWARD_REDEEMED', membership: '101-77', requestId: 'old-request', createdAt: 11 } },
   loyalty_operation_requests: {}
 });
 
@@ -27,4 +28,16 @@ const replay = planStaffRedemption(saved, '101-77', 'request-1', { uid: 'staff-1
 assert.equal(replay.replay, true);
 assert.deepEqual(replay.result, first.result);
 assert.throws(() => planStaffRedemption(saved, '101-77', 'request-2'), /INSUFFICIENT_HEARTS/);
+
+const legacyOnly = {
+  loyalty_customers: { '101-1': { name: 'Legacy', hearts: 5, totalRedemptions: 0 } },
+  loyalty_logs: {
+    first: { type: 'REWARD_REDEEMED', membership: '101-1', requestId: 'legacy-1' },
+    second: { type: 'REDEEM_REWARD', cardId: '101-1', requestId: 'legacy-2' }
+  },
+  loyalty_operation_requests: {}
+};
+const legacyResult = planStaffRedemption(legacyOnly, '101-1', 'legacy-3');
+assert.equal(legacyResult.result.redemption.totalRedemptions, 3);
+assert.equal(legacyResult.result.profile.currentHearts, 0);
 console.log('STAFF_REDEMPTION_TESTS=PASS');

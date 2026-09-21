@@ -597,7 +597,16 @@ export function planStaffRedemption(root, membership, id, actor = {}) {
   const customer = root.loyalty_customers?.[membership], hearts = Number(customer?.currentHearts ?? customer?.hearts ?? 0);
   if (!customer) throw Error('NOT_FOUND');
   if (!Number.isInteger(hearts) || hearts < 5) throw Error('INSUFFICIENT_HEARTS');
-  const now = Date.now(), previousCount = Object.values(root.loyalty_redemption_logs || {}).filter(log => String(log?.membership || log?.customerId || log?.cardId || '') === membership).length;
+  const redemptionEntries = [
+    ...Object.values(root.loyalty_redemption_logs || {}),
+    ...Object.values(root.loyalty_logs || {}).filter(log => ['REWARD_REDEEMED', 'REDEEM_REWARD'].includes(log?.type))
+  ].filter(log => String(log?.membership || log?.customerId || log?.cardId || '') === membership);
+  const redemptionKeys = new Set(), addRedemptionKey = log => {
+    const requestKey = String(log?.requestId || '').trim();
+    redemptionKeys.add(requestKey ? `request:${requestKey}` : `entry:${redemptionKeys.size}`);
+  };
+  redemptionEntries.forEach(addRedemptionKey);
+  const now = Date.now(), previousCount = redemptionKeys.size;
   const totalRedemptions = Math.max(Number(customer.totalRedemptions || 0), previousCount) + 1;
   const nextCustomer = { ...customer, hearts: 0, currentHearts: 0, totalRedemptions, totalHeartsSpent: Number(customer.totalHeartsSpent || 0) + 5, totalHeartsRedeemed: Number(customer.totalHeartsRedeemed || 0) + 5, updatedAt: now };
   const outcome = { ok: true, profile: safeCustomer(membership, nextCustomer), redemption: { membershipNumber: membership, totalRedemptions } };
@@ -614,12 +623,24 @@ export function planStaffRedemption(root, membership, id, actor = {}) {
 }
 
 async function redeem(request, env, current) {
-  const actor = await staff(env, current, 'redeem');
-  const p = await body(request), membership = security.normalizeMembershipNumber(p.membership || p.customerId), id = requestId(p), pin = String(p.pin || '').trim();
-  if (!membership || !id || !pin) throw Error('INVALID_ARGUMENT');
-  await verifyMemberPin(env, membership, pin);
-  const result = await atomicPlan(env, root => planStaffRedemption(root, membership, id, { uid: current.uid, name: actor.record.displayName || current.name, role: actor.role }), { requestId: id, stage: 'STAFF_REDEMPTION_ATOMIC' });
-  return response(request, env, result);
+  let stage = 'ROLE_CHECK', membership = '', id = '';
+  try {
+    const actor = await staff(env, current, 'redeem');
+    stage = 'INPUT_VALIDATION';
+    const p = await body(request);
+    membership = security.normalizeMembershipNumber(p.membership || p.customerId);
+    id = requestId(p);
+    const pin = String(p.pin || '').trim();
+    if (!membership || !id || !pin) throw Error('INVALID_ARGUMENT');
+    stage = 'PIN_VERIFY';
+    await verifyMemberPin(env, membership, pin);
+    stage = 'ATOMIC_REDEMPTION';
+    const result = await atomicPlan(env, root => planStaffRedemption(root, membership, id, { uid: current.uid, name: actor.record.displayName || current.name, role: actor.role }), { requestId: id, stage: 'STAFF_REDEMPTION_ATOMIC' });
+    return response(request, env, result);
+  } catch (error) {
+    console.error('[LOYALTY_REDEMPTION_FAILURE]', { requestId: id || null, stage, code: String(error?.message || 'UNKNOWN').slice(0, 80) });
+    throw error;
+  }
 }
 async function redeemGift(request, env, current) {
   let stage = 'ENTER';

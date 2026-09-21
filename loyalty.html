@@ -468,7 +468,7 @@ async function callLoyaltySecurity(path, options = {}) {
   if (auth.currentUser) headers.Authorization = `Bearer ${await auth.currentUser.getIdToken(forceRefresh)}`;
   const response = await fetch(`${LOYALTY_SECURITY_ENDPOINT}${path}`, {...requestOptions, headers, body: requestOptions.body && typeof requestOptions.body !== 'string' ? JSON.stringify(requestOptions.body) : requestOptions.body});
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) { const error = new Error(data.error || 'LOYALTY_SECURITY_FAILED'); error.code = data.error || 'LOYALTY_SECURITY_FAILED'; throw error; }
+  if (!response.ok) { const error = new Error(data.error || 'LOYALTY_SECURITY_FAILED'); error.code = data.error || 'LOYALTY_SECURITY_FAILED'; error.requestId = data.requestId || null; error.status = response.status; throw error; }
   return data;
 }
 
@@ -1464,18 +1464,30 @@ async function redeemCustomerReward() {
   if (!/^\d{4,6}$/.test(String(pin).trim())) return showToast('❌ رمز PIN غير صحيح.');
   if (!confirm('هل أنت متأكد من استبدال المكافأة وتصفير الرصيد إلى 0/5؟')) return;
   redemptionInProgress = true;
+  let redemptionRequestId = '';
   const button = document.getElementById('redeemRewardButton');
   if (button) { button.disabled = true; button.textContent = 'جارٍ التحقق والاستبدال…'; }
   try {
-    const requestId = crypto.randomUUID();
-    const result = await callLoyaltySecurity('/api/admin/loyalty/redeem', { method:'POST', body:{ membership:currentCustomer.id, pin:String(pin).trim(), requestId } });
+    redemptionRequestId = crypto.randomUUID();
+    const result = await callLoyaltySecurity('/api/admin/loyalty/redeem', { method:'POST', body:{ membership:currentCustomer.id, pin:String(pin).trim(), requestId:redemptionRequestId } });
     if (!result?.profile || Number(result.profile.currentHearts ?? result.profile.hearts) !== 0) throw new Error('REDEMPTION_RESULT_INVALID');
     currentCustomer = { ...currentCustomer, ...result.profile, id: result.profile.membershipNumber || currentCustomer.id };
     renderProfile();
     showToast(`✅ تم الاستبدال بنجاح. عدد مرات الاستبدال: ${Number(result.redemption?.totalRedemptions || currentCustomer.totalRedemptions || 0)}`);
   } catch (error) {
     if (error?.code === 'INVALID_PIN') recordPinFailure(currentCustomer.id);
-    const message = error?.code === 'INVALID_PIN' ? '❌ رمز PIN غير صحيح. لم تُنفّذ العملية.' : error?.code === 'INSUFFICIENT_HEARTS' ? 'لا يمكن الاستبدال قبل جمع 5 قلوب.' : '❌ تعذر إتمام الاستبدال. لم يتغير الرصيد.';
+    const messages = {
+      INVALID_PIN: '❌ رمز PIN غير صحيح. لم تُنفّذ العملية.',
+      INSUFFICIENT_HEARTS: 'لا يمكن الاستبدال قبل جمع 5 قلوب.',
+      FORBIDDEN: '❌ حساب الموظف لا يملك صلاحية استبدال المكافآت.',
+      AUTH_REQUIRED: '❌ انتهت جلسة الموظف. سجّل الدخول مجدداً.',
+      AUTH_INVALID: '❌ جلسة الموظف غير صالحة. سجّل الدخول مجدداً.',
+      NOT_FOUND: '❌ لم يتم العثور على العضوية.',
+      BACKEND_AUTH_ERROR: '❌ تعذر التحقق من خدمة الولاء حالياً.',
+      INTERNAL_ERROR: '❌ تعذر حفظ الاستبدال حالياً. لم يتغير الرصيد.'
+    };
+    const message = messages[error?.code] || '❌ تعذر إتمام الاستبدال. لم يتغير الرصيد.';
+    console.error('[LOYALTY_REDEMPTION_UI_FAILED]', { code: error?.code || 'UNKNOWN', status: error?.status || null, requestId: error?.requestId || redemptionRequestId || null });
     showToast(message);
   } finally { redemptionInProgress = false; if (button) { button.disabled = false; button.textContent = 'استبدال المكافأة 🎁'; } }
 }
