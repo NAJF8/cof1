@@ -58,6 +58,14 @@
         ".write": "auth != null && ((!data.exists() && (auth.token.email === 'mohameadalhaear100@gmail.com' || root.child('admins').child(auth.uid).child('status').val() === 'active')) || (data.exists() && (auth.token.email === 'mohameadalhaear100@gmail.com' || root.child('admins').child(auth.uid).child('role').val() === 'super_admin')))"
       }
     },
+    "loyalty_redemption_logs": {
+      ".read": "auth != null && (auth.token.email === 'mohameadalhaear100@gmail.com' || root.child('admins').child(auth.uid).child('status').val() === 'active')",
+      ".write": false
+    },
+    "loyalty_operation_requests": {
+      ".read": false,
+      ".write": false
+    },
     "loyalty_counter": {
       ".read": "auth != null",
       ".write": "auth != null && (!data.exists() || newData.val() === data.val() + 1 || auth.token.email === 'mohameadalhaear100@gmail.com')"

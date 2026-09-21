@@ -453,6 +453,22 @@ async function verifyPinForReveal(request, env, current) {
   if (!await security.timingSafePinMatch(pin, credential, pepper)) throw Error('INVALID_PIN');
   return response(request, env, { ok: true, verified: true });
 }
+async function verifyMemberPin(env, membership, pin) {
+  const pepper = String(env.LOYALTY_PIN_PEPPER || ''), normalizedPin = String(pin || '').trim();
+  if (!security.validPin(normalizedPin) || !pepper) throw Error('INVALID_PIN');
+  const [customer, credential] = await Promise.all([
+    firebaseAdminRequest(env, `loyalty_customers/${membership}`),
+    firebaseAdminRequest(env, `loyalty_credentials/${membership}`)
+  ]);
+  if (!customer) throw Error('NOT_FOUND');
+  let valid = false;
+  try { valid = await security.timingSafePinMatch(normalizedPin, credential, pepper); } catch { valid = false; }
+  if (!valid && !credentialShapeIsUsable(credential) && security.validPin(customer.pin)) {
+    valid = security.timingSafeEqual(new TextEncoder().encode(normalizedPin), new TextEncoder().encode(String(customer.pin)));
+  }
+  if (!valid) throw Error('INVALID_PIN');
+  return customer;
+}
 async function provision(request, env, current, superAdmin = false) {
   if (!current.emailVerified || !current.email) return fail(request, env, 'VERIFIED_EMAIL_REQUIRED', 403);
   if (superAdmin && current.email !== SUPER_ADMIN_EMAIL) throw Error('FORBIDDEN');
@@ -575,7 +591,36 @@ async function setLoyaltyPin(request, env, current) { await staff(env, current, 
 async function search(request, env, current) { await staff(env, current, 'search'); const p = await body(request), q = String(p.query || '').trim().toLowerCase(), all = await firebaseAdminRequest(env, 'loyalty_customers') || {}; const found = Object.entries(all).map(([membership, customer]) => ({ membership, customer })).find(({ membership, customer }) => !q || [membership, customer.name, customer.email, customer.phone].some(v => String(v || '').toLowerCase().includes(q))); return response(request, env, { ok: true, customer: found ? safeCustomer(found.membership, found.customer) : null }); }
 async function deleteCustomer(request, env, current) { await staff(env, current, 'delete'); const p = await body(request), membership = security.normalizeMembershipNumber(p.membership); if (!membership) throw Error('INVALID_MEMBERSHIP'); const customer = await firebaseAdminRequest(env, `loyalty_customers/${membership}`); if (!customer) return response(request, env, { ok: true, deleted: false }); await firebaseAdminRequest(env, '', { method: 'PATCH', body: { [`loyalty_customers/${membership}`]: null, ...(customer.uid ? { [`loyalty_links/${customer.uid}`]: null } : {}) } }); return response(request, env, { ok: true, deleted: true }); }
 async function adjustHearts(request, env, current) { await staff(env, current, 'adjust'); const p = await body(request), membership = security.normalizeMembershipNumber(p.membership || p.customerId), delta = Number(p.amount ?? p.hearts ?? p.change); if (!membership || !Number.isInteger(delta) || Math.abs(delta) > 1000) throw Error('INVALID_ARGUMENT'); const result = await atomicPlan(env, (root) => { const customer = root.loyalty_customers?.[membership]; if (!customer) throw Error('NOT_FOUND'); const currentHearts = Number(customer.currentHearts ?? customer.hearts ?? 0), next = currentHearts + delta; if (!Number.isInteger(currentHearts) || next < 0 || next > 5) throw Error('HEARTS_OUT_OF_RANGE'); return { updates: { [`loyalty_customers/${membership}/currentHearts`]: next, [`loyalty_customers/${membership}/hearts`]: next, [`loyalty_customers/${membership}/updatedAt`]: Date.now() }, result: { ok: true, profile: safeCustomer(membership, { ...customer, currentHearts: next, hearts: next }) } }; }); return response(request, env, result); }
-async function redeem(request, env, current) { await staff(env, current, 'redeem'); const p = await body(request), membership = security.normalizeMembershipNumber(p.membership || p.customerId), required = Number(p.requiredHearts ?? p.cost ?? 0), id = requestId(p); if (!membership || !Number.isInteger(required) || required <= 0) throw Error('INVALID_ARGUMENT'); const result = await atomicPlan(env, (root) => { const replay = replayOrPlan(root, 'redeem', id); if (replay) return replay; const customer = root.loyalty_customers?.[membership], hearts = Number(customer?.currentHearts ?? customer?.hearts ?? 0); if (!customer || hearts < required) throw Error('INSUFFICIENT_HEARTS'); const next = hearts - required, logId = id || crypto.randomUUID(), outcome = { ok: true, profile: safeCustomer(membership, { ...customer, currentHearts: next, hearts: next, totalHeartsSpent: Number(customer.totalHeartsSpent || 0) + required, totalHeartsRedeemed: Number(customer.totalHeartsRedeemed || 0) + required }) }; const updates = { [`loyalty_customers/${membership}/currentHearts`]: next, [`loyalty_customers/${membership}/hearts`]: next, [`loyalty_customers/${membership}/totalHeartsSpent`]: Number(customer.totalHeartsSpent || 0) + required, [`loyalty_customers/${membership}/totalHeartsRedeemed`]: Number(customer.totalHeartsRedeemed || 0) + required, [`loyalty_customers/${membership}/updatedAt`]: Date.now(), [`loyalty_redemption_logs/${logId}`]: { membership, requiredHearts: required, createdAt: Date.now(), requestId: id || null } }; if (id) updates[operationPath('redeem', id)] = { result: outcome, createdAt: Date.now() }; return { updates, result: outcome }; }); return response(request, env, result); }
+export function planStaffRedemption(root, membership, id, actor = {}) {
+  const replay = replayOrPlan(root, 'redeem', id);
+  if (replay) return replay;
+  const customer = root.loyalty_customers?.[membership], hearts = Number(customer?.currentHearts ?? customer?.hearts ?? 0);
+  if (!customer) throw Error('NOT_FOUND');
+  if (!Number.isInteger(hearts) || hearts < 5) throw Error('INSUFFICIENT_HEARTS');
+  const now = Date.now(), previousCount = Object.values(root.loyalty_redemption_logs || {}).filter(log => String(log?.membership || log?.customerId || log?.cardId || '') === membership).length;
+  const totalRedemptions = Math.max(Number(customer.totalRedemptions || 0), previousCount) + 1;
+  const nextCustomer = { ...customer, hearts: 0, currentHearts: 0, totalRedemptions, totalHeartsSpent: Number(customer.totalHeartsSpent || 0) + 5, totalHeartsRedeemed: Number(customer.totalHeartsRedeemed || 0) + 5, updatedAt: now };
+  const outcome = { ok: true, profile: safeCustomer(membership, nextCustomer), redemption: { membershipNumber: membership, totalRedemptions } };
+  return { updates: {
+    [`loyalty_customers/${membership}/hearts`]: 0,
+    [`loyalty_customers/${membership}/currentHearts`]: 0,
+    [`loyalty_customers/${membership}/totalRedemptions`]: totalRedemptions,
+    [`loyalty_customers/${membership}/totalHeartsSpent`]: nextCustomer.totalHeartsSpent,
+    [`loyalty_customers/${membership}/totalHeartsRedeemed`]: nextCustomer.totalHeartsRedeemed,
+    [`loyalty_customers/${membership}/updatedAt`]: now,
+    [`loyalty_redemption_logs/redeem_${id}`]: { type: 'REWARD_REDEEMED', membership, customerId: membership, cardId: membership, requiredHearts: 5, createdAt: now, requestId: id, cashierId: actor.uid || '', cashierName: actor.name || 'كاشير', cashierRole: actor.role || 'cashier' },
+    [operationPath('redeem', id)]: { result: outcome, createdAt: now }
+  }, result: outcome };
+}
+
+async function redeem(request, env, current) {
+  const actor = await staff(env, current, 'redeem');
+  const p = await body(request), membership = security.normalizeMembershipNumber(p.membership || p.customerId), id = requestId(p), pin = String(p.pin || '').trim();
+  if (!membership || !id || !pin) throw Error('INVALID_ARGUMENT');
+  await verifyMemberPin(env, membership, pin);
+  const result = await atomicPlan(env, root => planStaffRedemption(root, membership, id, { uid: current.uid, name: actor.record.displayName || current.name, role: actor.role }), { requestId: id, stage: 'STAFF_REDEMPTION_ATOMIC' });
+  return response(request, env, result);
+}
 async function redeemGift(request, env, current) {
   let stage = 'ENTER';
   try {

@@ -230,6 +230,7 @@ body { font-family: 'Cairo', sans-serif; background: var(--bg-gradient); color: 
         <span id="custHeartsDisplay">0</span> <span class="heart-icon">❤️</span>
       </div>
     </div>
+    <button id="redeemRewardButton" type="button" onclick="redeemCustomerReward()" style="display:none;width:100%;margin:-3px 0 15px;background:linear-gradient(135deg,var(--primary),var(--primary-lt));color:#2A3824;border:0;padding:14px;border-radius:12px;font:900 16px Cairo;cursor:pointer;">استبدال المكافأة 🎁</button>
     <div id="clubProfileBox" style="margin-bottom:15px;background:var(--surface2);border:1px solid var(--border);border-radius:14px;padding:14px;"></div>
 
     <!-- Points Management Buttons (Add, Deduct, Set Custom) -->
@@ -872,7 +873,7 @@ function renderStats() {
   put('statHearts', customerOnly.reduce((n,c)=>n+(Number(c.hearts)||0),0)+' ❤️');
   put('statTodayHearts', visibleLogs.filter(l=>isToday(l.timestamp) && (l.type==='HEART_ADDED'||l.type==='ADD_HEART')).reduce((n,l)=>n+Math.max(0, Number(l.amount)||((Number(l.newHearts)||0)-(Number(l.oldHearts)||0))),0)+' ❤️');
   put('statAvailableRewards', rewardRules.filter(r=>r.isActive !== false).length);
-  put('statRedeemed', visibleLogs.filter(l=>l.type==='REWARD_REDEEMED'||l.type==='REDEEM_REWARD').length);
+  put('statRedeemed', Math.max(redemptionLogs.length, visibleLogs.filter(l=>l.type==='REWARD_REDEEMED'||l.type==='REDEEM_REWARD').length));
   put('statTodayOps', visibleLogs.filter(l=>isToday(l.timestamp)).length);
   put('statCashiers', staff.filter(s=>s.role==='cashier'&&s.status==='active').length);
   put('statManagers', staff.filter(s=>(s.role==='manager'||s.role==='admin')&&s.status==='active').length);
@@ -1002,6 +1003,8 @@ function renderProfile() {
   document.getElementById('addHeartBtn').style.display = (can('manage_points') || can('add_points')) ? '' : 'none';
   document.getElementById('deductHeartBtn').style.display = can('manage_points') ? '' : 'none';
   document.getElementById('setLoyaltyPinBtn').style.display = can('manage_customers') ? '' : 'none';
+  const redeemButton = document.getElementById('redeemRewardButton');
+  if (redeemButton) { redeemButton.style.display = can('redeem_rewards') && Number(currentCustomer.currentHearts ?? currentCustomer.hearts ?? 0) === 5 ? '' : 'none'; redeemButton.disabled = false; }
   document.querySelector('#customerProfile button[onclick="setCustomHearts()"]').style.display = can('manage_points') ? '' : 'none';
   document.querySelector('#customerProfile button[onclick="deleteCurrentCustomer()"]').style.display = can('manage_customers') ? '' : 'none';
 
@@ -1070,7 +1073,7 @@ function renderRewards() {
         <strong style="color:var(--text);font-size:14px;display:block;">${esc(r.title)}</strong>
         ${isAvail ? '<span style="color:#4caf50;font-size:12px;font-weight:bold;">🟢 متاحة للاستبدال</span>' : '<span style="color:#e53935;font-size:12px;font-weight:bold;">🔴 تم الاستبدال مسبقاً</span>'}
       </div>
-      ${isAvail ? `<button class="btn-primary" onclick="redeemReward('${r.id}', '${esc(r.title)}')" style="padding:6px 14px;font-size:13px;font-weight:800;">استبدال 🎁</button>` : '<span style="color:var(--text-muted);font-size:12px;">مستبدلة</span>'}
+      <span style="color:var(--text-muted);font-size:12px;">${isAvail ? 'متاحة من بطاقة العضو عند اكتمال 5 قلوب' : 'مستبدلة'}</span>
     </div>`;
   });
   rw.innerHTML = html;
@@ -1451,66 +1454,30 @@ async function modifyPoints(delta, isExact = false, exactVal = 0) {
   }
 }
 
-// ── Redeem Reward ──
-async function redeemReward(rewardId, rewardTitle) {
-  if (!requirePermission('redeem_rewards')) return;
-  if (!currentCustomer) return;
+let redemptionInProgress = false;
+async function redeemCustomerReward() {
+  if (redemptionInProgress || !currentCustomer || !requirePermission('redeem_rewards')) return;
+  if (Number(currentCustomer.currentHearts ?? currentCustomer.hearts ?? 0) !== 5) return showToast('لا يمكن الاستبدال قبل جمع 5 قلوب.');
   if (!checkPinLockout(currentCustomer.id)) return;
-  
-  if (isCashierRole() && !(await verifyCurrentCustomerPin('استبدال المكافأة'))) {
-      recordPinFailure(currentCustomer.id);
-      return;
-  }
-  
-  if (!confirm(`هل أنت متأكد من استبدال مكافأة: "${rewardTitle}"؟`)) return;
-
+  const pin = prompt('أدخل PIN العضو للتحقق من الاستبدال:');
+  if (pin === null) return;
+  if (!/^\d{4,6}$/.test(String(pin).trim())) return showToast('❌ رمز PIN غير صحيح.');
+  if (!confirm('هل أنت متأكد من استبدال المكافأة وتصفير الرصيد إلى 0/5؟')) return;
+  redemptionInProgress = true;
+  const button = document.getElementById('redeemRewardButton');
+  if (button) { button.disabled = true; button.textContent = 'جارٍ التحقق والاستبدال…'; }
   try {
-      const rewardRef = db.ref(`loyalty_customers/${currentCustomer.id}/earnedRewards/${rewardId}`);
-      const res = await rewardRef.transaction((reward) => {
-          if (reward && reward.status === 'available') {
-              reward.status = 'redeemed';
-              reward.redeemedAt = firebase.database.ServerValue.TIMESTAMP;
-              reward.redeemedBy = currentCashier ? currentCashier.name : 'كاشير';
-              return reward;
-          }
-          return undefined; // abort if not available
-      });
-      
-      if (res.committed) {
-          const reward = rewardRules.find(r => r.id === rewardId);
-          const required = Number(reward?.heartsRequired || reward?.hearts || res.snapshot.val()?.heartsRequired || 5);
-          await db.ref(`loyalty_customers/${currentCustomer.id}`).transaction(customer => {
-            if (!customer) return customer;
-            const current = Number(customer.currentHearts ?? customer.hearts) || 0;
-            const next = Math.max(0, current - Math.min(required, current));
-            customer.hearts = next;
-            customer.currentHearts = next;
-            customer.totalSpent = Number(customer.totalSpent || 0) + required;
-            customer.totalHeartsRedeemed = Number(customer.totalHeartsRedeemed || 0) + required;
-            customer.totalHeartsSpent = Number(customer.totalHeartsSpent || 0) + required;
-            return customer;
-          });
-          const logId = db.ref('loyalty_logs').push().key;
-          await db.ref('loyalty_logs/' + logId).set({
-              type: 'REWARD_REDEEMED',
-              rewardTitle: rewardTitle,
-              customerId: currentCustomer.id,
-              cardId: currentCustomer.id,
-              customerName: currentCustomer.name,
-              cashierId: currentCashier?.uid || '',
-              cashierName: currentCashier ? currentCashier.name : 'كاشير',
-              cashierEmail: auth.currentUser?.email || '',
-              cashierRole: currentCashier ? currentCashier.role : 'cashier',
-              timestamp: firebase.database.ServerValue.TIMESTAMP
-              ,heartsSpent: required
-          });
-          showToast('🎉 تم استبدال المكافأة بنجاح!');
-      } else {
-          alert('❌ هذه المكافأة تم استبدالها مسبقًا أو لم تعد متاحة.');
-      }
-  } catch (e) {
-      showToast('❌ حدث خطأ أثناء الاستبدال: ' + e.message);
-  }
+    const requestId = crypto.randomUUID();
+    const result = await callLoyaltySecurity('/api/admin/loyalty/redeem', { method:'POST', body:{ membership:currentCustomer.id, pin:String(pin).trim(), requestId } });
+    if (!result?.profile || Number(result.profile.currentHearts ?? result.profile.hearts) !== 0) throw new Error('REDEMPTION_RESULT_INVALID');
+    currentCustomer = { ...currentCustomer, ...result.profile, id: result.profile.membershipNumber || currentCustomer.id };
+    renderProfile();
+    showToast(`✅ تم الاستبدال بنجاح. عدد مرات الاستبدال: ${Number(result.redemption?.totalRedemptions || currentCustomer.totalRedemptions || 0)}`);
+  } catch (error) {
+    if (error?.code === 'INVALID_PIN') recordPinFailure(currentCustomer.id);
+    const message = error?.code === 'INVALID_PIN' ? '❌ رمز PIN غير صحيح. لم تُنفّذ العملية.' : error?.code === 'INSUFFICIENT_HEARTS' ? 'لا يمكن الاستبدال قبل جمع 5 قلوب.' : '❌ تعذر إتمام الاستبدال. لم يتغير الرصيد.';
+    showToast(message);
+  } finally { redemptionInProgress = false; if (button) { button.disabled = false; button.textContent = 'استبدال المكافأة 🎁'; } }
 }
 
 
