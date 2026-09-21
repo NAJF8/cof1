@@ -3222,13 +3222,19 @@
                 <label for="eventBookingNameDisplay">الفعالية<input id="eventBookingNameDisplay" name="eventName" readonly></label>
                 <div class="form-grid">
                     <label for="eventBookingDate">التاريخ<input id="eventBookingDate" name="date" readonly></label>
-                    <label for="eventBookingTime">الوقت<input id="eventBookingTime" name="time" readonly></label>
+                    <label for="eventBookingTime">وقت البداية<select id="eventBookingTime" name="time" required></select></label>
+                </div>
+                <div class="form-grid">
+                    <label for="eventBookingDuration">مدة الحجز<select id="eventBookingDuration" name="durationHours" required><option value="1">ساعة واحدة</option><option value="2">ساعتان</option></select></label>
+                    <label for="eventBookingEndTime">وقت النهاية<input id="eventBookingEndTime" name="endTime" readonly></label>
                 </div>
                 <label for="eventBookingTable" id="eventBookingTableLabel">رقم الطاولة<select id="eventBookingTable" name="tableId" required></select></label>
                 <div class="form-grid">
                     <label for="eventCustomerName">الاسم<input id="eventCustomerName" name="name" required autocomplete="name"></label>
                     <label for="eventCustomerPhone">رقم الهاتف<input type="tel" id="eventCustomerPhone" name="phone" required autocomplete="tel"></label>
                 </div>
+                <label for="eventCustomerPeople">عدد الأشخاص<input type="number" id="eventCustomerPeople" name="peopleCount" min="1" value="1" required></label>
+                <label for="eventCustomerNotes">ملاحظات إضافية (اختياري)<textarea id="eventCustomerNotes" name="notes" rows="2"></textarea></label>
                 <div class="checkout-summary" id="eventBookingSummary"></div>
                 <button class="primary-btn full" type="submit">تأكيد الحجز</button>
             </form>
@@ -3917,23 +3923,27 @@
         }
 
         let activeEventDetailsId = null;
-        function eventTableCapacity(ev) { const isCandleDay=ev?.id==='candle_day'||ev?.isCandleDay===true; const raw=isCandleDay?(ev?.capacity??12):(eventCapacityDB?.[ev?.id]?.total??ev?.tableCount??30); return Math.max(0,Number(raw)||0); }
-        function confirmedEventTables(eventId) {
-            const saved = Number(eventCapacityDB?.[eventId]?.reserved);
-            return Number.isFinite(saved) ? saved : eventBookingsDB.filter(b => b.eventId === eventId && String(b.status || '').trim().toLowerCase() === 'confirmed').length;
-        }
-        function eventTablesRemaining(ev) { return Math.max(0, eventTableCapacity(ev) - confirmedEventTables(ev.id)); }
+        function eventTableCapacity(ev) { const isCandleDay=ev?.id==='candle_day'||ev?.isCandleDay===true; const raw=isCandleDay?(ev?.capacity??12):(ev?.tableCount??30); return Math.max(0,Number(raw)||0); }
+        function eventMinutes(value) { const m=String(value||'').match(/^(\d{1,2}):(\d{2})$/); return m && Number(m[1])<24 && Number(m[2])<60 ? Number(m[1])*60+Number(m[2]) : null; }
+        function eventInterval(startTime,endTime) { const start=eventMinutes(startTime), rawEnd=eventMinutes(endTime); if(start==null||rawEnd==null)return null; const end=rawEnd<=start?rawEnd+1440:rawEnd; return end>start?{start,end}:null; }
+        function eventBookingInterval(booking) { return eventInterval(booking?.startTime||booking?.time,booking?.endTime); }
+        function eventIntervalsOverlap(a,b) { return Boolean(a&&b&&[-1440,0,1440].some(shift=>a.start<b.end+shift&&b.start+shift<a.end)); }
+        function confirmedEventTables(eventId,date,requestedInterval) { const count=eventBookingsDB.filter(b=>b&&b.eventId===eventId&&String(b.status||'').toLowerCase()==='confirmed'&&(!date||b.date===date)&&eventIntervalsOverlap(eventBookingInterval(b),requestedInterval)).reduce((n,b)=>n+Math.max(1,Number(b.tableCount)||1),0); return count; }
+        function eventTablesRemaining(ev) { return eventTableCapacity(ev); }
+        function eventTimeOptions(ev) { const range=eventInterval(ev?.startTime,ev?.endTime); if(!range)return []; const out=[]; for(let t=range.start;t<range.end;t+=60){const v=t%1440;out.push(`${String(Math.floor(v/60)).padStart(2,'0')}:${String(v%60).padStart(2,'0')}`);} return out; }
+        function isPastBaghdadDateTime(date,time) { const parts=new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Baghdad',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date()).filter(x=>x.type!=='literal').reduce((o,x)=>(o[x.type]=x.value,o),{}); return `${date}T${time}`<`${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`; }
+        let availabilityRequestToken=0;
+        async function fetchEventAvailability(ev,date,startTime,endTime) { const token=++availabilityRequestToken; try { const response=await fetch('https://coffee-101-ai-chat.coffee101.workers.dev/api/table-availability',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({eventId:ev.id,date,startTime,endTime})}); const result=await response.json(); if(token!==availabilityRequestToken||!response.ok||result.ok!==true)return null; return result; } catch(error) { console.error('[EVENT_AVAILABILITY_FAILED]',{code:error?.code||'UNKNOWN'}); return null; } }
         function openEventDetails(eventId) { activeEventDetailsId = eventId; renderEventDetails(); setModalOpen(document.getElementById('eventDetailsModal'), true); }
         function renderEventDetails() {
             const ev = eventsDB.find(item => item.id === activeEventDetailsId), content = document.getElementById('eventDetailsContent');
             if (!ev || !content) return;
-            const remaining = eventTablesRemaining(ev), full = eventTableCapacity(ev) > 0 && remaining === 0;
-            content.innerHTML = `<div class="modal-title"><span class="eyebrow">WORKSHOP DETAILS</span><h2 id="eventDetailsTitle">${esc(eventTitle(ev))}</h2></div><p>${esc(eventDescription(ev) || '')}</p><div class="checkout-summary"><div class="summary-line"><span>التاريخ</span><strong dir="ltr">${esc(ev.date || '—')}</strong></div><div class="summary-line"><span>الوقت</span><strong dir="ltr">${esc(ev.startTime || '—')}${ev.endTime ? ' - ' + esc(ev.endTime) : ''}</strong></div><div class="summary-line"><span>السعر</span><strong>${Number(ev.price) === 0 ? 'مجاناً' : money(ev.price)}</strong></div><div class="summary-line"><span>الطاولات المتبقية</span><strong>${eventTableCapacity(ev) ? remaining : 'متاحة'}</strong></div></div><button class="primary-btn full" type="button" data-book-event="${esc(ev.id)}" ${full ? 'disabled' : ''}>${full ? 'اكتمل الحجز' : 'احجز طاولتك'}</button>`;
+            content.innerHTML = `<div class="modal-title"><span class="eyebrow">WORKSHOP DETAILS</span><h2 id="eventDetailsTitle">${esc(eventTitle(ev))}</h2></div><p>${esc(eventDescription(ev) || '')}</p><div class="checkout-summary"><div class="summary-line"><span>التاريخ</span><strong dir="ltr">${esc(ev.date || '—')}</strong></div><div class="summary-line"><span>الوقت</span><strong dir="ltr">${esc(ev.startTime || '—')}${ev.endTime ? ' - ' + esc(ev.endTime) : ''}</strong></div><div class="summary-line"><span>السعر</span><strong>${Number(ev.price) === 0 ? 'مجاناً' : money(ev.price)}</strong></div><div class="summary-line"><span>التوفر</span><strong>يُحسب بعد اختيار الوقت والمدة</strong></div></div><button class="primary-btn full" type="button" data-book-event="${esc(ev.id)}">احجز طاولتك</button>`;
         }
 
         function eventCard(e) {
             const src = safeImgSrc(e.image || e.imageUrl);
-            const seats = eventTableCapacity(e), available = eventTablesRemaining(e), full = seats > 0 && available === 0;
+            const seats = eventTableCapacity(e);
             return `<article class="product-card event-card" data-id="${esc(e.id)}" role="listitem">
               <div class="product-img" data-event-details="${esc(e.id)}">${src?`<img src="${esc(src)}" alt="${esc(eventTitle(e))}" loading="lazy">`:`<span class="placeholder-icon">🎉</span>`}</div>
               <div class="product-info">
@@ -3943,9 +3953,9 @@
                   <span><b>${currentLang==='en'?'Date:':'التاريخ:'}</b><em dir="ltr">${esc(e.date||'-')}</em></span>
                   <span><b>${currentLang==='en'?'Time:':'الوقت:'}</b><em dir="ltr">${esc(e.startTime||'-')}${e.endTime?' - '+esc(e.endTime):''}</em></span>
                   <span><b>${currentLang==='en'?'Price:':'السعر:'}</b><em>${Number(e.price)===0?(currentLang==='en'?'Free':'مجاني'):money(e.price||0)}</em></span>
-                  <span><b>${currentLang==='en'?'Tables remaining:':'الطاولات المتبقية:'}</b><em>${full ? 'اكتمل الحجز' : `${esc(available)}${seats?` / ${seats}`:''}`}</em></span>
+                  <span><b>${currentLang==='en'?'Availability:':'التوفر:'}</b><em>${seats ? (currentLang==='en'?'Choose time':'اختر الوقت لمعرفة المتاح') : 'غير متاح'}</em></span>
                 </div>
-                <button class="primary-btn full" type="button" data-book-event="${esc(e.id)}" ${full ? 'disabled' : ''}>${full ? 'اكتمل الحجز' : currentLang==='en'?'Book Now':'حجز الآن'}</button>
+                <button class="primary-btn full" type="button" data-book-event="${esc(e.id)}" ${seats ? '' : 'disabled'}>${seats ? (currentLang==='en'?'Book Now':'حجز الآن') : 'غير متاح'}</button>
               </div>
             </article>`;
         }
@@ -4324,11 +4334,11 @@
             document.getElementById("eventBookingId").value = ev.id;
             document.getElementById("eventBookingNameDisplay").value = eventTitle(ev);
             document.getElementById("eventBookingDate").value = ev.date || "-";
-            document.getElementById("eventBookingTime").value = `${ev.startTime || "-"}${ev.endTime ? " - " + ev.endTime : ""}`;
+            updateEventBookingTimes(ev);
             
             renderEventBookingTableOptions(ev);
 
-            renderEventBookingCapacity(ev);
+            renderEventBookingSummary(ev);
             setModalOpen(modal, true);
             fetch(`${firebaseConfig.databaseURL}/tables.json?eventBooking=${Date.now()}`, { cache: 'no-store' })
                 .then(response => response.ok ? response.json() : Promise.reject(new Error(`HTTP_${response.status}`)))
@@ -4340,19 +4350,36 @@
             return parts.map(value => String(value || '').trim().replace(/[^a-zA-Z0-9_-]/g, '_')).join('__');
         }
 
-        function renderEventBookingCapacity(ev) {
-            const summary = document.getElementById('eventBookingSummary'); if (!summary || !ev) return;
-            const remaining = eventTablesRemaining(ev), full = eventTableCapacity(ev) > 0 && remaining === 0;
-            summary.innerHTML = `<div class="summary-line"><span>${currentLang === 'en' ? 'Price per person:' : 'السعر للشخص:'}</span><strong>${Number(ev.price) === 0 ? (currentLang === 'en' ? 'Free' : 'مجاني') : money(ev.price)}</strong></div><div class="summary-line"><span>الطاولات المتبقية</span><strong>${full ? 'اكتمل الحجز' : eventTableCapacity(ev) ? remaining : 'متاحة'}</strong></div>`;
-            const submit = document.querySelector('#eventBookingForm [type="submit"]'); if (submit) { submit.disabled = full; if (full) submit.textContent = 'اكتمل الحجز'; else submit.textContent = 'تأكيد الحجز'; }
+        function updateEventBookingTimes(ev) {
+            const startSel=document.getElementById('eventBookingTime'),durationSel=document.getElementById('eventBookingDuration'),endInput=document.getElementById('eventBookingEndTime');
+            if(!startSel||!durationSel||!endInput)return;
+            const options=eventTimeOptions(ev),previous=startSel.value||ev.startTime||'';
+            startSel.innerHTML=options.map(t=>`<option value="${t}">${t}</option>`).join('');
+            if(options.includes(previous))startSel.value=previous;
+            const recalc=()=>{const start=eventMinutes(startSel.value),duration=Number(durationSel.value)||1,range=eventInterval(startSel.value,ev.endTime);let end=start==null?null:start+duration*60;if(range&&end>range.end){durationSel.value='1';end=start==null?null:start+60;} endInput.value=end==null?'':`${String(Math.floor((end%1440)/60)).padStart(2,'0')}:${String(end%60).padStart(2,'0')}`;renderEventBookingSummary(ev);};
+            startSel.onchange=recalc; durationSel.onchange=recalc; recalc();
         }
+
+        async function renderEventBookingSummary(ev) {
+            const summary=document.getElementById('eventBookingSummary'); if(!summary||!ev)return;
+            const date=ev.date||'',start=document.getElementById('eventBookingTime')?.value||'',duration=Number(document.getElementById('eventBookingDuration')?.value)||1,range=eventInterval(start,ev.endTime),end=start&&range?startMinutesToTime(eventMinutes(start)+duration*60):'';
+            const requested=eventInterval(start,end);
+            summary.innerHTML=`<div class="summary-line"><span>الموعد</span><strong dir="ltr">${esc(date)} ${esc(start||'—')} - ${esc(end||'—')}</strong></div><div class="summary-line"><span>الطاولات المتاحة خلال الفترة</span><strong>جارٍ التحقق…</strong></div>`;
+            const button=document.querySelector('#eventBookingForm [type="submit"]'); if(button)button.disabled=true;
+            if(!requested||isPastBaghdadDateTime(date,start)) { summary.querySelector('.summary-line:last-child strong').textContent='الفترة غير متاحة'; return; }
+            const availability=await fetchEventAvailability(ev,date,start,end); if(!availability)return;
+            if(!document.getElementById('eventBookingId')||document.getElementById('eventBookingId').value!==ev.id)return;
+            const strong=summary.querySelector('.summary-line:last-child strong'); if(strong)strong.textContent=`${availability.available} من أصل ${availability.total}`;
+            if(button){button.disabled=availability.available<1;button.textContent=availability.available<1?'لا توجد طاولة متاحة':'إرسال طلب الحجز';}
+        }
+        function startMinutesToTime(value){const v=((Number(value)||0)%1440+1440)%1440;return `${String(Math.floor(v/60)).padStart(2,'0')}:${String(v%60).padStart(2,'0')}`;}
         function refreshWorkshopCapacityUI() {
             const liveList = document.getElementById('eventsListGrid');
             if (liveList) liveList.innerHTML = eventsDB.filter(e => e && e.isActive !== false && e.id !== 'candle_day' && !e.isCandleDay && (!e.date || String(e.date) >= new Date().toISOString().slice(0,10))).map(eventCard).join('');
             if (currentCat === 'events') renderEventsCatalog();
             if (activeEventDetailsId) renderEventDetails();
             const id = document.getElementById('eventBookingId')?.value, ev = eventsDB.find(item => item.id === id);
-            if (ev && document.getElementById('eventBookingModal')?.classList.contains('open')) renderEventBookingCapacity(ev);
+            if (ev && document.getElementById('eventBookingModal')?.classList.contains('open')) renderEventBookingSummary(ev);
         }
 
         function handleEventBookingSubmit(e) {
@@ -4367,27 +4394,30 @@
             const name = f.get("name");
             const phone = f.get("phone");
 
-            if (!name || !phone) return alert("يرجى ملء جميع الحقول المطلوبة.");
+            const durationHours=Number(f.get('durationHours'))||1, endTime=f.get('endTime'), peopleCount=Number(f.get('peopleCount'))||0, notes=String(f.get('notes')||'').trim();
+            if (!name || !phone || ![1,2].includes(durationHours) || !Number.isInteger(peopleCount) || peopleCount<1) return alert("يرجى إكمال الاسم والهاتف وعدد الأشخاص.");
             const ev = eventsDB.find(x => x.id === eventId), isCandle = eventId === 'candle_day' || ev?.isCandleDay === true;
-            if (!ev || (!isCandle && eventTableCapacity(ev) > 0 && confirmedEventTables(eventId) >= eventTableCapacity(ev))) return showToast('اكتملت جميع الطاولات.','error');
+            const requested=eventInterval(time,endTime), eventRange=eventInterval(ev?.startTime,ev?.endTime);
+            if (!ev || !requested || !eventRange || time==='' || requested.start<eventRange.start || requested.end>eventRange.end || isPastBaghdadDateTime(date,time)) return showToast('اختر تاريخاً ووقتاً داخل ساعات العمل ولم يمر بعد.','error');
             const bookingId = isCandle ? bookingKey(eventId, date, tableId) : 'WB-' + Date.now().toString(36).toUpperCase() + '-' + Math.random().toString(36).slice(2,7).toUpperCase();
             const tableCount = 1;
 
             const bookingData = {
-                eventId, eventName, date, time, startTime: time, tableId, tableName, name, phone,
+                eventId, eventName, date, time, startTime: time, endTime, durationHours, tableId, tableName, name, phone, peopleCount, notes,
                 ...(!isCandle ? { tableCount } : {}),
                 price: Number(eventsDB.find(x => x.id === eventId)?.price || 0),
                 status: isCandle ? 'confirmed' : 'pending',
                 createdAt: firebase.database.ServerValue.TIMESTAMP
             };
 
-            const msg = `طلب حجز ورشة في 101 COFFEE 🎉\n\nالفعالية: ${eventName}\n👤 الاسم: ${name}\n📱 الهاتف: ${phone}\n📅 التاريخ: ${date}\n⏰ الوقت: ${time}\n🪑 عدد الطاولات: ${tableCount}\nرقم الطلب: ${bookingId}\n`;
+            const msg = `طلب حجز طاولة في 101 COFFEE 🎉\n\nالفعالية: ${eventName}\n👤 الاسم: ${name}\n📱 الهاتف: ${phone}\n📅 التاريخ: ${date}\n⏰ من ${time} إلى ${endTime}\n⌛ المدة: ${durationHours} ساعة\n👥 عدد الأشخاص: ${peopleCount}\nرقم الطلب: ${bookingId}\n${notes ? `📝 ملاحظات: ${notes}\n` : ''}`;
             const cleanPhone = (settings.whatsapp || "9647800000000").replace(/\D/g, "").replace(/^0/, "964");
             const waWindow = window.open('about:blank', '_blank');
             db.ref(`eventBookings/${bookingId}`).set({ ...bookingData, bookingId }).then(() => {
                 const waUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(msg)}`;
                 if(waWindow) waWindow.location.href=waUrl; else window.location.href=waUrl;
                 setModalOpen(document.getElementById("eventBookingModal"), false);
+                showToast('تم إرسال الطلب بانتظار موافقة الإدارة. لا يُعد فتح واتساب تأكيداً نهائياً.');
             }).catch(err => {
                 console.error('[CANDLE_BOOKING_FAILED]', {code:err?.code,message:err?.message,path:`eventBookings/${bookingId}`,operation:'set'});
                 const duplicate = err?.code === 'PERMISSION_DENIED' || err?.code === 'permission-denied';
@@ -5784,7 +5814,7 @@
                 if (currentCat === 'events') renderEventsCatalog();
                 if (activeEventDetailsId) renderEventDetails();
                 const bookingEvent=eventsDB.find(item=>item.id===document.getElementById('eventBookingId')?.value);
-                if(bookingEvent&&document.getElementById('eventBookingModal')?.classList.contains('open'))renderEventBookingCapacity(bookingEvent);
+                if(bookingEvent&&document.getElementById('eventBookingModal')?.classList.contains('open'))renderEventBookingSummary(bookingEvent);
             });
 
             // Public menu reads only the non-identifying, authoritative counter node.

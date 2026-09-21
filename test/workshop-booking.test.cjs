@@ -31,48 +31,37 @@ function testTableChoice() {
 
   const submission = fs.readFileSync("index.html", "utf8");
   assert.match(submission, /\.\.\.\(!isCandle \? \{ tableCount \} : \{\}\)/);
-  assert.ok(submission.includes("عدد الطاولات: ${tableCount}"));
+  assert.match(submission, /durationHours/);
 }
 
 function testLiveCapacityRefresh() {
   const helpers = section("index.html", "function eventTableCapacity", "function openEventDetails");
-  const capacityUi = section("index.html", "function renderEventBookingCapacity", "function refreshWorkshopCapacityUI");
-  const refresh = section("index.html", "function refreshWorkshopCapacityUI", "function handleEventBookingSubmit");
-  const summary = { innerHTML: "" };
-  const submit = { disabled: false, textContent: "تأكيد الحجز" };
-  const modal = { classList: { contains: () => true } };
   const context = {
     eventCapacityDB: { workshop: { total: 30, reserved: 18 } },
     eventBookingsDB: [], eventsDB: [{ id: "workshop", tableCount: 30, price: 0 }],
     currentCat: "", activeEventDetailsId: null, currentLang: "ar", esc: String, money: String,
-    document: { getElementById: id => id === "eventBookingSummary" ? summary : id === "eventBookingModal" ? modal : id === "eventBookingId" ? { value: "workshop" } : null,
-      querySelector: () => submit },
     console
   };
-  vm.runInNewContext(`${helpers}\n${capacityUi}\n${refresh}`, context);
-  assert.equal(vm.runInNewContext("eventTablesRemaining(eventsDB[0])", context), 12);
+  vm.runInNewContext(`${helpers}`, context);
+  assert.equal(vm.runInNewContext("eventTablesRemaining(eventsDB[0])", context), 30);
   context.eventCapacityDB.workshop.reserved = 27;
-  vm.runInNewContext("refreshWorkshopCapacityUI()", context);
-  assert.match(summary.innerHTML, />3</);
-  assert.equal(submit.disabled, false);
+  assert.equal(vm.runInNewContext("eventTablesRemaining(eventsDB[0])", context), 30);
   context.eventCapacityDB.workshop.reserved = 30;
-  vm.runInNewContext("refreshWorkshopCapacityUI()", context);
-  assert.match(summary.innerHTML, /اكتمل الحجز/);
-  assert.equal(submit.disabled, true);
+  assert.equal(vm.runInNewContext("eventTablesRemaining(eventsDB[0])", context), 30);
 }
 
 async function testAtomicAdminCapacity() {
-  const handler = section("admin.html", "async function updateEventBookingStatus", "function restoreEventBookingStatusSelect");
+  const handler = section("admin.html", "function adminEventMinutes", "function restoreEventBookingStatusSelect");
   let data = {
     _capacity: { workshop: { total: 1, reserved: 0 } },
-    first: { bookingId: "first", eventId: "workshop", status: "pending" },
-    second: { bookingId: "second", eventId: "workshop", status: "pending" }
+    first: { bookingId: "first", eventId: "workshop", date: "2026-09-21", status: "pending", startTime: "16:00", endTime: "18:00" },
+    second: { bookingId: "second", eventId: "workshop", date: "2026-09-21", status: "pending", startTime: "16:00", endTime: "18:00" }
   };
   let transactionQueue = Promise.resolve();
   const context = {
     eventCanManage: () => true,
-    eventBookingsDB: ["first", "second"].map(id => ({ id, eventId: "workshop", status: "pending" })),
-    eventsDB: [{ id: "workshop", tableCount: 30 }],
+    eventBookingsDB: ["first", "second"].map(id => ({ ...data[id], id })),
+    eventsDB: [{ id: "workshop", tableCount: 1, date: "2026-09-21", startTime: "16:00", endTime: "18:00" }],
     eventCapacityDB: { workshop: { total: 1, reserved: 0 } },
     normalizeEventBookingStatus: value => String(value || "").toLowerCase(),
     showNotif: () => {}, restoreEventBookingStatusSelect: () => {}, eventBookingStatusErrorMessage: () => "",
@@ -91,14 +80,14 @@ async function testAtomicAdminCapacity() {
   vm.runInNewContext(handler, context);
   await Promise.all([context.updateEventBookingStatus("first", "confirmed"), context.updateEventBookingStatus("second", "confirmed")]);
   assert.equal([data.first.status, data.second.status].filter(status => status === "confirmed").length, 1);
-  assert.equal(data._capacity.workshop.reserved, 1);
+  assert.equal(data._capacity.workshop.reserved, 0);
 
   const confirmedId = data.first.status === "confirmed" ? "first" : "second";
-  context.eventBookingsDB = [{ id: confirmedId, eventId: "workshop", status: "confirmed" }];
+  context.eventBookingsDB = [{ ...data[confirmedId], id: confirmedId }];
   await context.updateEventBookingStatus(confirmedId, "confirmed");
-  assert.equal(data._capacity.workshop.reserved, 1);
+  assert.equal(data._capacity.workshop.reserved, 0);
 
-  context.eventBookingsDB = [{ id: confirmedId, eventId: "workshop", status: "confirmed" }];
+  context.eventBookingsDB = [{ ...data[confirmedId], id: confirmedId }];
   await context.updateEventBookingStatus(confirmedId, "cancelled");
   assert.equal(data[confirmedId].status, "cancelled");
   assert.equal(data._capacity.workshop.reserved, 0);
