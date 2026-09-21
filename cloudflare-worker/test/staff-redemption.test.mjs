@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { planStaffRedemption } from '../src/loyalty-routes.js';
+import { planStaffRedemption, redemptionDescription } from '../src/loyalty-routes.js';
 
 function applyUpdates(root, updates) {
   for (const [path, value] of Object.entries(updates)) {
@@ -26,6 +26,9 @@ const described = planStaffRedemption(base(), '101-77', 'request-described', { u
 assert.equal(described.updates['loyalty_redemption_logs/redeem_request-described'].rewardDescription, 'قهوة مجانية');
 const withoutDescription = planStaffRedemption(base(), '101-77', 'request-empty', { uid: 'staff-1', name: 'Cashier', role: 'cashier' });
 assert.equal(Object.hasOwn(withoutDescription.updates['loyalty_redemption_logs/redeem_request-empty'], 'rewardDescription'), false);
+assert.equal(redemptionDescription('  قهوة\nمجانية  '), 'قهوة مجانية');
+assert.equal(redemptionDescription('   '), undefined);
+assert.throws(() => redemptionDescription('<script>alert(1)</script>'.repeat(20)), /INVALID_ARGUMENT/);
 
 const saved = base();
 applyUpdates(saved, first.updates);

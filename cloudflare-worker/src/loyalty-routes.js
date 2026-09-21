@@ -70,10 +70,11 @@ function safeCustomer(membership, customer) { return security.publicProfile(memb
 function credentialShapeIsUsable(credential) { return Boolean(credential && typeof credential.pinHash === 'string' && typeof credential.salt === 'string' && /^[A-Za-z0-9+/_-]+={0,2}$/.test(credential.pinHash) && /^[A-Za-z0-9+/_-]+={0,2}$/.test(credential.salt)); }
 function generateLoyaltyPin() { return String(Math.floor(Math.random() * 10000)).padStart(4, '0'); }
 function requestId(payload) { const value = String(payload?.requestId || payload?.idempotencyKey || '').trim(); if (!value) return ''; if (!/^[A-Za-z0-9._:-]{1,120}$/.test(value)) throw Error('INVALID_ARGUMENT'); return value; }
-function redemptionDescription(value) {
+export function redemptionDescription(value) {
   if (value === undefined || value === null) return undefined;
   if (typeof value !== 'string') throw Error('INVALID_ARGUMENT');
   const clean = value.replace(/[\u0000-\u001F\u007F]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (/[<>]/.test(clean)) throw Error('INVALID_ARGUMENT');
   if (clean.length > MAX_REDEMPTION_DESCRIPTION_LENGTH) throw Error('INVALID_ARGUMENT');
   return clean || undefined;
 }
