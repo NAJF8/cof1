@@ -3312,12 +3312,14 @@ function renderAdminLogs() {
    const tb = document.getElementById('adminLogsTable');
    if(!tb) return;
    const q = document.getElementById('adminLogSearch')?.value.toLowerCase().trim() || '';
-   const filtered = adminLogs.filter(l => {
+   const combinedLogs = [...adminLogs, ...adminRedemptionLogs.filter(r => !adminLogs.some(l => l.requestId && l.requestId === r.requestId))];
+   const filtered = combinedLogs.filter(l => {
        if(l.deleted) return false;
        if(!q) return true;
-       return (l.customerName||'').toLowerCase().includes(q) || 
-              (l.customerId||l.cardId||'').toLowerCase().includes(q) || 
-              (l.type||'').toLowerCase().includes(q);
+       return (l.customerName||'').toLowerCase().includes(q) ||
+              (l.customerId||l.cardId||'').toLowerCase().includes(q) ||
+              (l.type||'').toLowerCase().includes(q) ||
+              (l.rewardDescription||'').toLowerCase().includes(q);
    });
    
    if(!filtered.length) {
@@ -3332,7 +3334,7 @@ function renderAdminLogs() {
        if (l.type === 'HEART_ADDED' || l.type === 'ADD_HEART') { typeAr = '❤️ HEART_ADDED'; details = `${l.oldHearts??'-'} ➔ ${l.newHearts??'-'} (${Number(l.amount)||1} ❤️)`; }
        else if (l.type === 'HEART_REMOVED' || l.type === 'DEDUCT_HEART') { typeAr = '❤️ HEART_REMOVED'; details = `${l.oldHearts??'-'} ➔ ${l.newHearts??'-'} (${Number(l.amount)||-1} ❤️)`; }
        else if (l.type === 'REWARD_EARNED') { typeAr = '🎁 REWARD_EARNED'; details = l.rewardTitle || l.rewardName || ''; }
-       else if (l.type === 'REWARD_REDEEMED' || l.type === 'REDEEM_REWARD') { typeAr = '🎁 REWARD_REDEEMED'; details = l.rewardTitle || ''; }
+       else if (l.type === 'REWARD_REDEEMED' || l.type === 'REDEEM_REWARD') { typeAr = '🎁 REWARD_REDEEMED'; details = [l.rewardTitle, l.rewardDescription].filter(Boolean).map(esc).join(' — '); }
        else if (l.type === 'PIN_FAILED') { typeAr = 'فشل PIN'; details = 'محاولة خاطئة'; }
        
        return `<tr>
@@ -3370,6 +3372,7 @@ db.ref('loyalty_redemption_logs').on('value', snap => {
     adminRedemptionLogs = [];
     snap.forEach(l => { adminRedemptionLogs.push({id: l.key, ...l.val()}); });
     renderAdminCustomers();
+    renderAdminLogs();
 });
 }
 auth.onAuthStateChanged(user => { if(user) startAdminDetailListeners(); });
@@ -3420,7 +3423,7 @@ function openCustDetails(cardId) {
             let badgeColor = 'var(--primary)';
             if (l.type === 'HEART_ADDED') { typeTitle = '+1 قلب'; icon = '❤️'; badgeColor = '#4caf50'; }
             else if (l.type === 'HEART_REMOVED') { typeTitle = '-1 قلب'; icon = '💔'; badgeColor = '#e53935'; }
-            else if (l.type === 'REWARD_REDEEMED') { typeTitle = `استبدال: ${l.rewardTitle || 'مكافأة'}`; icon = '🎁'; badgeColor = '#ff9800'; }
+            else if (l.type === 'REWARD_REDEEMED') { typeTitle = [l.rewardTitle || 'استبدال', l.rewardDescription].filter(Boolean).map(esc).join(': '); icon = '🎁'; badgeColor = '#ff9800'; }
             else if (l.type === 'PIN_FAILED') { typeTitle = 'محاولة PIN خاطئة'; icon = '⚠️'; badgeColor = '#d32f2f'; }
             else if (l.type === 'EDIT_HEARTS') { typeTitle = `تعديل رصيد: ${l.oldHearts || 0} ➔ ${l.newHearts}`; icon = '✏️'; }
 

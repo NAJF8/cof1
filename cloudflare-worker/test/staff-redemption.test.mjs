@@ -22,6 +22,11 @@ assert.equal(first.result.redemption.totalRedemptions, 3);
 assert.equal(first.updates['loyalty_customers/101-77/hearts'], 0);
 assert.equal(first.updates['loyalty_logs/redeem_request-1'].requestId, 'request-1');
 
+const described = planStaffRedemption(base(), '101-77', 'request-described', { uid: 'staff-1', name: 'Cashier', role: 'cashier' }, 'قهوة مجانية');
+assert.equal(described.updates['loyalty_redemption_logs/redeem_request-described'].rewardDescription, 'قهوة مجانية');
+const withoutDescription = planStaffRedemption(base(), '101-77', 'request-empty', { uid: 'staff-1', name: 'Cashier', role: 'cashier' });
+assert.equal(Object.hasOwn(withoutDescription.updates['loyalty_redemption_logs/redeem_request-empty'], 'rewardDescription'), false);
+
 const saved = base();
 applyUpdates(saved, first.updates);
 const replay = planStaffRedemption(saved, '101-77', 'request-1', { uid: 'staff-1', role: 'cashier' });

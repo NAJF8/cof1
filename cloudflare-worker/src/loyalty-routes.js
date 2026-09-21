@@ -5,6 +5,7 @@ import { planGiftDecision, planGiftRedemption } from './gift-delivery.js';
 const PROJECT_ID = 'coffee-30fa7';
 const SUPER_ADMIN_EMAIL = 'mohameadalhaear100@gmail.com';
 const MAX_BODY = 16 * 1024;
+const MAX_REDEMPTION_DESCRIPTION_LENGTH = 120;
 const MAX_PRODUCT_IMAGE_BYTES = 5 * 1024 * 1024;
 const MAX_WORKSHOP_IMAGE_BYTES = 5 * 1024 * 1024;
 const MAX_BACKGROUND_VIDEO_BYTES = 25 * 1024 * 1024;
@@ -69,6 +70,13 @@ function safeCustomer(membership, customer) { return security.publicProfile(memb
 function credentialShapeIsUsable(credential) { return Boolean(credential && typeof credential.pinHash === 'string' && typeof credential.salt === 'string' && /^[A-Za-z0-9+/_-]+={0,2}$/.test(credential.pinHash) && /^[A-Za-z0-9+/_-]+={0,2}$/.test(credential.salt)); }
 function generateLoyaltyPin() { return String(Math.floor(Math.random() * 10000)).padStart(4, '0'); }
 function requestId(payload) { const value = String(payload?.requestId || payload?.idempotencyKey || '').trim(); if (!value) return ''; if (!/^[A-Za-z0-9._:-]{1,120}$/.test(value)) throw Error('INVALID_ARGUMENT'); return value; }
+function redemptionDescription(value) {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'string') throw Error('INVALID_ARGUMENT');
+  const clean = value.replace(/[\u0000-\u001F\u007F]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (clean.length > MAX_REDEMPTION_DESCRIPTION_LENGTH) throw Error('INVALID_ARGUMENT');
+  return clean || undefined;
+}
 function operationPath(kind, request) { return request ? `loyalty_operation_requests/${kind}/${encodeURIComponent(request).replace(/%/g, '_')}` : ''; }
 function replayOrPlan(root, kind, request) { if (!request) return null; const saved = root.loyalty_operation_requests?.[kind]?.[encodeURIComponent(request).replace(/%/g, '_')]; return saved?.result ? { replay: true, result: saved.result } : null; }
 async function atomicPlan(env, plan, diagnostics = {}) { return firebaseAdminAtomicPatch(env, plan, { attempts: 12, ...diagnostics }); }
@@ -591,7 +599,7 @@ async function setLoyaltyPin(request, env, current) { await staff(env, current, 
 async function search(request, env, current) { await staff(env, current, 'search'); const p = await body(request), q = String(p.query || '').trim().toLowerCase(), all = await firebaseAdminRequest(env, 'loyalty_customers') || {}; const found = Object.entries(all).map(([membership, customer]) => ({ membership, customer })).find(({ membership, customer }) => !q || [membership, customer.name, customer.email, customer.phone].some(v => String(v || '').toLowerCase().includes(q))); return response(request, env, { ok: true, customer: found ? safeCustomer(found.membership, found.customer) : null }); }
 async function deleteCustomer(request, env, current) { await staff(env, current, 'delete'); const p = await body(request), membership = security.normalizeMembershipNumber(p.membership); if (!membership) throw Error('INVALID_MEMBERSHIP'); const customer = await firebaseAdminRequest(env, `loyalty_customers/${membership}`); if (!customer) return response(request, env, { ok: true, deleted: false }); await firebaseAdminRequest(env, '', { method: 'PATCH', body: { [`loyalty_customers/${membership}`]: null, ...(customer.uid ? { [`loyalty_links/${customer.uid}`]: null } : {}) } }); return response(request, env, { ok: true, deleted: true }); }
 async function adjustHearts(request, env, current) { await staff(env, current, 'adjust'); const p = await body(request), membership = security.normalizeMembershipNumber(p.membership || p.customerId), delta = Number(p.amount ?? p.hearts ?? p.change); if (!membership || !Number.isInteger(delta) || Math.abs(delta) > 1000) throw Error('INVALID_ARGUMENT'); const result = await atomicPlan(env, (root) => { const customer = root.loyalty_customers?.[membership]; if (!customer) throw Error('NOT_FOUND'); const currentHearts = Number(customer.currentHearts ?? customer.hearts ?? 0), next = currentHearts + delta; if (!Number.isInteger(currentHearts) || next < 0 || next > 5) throw Error('HEARTS_OUT_OF_RANGE'); return { updates: { [`loyalty_customers/${membership}/currentHearts`]: next, [`loyalty_customers/${membership}/hearts`]: next, [`loyalty_customers/${membership}/updatedAt`]: Date.now() }, result: { ok: true, profile: safeCustomer(membership, { ...customer, currentHearts: next, hearts: next }) } }; }); return response(request, env, result); }
-export function planStaffRedemption(root, membership, id, actor = {}) {
+export function planStaffRedemption(root, membership, id, actor = {}, rewardDescription) {
   const replay = replayOrPlan(root, 'redeem', id);
   if (replay) return replay;
   const customer = root.loyalty_customers?.[membership], hearts = Number(customer?.currentHearts ?? customer?.hearts ?? 0);
@@ -610,6 +618,8 @@ export function planStaffRedemption(root, membership, id, actor = {}) {
   const totalRedemptions = Math.max(Number(customer.totalRedemptions || 0), previousCount) + 1;
   const nextCustomer = { ...customer, hearts: 0, currentHearts: 0, totalRedemptions, totalHeartsSpent: Number(customer.totalHeartsSpent || 0) + 5, totalHeartsRedeemed: Number(customer.totalHeartsRedeemed || 0) + 5, updatedAt: now };
   const outcome = { ok: true, profile: safeCustomer(membership, nextCustomer), redemption: { membershipNumber: membership, totalRedemptions } };
+  const redemptionLog = { type: 'REWARD_REDEEMED', membership, customerId: membership, cardId: membership, requiredHearts: 5, heartsSpent: 5, createdAt: now, timestamp: now, requestId: id, cashierId: actor.uid || '', cashierName: actor.name || 'كاشير', cashierRole: actor.role || 'cashier' };
+  if (rewardDescription !== undefined) redemptionLog.rewardDescription = rewardDescription;
   return { updates: {
     [`loyalty_customers/${membership}/hearts`]: 0,
     [`loyalty_customers/${membership}/currentHearts`]: 0,
@@ -617,7 +627,8 @@ export function planStaffRedemption(root, membership, id, actor = {}) {
     [`loyalty_customers/${membership}/totalHeartsSpent`]: nextCustomer.totalHeartsSpent,
     [`loyalty_customers/${membership}/totalHeartsRedeemed`]: nextCustomer.totalHeartsRedeemed,
     [`loyalty_customers/${membership}/updatedAt`]: now,
-    [`loyalty_logs/redeem_${id}`]: { type: 'REWARD_REDEEMED', membership, customerId: membership, cardId: membership, requiredHearts: 5, heartsSpent: 5, createdAt: now, timestamp: now, requestId: id, cashierId: actor.uid || '', cashierName: actor.name || 'كاشير', cashierRole: actor.role || 'cashier' },
+    [`loyalty_logs/redeem_${id}`]: redemptionLog,
+    [`loyalty_redemption_logs/redeem_${id}`]: redemptionLog,
     [operationPath('redeem', id)]: { result: outcome, createdAt: now }
   }, result: outcome };
 }
@@ -631,11 +642,12 @@ async function redeem(request, env, current) {
     membership = security.normalizeMembershipNumber(p.membership || p.customerId);
     id = requestId(p);
     const pin = String(p.pin || '').trim();
+    const rewardDescriptionValue = redemptionDescription(p.rewardDescription);
     if (!membership || !id || !pin) throw Error('INVALID_ARGUMENT');
     stage = 'PIN_VERIFY';
     await verifyMemberPin(env, membership, pin);
     stage = 'ATOMIC_REDEMPTION';
-    const result = await atomicPlan(env, root => planStaffRedemption(root, membership, id, { uid: current.uid, name: actor.record.displayName || current.name, role: actor.role }), { requestId: id, stage: 'STAFF_REDEMPTION_ATOMIC' });
+    const result = await atomicPlan(env, root => planStaffRedemption(root, membership, id, { uid: current.uid, name: actor.record.displayName || current.name, role: actor.role }, rewardDescriptionValue), { requestId: id, stage: 'STAFF_REDEMPTION_ATOMIC' });
     return response(request, env, result);
   } catch (error) {
     console.error('[LOYALTY_REDEMPTION_FAILURE]', { requestId: id || null, stage, code: String(error?.message || 'UNKNOWN').slice(0, 80) });
