@@ -608,7 +608,7 @@ export function planStaffRedemption(root, membership, id, actor = {}) {
     [`loyalty_customers/${membership}/totalHeartsSpent`]: nextCustomer.totalHeartsSpent,
     [`loyalty_customers/${membership}/totalHeartsRedeemed`]: nextCustomer.totalHeartsRedeemed,
     [`loyalty_customers/${membership}/updatedAt`]: now,
-    [`loyalty_redemption_logs/redeem_${id}`]: { type: 'REWARD_REDEEMED', membership, customerId: membership, cardId: membership, requiredHearts: 5, createdAt: now, requestId: id, cashierId: actor.uid || '', cashierName: actor.name || 'كاشير', cashierRole: actor.role || 'cashier' },
+    [`loyalty_logs/redeem_${id}`]: { type: 'REWARD_REDEEMED', membership, customerId: membership, cardId: membership, requiredHearts: 5, heartsSpent: 5, createdAt: now, timestamp: now, requestId: id, cashierId: actor.uid || '', cashierName: actor.name || 'كاشير', cashierRole: actor.role || 'cashier' },
     [operationPath('redeem', id)]: { result: outcome, createdAt: now }
   }, result: outcome };
 }

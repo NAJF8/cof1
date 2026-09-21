@@ -19,7 +19,7 @@ const first = planStaffRedemption(base(), '101-77', 'request-1', { uid: 'staff-1
 assert.equal(first.result.profile.currentHearts, 0);
 assert.equal(first.result.redemption.totalRedemptions, 3);
 assert.equal(first.updates['loyalty_customers/101-77/hearts'], 0);
-assert.equal(first.updates['loyalty_redemption_logs/redeem_request-1'].requestId, 'request-1');
+assert.equal(first.updates['loyalty_logs/redeem_request-1'].requestId, 'request-1');
 
 const saved = base();
 applyUpdates(saved, first.updates);
