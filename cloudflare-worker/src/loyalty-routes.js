@@ -68,7 +68,22 @@ async function optionalAuth(request) { const header = request.headers.get('Autho
 async function customToken(env, uid, membership) { const email = String(env.FIREBASE_SERVICE_ACCOUNT_EMAIL || '').trim(), privateKey = String(env.FIREBASE_SERVICE_ACCOUNT_PRIVATE_KEY || ''); if (!email || !privateKey) throw Error('FIREBASE_SERVICE_ACCOUNT_NOT_CONFIGURED'); const fingerprint = privateKey.slice(0, 24); if (customTokenKey.fingerprint !== fingerprint) customTokenKey = { fingerprint, value: await crypto.subtle.importKey('pkcs8', pemBytes(privateKey), { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']) }; const now = Math.floor(Date.now() / 1000), head = jsonPart({ alg: 'RS256', typ: 'JWT' }), claim = jsonPart({ iss: email, sub: email, aud: 'https://identitytoolkit.googleapis.com/google.identity.identitytoolkit.v1.IdentityToolkit', iat: now, exp: now + 3600, uid, claims: { loyaltyMembership: membership } }), signature = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', customTokenKey.value, new TextEncoder().encode(`${head}.${claim}`)); return `${head}.${claim}.${b64url(signature)}`; }
 function safeCustomer(membership, customer) { return security.publicProfile(membership, customer); }
 function credentialShapeIsUsable(credential) { return Boolean(credential && typeof credential.pinHash === 'string' && typeof credential.salt === 'string' && /^[A-Za-z0-9+/_-]+={0,2}$/.test(credential.pinHash) && /^[A-Za-z0-9+/_-]+={0,2}$/.test(credential.salt)); }
-function generateLoyaltyPin() { return String(Math.floor(Math.random() * 10000)).padStart(4, '0'); }
+async function chooseUniqueLoyaltyPin(root, pepper) {
+  const customers = root.loyalty_customers || {}, credentials = root.loyalty_credentials || {}, indexes = root.loyalty_pin_index || {};
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const pin = security.generatePin(), indexKey = await security.pinIndexKey(pin, pepper);
+    if (indexes[indexKey]) continue;
+    const legacyCollision = Object.values(customers).some(customer => customer && customer.status !== 'inactive' && customer.deleted !== true && String(customer.pin || '') === pin);
+    if (legacyCollision) continue;
+    let hashedCollision = false;
+    for (const [membership, credential] of Object.entries(credentials)) {
+      if (hashedCollision || !customers[membership] || customers[membership].status === 'inactive' || customers[membership].deleted === true || !credentialShapeIsUsable(credential)) continue;
+      hashedCollision = await security.timingSafePinMatch(pin, credential, pepper);
+    }
+    if (!hashedCollision) return { pin, indexKey };
+  }
+  throw Error('PIN_GENERATION_FAILED');
+}
 function requestId(payload) { const value = String(payload?.requestId || payload?.idempotencyKey || '').trim(); if (!value) return ''; if (!/^[A-Za-z0-9._:-]{1,120}$/.test(value)) throw Error('INVALID_ARGUMENT'); return value; }
 export function redemptionDescription(value) {
   if (value === undefined || value === null) return undefined;
@@ -448,7 +463,7 @@ async function resolvePinLoginUid(env, membership, customer) {
   if (matches.length > 1) throw Error('PROFILE_LINK_CONFLICT');
   if (directUid && matches.length === 1 && matches[0] !== directUid) throw Error('PROFILE_LINK_CONFLICT');
   if (directUid) return directUid;
-  return matches[0] || '';
+  return matches[0] || `loyalty-member:${membership}`;
 }
 async function profile(request, env, current) { const resolved = await resolveLoyaltyMembership(env, current); if (!resolved?.membership || !resolved.customer) return fail(request, env, 'PROFILE_NOT_FOUND', 404); return response(request, env, { ok: true, status: 'active', profile: safeCustomer(resolved.membership, resolved.customer) }); }
 async function verifyPinForReveal(request, env, current) {
@@ -481,22 +496,53 @@ async function verifyMemberPin(env, membership, pin) {
 async function provision(request, env, current, superAdmin = false) {
   if (!current.emailVerified || !current.email) return fail(request, env, 'VERIFIED_EMAIL_REQUIRED', 403);
   if (superAdmin && current.email !== SUPER_ADMIN_EMAIL) throw Error('FORBIDDEN');
-  const resolved = await resolveLoyaltyMembership(env, current);
-  const linked = resolved?.membership || '';
-  const linkedCustomer = resolved?.customer || null;
-  const ownsLinkedProfile = Boolean(linkedCustomer && customerBelongsTo(current, linkedCustomer));
   const pending = await firebaseAdminRequest(env, `loyalty_pending/${current.uid}`) || {};
-  let number = Number(await firebaseAdminRequest(env, 'loyalty_counter')) || 0;
-  let membership = ownsLinkedProfile ? linked : (superAdmin ? '101-1' : '');
-  while (!membership) { number += 1; membership = `101-${number}`; if (await firebaseAdminRequest(env, `loyalty_customers/${membership}`)) membership = ''; }
-  const existing = ownsLinkedProfile ? linkedCustomer : {};
-  const customer = { ...existing, ...(ownsLinkedProfile ? {} : { pin: generateLoyaltyPin() }), uid: current.uid, email: current.email, name: String(existing.name || pending.displayName || current.name || 'عضو 101').slice(0, 120), memberType: superAdmin ? 'Super Admin' : existing.memberType || 'زبون', hearts: Number(existing.hearts || 0), currentHearts: Number(existing.currentHearts ?? existing.hearts ?? 0), updatedAt: Date.now() };
-  const updates = { [`loyalty_customers/${membership}`]: customer, [`loyalty_links/${current.uid}`]: membership, loyalty_counter: Math.max(Number(membership.split('-')[1]), number) };
-  if (pending.status === 'pending') updates[`loyalty_pending/${current.uid}`] = null;
-  await firebaseAdminRequest(env, '', { method: 'PATCH', body: updates });
-  return response(request, env, { ok: true, status: ownsLinkedProfile ? 'already_provisioned' : 'created', profileStatus: 'active', provisioned: !ownsLinkedProfile, membershipNumber: membership, profile: safeCustomer(membership, customer) });
+  const pepper = String(env.LOYALTY_PIN_PEPPER || '');
+  if (!pepper) throw Error('INTERNAL_ERROR');
+  const result = await atomicPlan(env, async root => {
+    const linked = security.normalizeMembershipNumber(root.loyalty_links?.[current.uid]);
+    const linkedCustomer = linked ? root.loyalty_customers?.[linked] : null;
+    const ownsLinkedProfile = Boolean(linkedCustomer && customerBelongsTo(current, linkedCustomer));
+    let number = Number(root.loyalty_counter) || 0, membership = ownsLinkedProfile ? linked : (superAdmin ? '101-1' : '');
+    while (!membership || root.loyalty_customers?.[membership] && !ownsLinkedProfile) { number += 1; membership = `101-${number}`; }
+    const existing = ownsLinkedProfile ? linkedCustomer : {};
+    const now = Date.now();
+    const pinData = ownsLinkedProfile ? null : await chooseUniqueLoyaltyPin(root, pepper);
+    const customer = { ...existing, uid: current.uid, email: current.email, name: String(existing.name || pending.displayName || current.name || 'عضو 101').slice(0, 120), memberType: superAdmin ? 'Super Admin' : existing.memberType || 'زبون', hearts: Number(existing.hearts || 0), currentHearts: Number(existing.currentHearts ?? existing.hearts ?? 0), updatedAt: now };
+    const updates = { [`loyalty_customers/${membership}`]: customer, [`loyalty_links/${current.uid}`]: membership, loyalty_counter: Math.max(Number(membership.split('-')[1]), number) };
+    if (pinData) { const credential = await security.createCredential(pinData.pin, pepper, now); updates[`loyalty_credentials/${membership}`] = credential; updates[`loyalty_pin_index/${pinData.indexKey}`] = membership; }
+    if (pending.status === 'pending') updates[`loyalty_pending/${current.uid}`] = null;
+    return { updates, result: { ok: true, status: ownsLinkedProfile ? 'already_provisioned' : 'created', profileStatus: 'active', provisioned: !ownsLinkedProfile, membershipNumber: membership, profile: safeCustomer(membership, customer) } };
+  });
+  return response(request, env, result);
 }
-async function activatePending(request, env, current) { await staff(env, current, 'activate-pending'); const p = await body(request), uid = String(p.uid || '').trim(), pending = await firebaseAdminRequest(env, `loyalty_pending/${uid}`); if (!/^[A-Za-z0-9_-]{6,180}$/.test(uid) || !pending || pending.status !== 'pending') throw Error('INVALID_PENDING'); const existing = await firebaseAdminRequest(env, `loyalty_links/${uid}`); if (existing) { await firebaseAdminRequest(env, `loyalty_pending/${uid}`, { method: 'DELETE' }); return response(request, env, { ok: true, membershipNumber: existing, existing: true }); } const counter = (Number(await firebaseAdminRequest(env, 'loyalty_counter')) || 0) + 1, membership = `101-${counter}`, pin = String(Math.floor(Math.random() * 10000)).padStart(4, '0'), now = Date.now(); await firebaseAdminRequest(env, '', { method: 'PATCH', body: { [`loyalty_customers/${membership}`]: { uid, name: String(pending.displayName || pending.email || 'عضو 101').slice(0, 120), email: String(pending.email || '').slice(0, 180), memberType: 'زبون', membershipStatus: 'عضو مميز', hearts: 0, currentHearts: 0, pin, createdAt: now, updatedAt: now }, [`loyalty_links/${uid}`]: membership, [`loyalty_pending/${uid}`]: null, loyalty_counter: counter } }); return response(request, env, { ok: true, membershipNumber: membership, existing: false }); }
+async function createLoyaltyCustomer(request, env, current) {
+  const actor = await staff(env, current, 'manage_customers'), p = await body(request), name = String(p.name || '').trim(), phone = String(p.phone || '').trim(), memberType = p.memberType === 'عضو مميز' ? 'عضو مميز' : 'زبون', hearts = Number(p.hearts || 0);
+  if (!name || name.length > 120 || phone.length > 40 || !Number.isInteger(hearts) || hearts < 0 || hearts > 5) throw Error('INVALID_ARGUMENT');
+  const pepper = String(env.LOYALTY_PIN_PEPPER || ''); if (!pepper) throw Error('INTERNAL_ERROR');
+  const result = await atomicPlan(env, async root => {
+    let counter = Number(root.loyalty_counter) || 0, membership;
+    do { counter += 1; membership = `101-${counter}`; } while (root.loyalty_customers?.[membership]);
+    const now = Date.now(), pinData = await chooseUniqueLoyaltyPin(root, pepper), credential = await security.createCredential(pinData.pin, pepper, now), customer = { name, phone, hearts, currentHearts: hearts, totalEarned: hearts, totalHeartsEarned: hearts, totalSpent: 0, memberType, createdAt: now, createdBy: actor.record.displayName || current.name || 'كاشير', updatedAt: now };
+    const logId = `register_${crypto.randomUUID()}`, updates = { [`loyalty_customers/${membership}`]: customer, [`loyalty_credentials/${membership}`]: credential, [`loyalty_pin_index/${pinData.indexKey}`]: membership, [`loyalty_counter`]: counter, [`loyalty_logs/${logId}`]: { type: 'register', cardId: membership, customerName: name, cashierName: actor.record.displayName || current.name || 'كاشير', timestamp: now } };
+    return { updates, result: { ok: true, membershipNumber: membership, pin: pinData.pin, profile: safeCustomer(membership, customer) } };
+  }, { stage: 'LOYALTY_CUSTOMER_CREATE' });
+  return response(request, env, result);
+}
+
+async function activatePending(request, env, current) {
+  const actor = await staff(env, current, 'activate-pending'), p = await body(request), uid = String(p.uid || '').trim();
+  if (!/^[A-Za-z0-9_-]{6,180}$/.test(uid)) throw Error('INVALID_PENDING');
+  const pending = await firebaseAdminRequest(env, `loyalty_pending/${uid}`); if (!pending || pending.status !== 'pending') throw Error('INVALID_PENDING');
+  const pepper = String(env.LOYALTY_PIN_PEPPER || ''); if (!pepper) throw Error('INTERNAL_ERROR');
+  const result = await atomicPlan(env, async root => {
+    const existing = root.loyalty_links?.[uid]; if (existing) return { updates: { [`loyalty_pending/${uid}`]: null }, result: { ok: true, membershipNumber: existing, existing: true } };
+    const counter = (Number(root.loyalty_counter) || 0) + 1, membership = `101-${counter}`, now = Date.now(), pinData = await chooseUniqueLoyaltyPin(root, pepper), credential = await security.createCredential(pinData.pin, pepper, now);
+    const customer = { uid, name: String(pending.displayName || pending.email || 'عضو 101').slice(0, 120), email: String(pending.email || '').slice(0, 180), memberType: 'زبون', membershipStatus: 'عضو مميز', hearts: 0, currentHearts: 0, createdAt: now, updatedAt: now };
+    return { updates: { [`loyalty_customers/${membership}`]: customer, [`loyalty_credentials/${membership}`]: credential, [`loyalty_pin_index/${pinData.indexKey}`]: membership, [`loyalty_links/${uid}`]: membership, [`loyalty_pending/${uid}`]: null, loyalty_counter: counter }, result: { ok: true, membershipNumber: membership, existing: false, pin: pinData.pin } };
+  }, { stage: 'LOYALTY_PENDING_ACTIVATION' });
+  return response(request, env, result);
+}
 function normalizeActivationPhone(value) { return normalizeIraqiPhone(value); }
 function subscriptionActivationResult(requestId, subscriptionId, customerId, customer, pin, idempotent = false) { return { ok: true, requestId, subscriptionId, customerId, clubNumber: customer.clubNumber, ...(pin ? { pin } : {}), idempotent }; }
 async function activateSubscription(request, env, current) {
@@ -744,23 +790,23 @@ async function deleteSubscription(request, env, current) {
     const subscriptions = root.subscriptions || {};
     const sub = subscriptions[subscriptionId];
     if (!sub) return { replay: true, result: { ok: true, deleted: false, reason: 'NOT_FOUND' } };
-    
+
     const customerId = String(sub.customerId || sub.clubNumber || '');
     const uid = String(sub.uid || '');
     const customers = root.subscription_customers || {};
     const index = root.subscription_account_index || {};
     const credentials = root.subscription_credentials || {};
-    
+
     const updates = {
       [`subscriptions/${subscriptionId}`]: null
     };
     if (customerId && customers[customerId]) updates[`subscription_customers/${customerId}`] = null;
     if (customerId && credentials[customerId]) updates[`subscription_credentials/${customerId}`] = null;
     if (uid && index[uid] === customerId) updates[`subscription_account_index/${uid}`] = null;
-    
+
     return { updates, result: { ok: true, deleted: true } };
   });
-  
+
   return response(request, env, result);
 }
 async function route(request, env, url) {
@@ -781,6 +827,7 @@ async function route(request, env, url) {
     if (path === '/api/admin/subscription/activate' && request.method === 'POST') return await activateSubscription(request, env, current);
     if (path === '/api/admin/subscription/delete' && request.method === 'POST') return await deleteSubscription(request, env, current);
     if (path === '/api/admin/loyalty/activate-pending') return await activatePending(request, env, current);
+    if (path === '/api/admin/loyalty/create' && request.method === 'POST') return await createLoyaltyCustomer(request, env, current);
     if (path === '/api/admin/loyalty/change-membership') return await changeMembership(request, env, current);
     if (path === '/api/admin/loyalty/set-pin' && request.method === 'POST') return await setLoyaltyPin(request, env, current);
     if (path === '/api/admin/loyalty/search') return await search(request, env, current);

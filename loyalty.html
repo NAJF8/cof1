@@ -408,8 +408,8 @@ body { font-family: 'Cairo', sans-serif; background: var(--bg-gradient); color: 
         <input type="number" id="newCustHearts" value="0" min="0" max="5" style="width:100%; padding:10px; border-radius:10px; border:1px solid var(--border); background:var(--surface2); color:var(--text); font-family:Cairo; box-sizing:border-box; text-align:center;">
       </div>
       <div style="flex:1;">
-        <label style="display:block; font-size:12px; font-weight:700; margin-bottom:4px;">رمز PIN (4 أرقام):</label>
-        <input type="text" id="newCustPin" placeholder="توليد تلقائي" maxlength="6" style="width:100%; padding:10px; border-radius:10px; border:1px solid var(--border); background:var(--surface2); color:var(--text); font-family:monospace; box-sizing:border-box; text-align:center;">
+        <label style="display:block; font-size:12px; font-weight:700; margin-bottom:4px;">رمز PIN:</label>
+        <input type="text" id="newCustPin" value="يُولّد من الخادم" readonly aria-readonly="true" style="width:100%; padding:10px; border-radius:10px; border:1px solid var(--border); background:var(--surface2); color:var(--text-muted); font-family:Cairo; box-sizing:border-box; text-align:center;">
       </div>
     </div>
     <div style="margin:-5px 0 16px;"><label style="display:block;font-size:12px;font-weight:700;margin-bottom:4px;">نوع العميل:</label><select id="newCustType" style="width:100%;padding:10px;border-radius:10px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-family:Cairo;"><option value="زبون">زبون</option><option value="عضو مميز">عضو مميز</option></select></div>
@@ -1557,7 +1557,7 @@ function openNewCustomerModal() {
   document.getElementById('newCustName').value = '';
   document.getElementById('newCustPhone').value = '';
   document.getElementById('newCustHearts').value = '0';
-  document.getElementById('newCustPin').value = '';
+  document.getElementById('newCustPin').value = 'يُولّد من الخادم';
   document.getElementById('newCustType').value = 'زبون';
   document.getElementById('newCustomerModal').style.display = 'flex';
 }
@@ -1572,65 +1572,26 @@ async function submitNewCustomer() {
   const phone = document.getElementById('newCustPhone').value.trim();
   const hearts = parseInt(document.getElementById('newCustHearts').value, 10) || 0;
   const memberType = document.getElementById('newCustType').value === 'عضو مميز' ? 'عضو مميز' : 'زبون';
-  let pin = document.getElementById('newCustPin').value.trim();
   
   if (!name) {
     alert('يرجى إدخال اسم الزبون.');
     return;
   }
   
-  if (pin === '0224') return alert('الرمز 0224 محجوز ولا يمكن استخدامه لعضوية جديدة.');
-  
   try {
-    pin = pin || await generateUniqueLoyaltyPin();
-    const counterSnap = await db.ref('loyalty_counter').transaction(c => (Number(c)||0) + 1);
-    const nextNum = counterSnap.snapshot.val() || 1;
-    const newCardId = '101-' + nextNum;
-    
-    const newCustData = {
-      name: name,
-      phone: phone,
-      hearts: hearts,
-      totalEarned: hearts,
-      totalSpent: 0,
-      memberType: memberType,
-      createdAt: Date.now(),
-      createdBy: currentCashier ? currentCashier.name : 'كاشير'
-    };
-    
-    await db.ref('loyalty_customers/' + newCardId).set(newCustData);
-    await callLoyaltySecurity('/api/admin/loyalty/set-pin', { method: 'POST', body: { membership: newCardId, pin } });
-    
-    await db.ref('loyalty_logs').push({
-      type: 'register',
-      cardId: newCardId,
-      customerName: name,
-      cashierName: currentCashier ? currentCashier.name : 'كاشير يدوي',
-      timestamp: Date.now()
-    });
+    const result = await callLoyaltySecurity('/api/admin/loyalty/create', { method: 'POST', body: { name, phone, hearts, memberType } });
+    const newCardId = result.data?.membershipNumber;
+    if (!newCardId) throw new Error('تعذر إنشاء رقم العضوية');
     
     closeNewCustomerModal();
-    showToast(`🎉 تم إنشاء العضوية ${newCardId} بنجاح!`);
+    showToast(`🎉 تم إنشاء العضوية ${newCardId} بنجاح. تم تسليم PIN للمشرف المصرح مرة واحدة.`);
+    if (result.data?.pin) alert(`تم إنشاء ${newCardId}. PIN للمشرف المصرح فقط: ${result.data.pin}`);
     
     // Open the new customer profile
     openCustomer(newCardId);
   } catch(e) {
     alert('حدث خطأ أثناء إنشاء العضوية: ' + e.message);
   }
-}
-
-function randomLoyaltyPin() {
-  if (window.crypto?.getRandomValues) { const values = new Uint32Array(1); window.crypto.getRandomValues(values); return String(values[0] % 10000).padStart(4, '0'); }
-  return String(Math.floor(Math.random() * 10000)).padStart(4, '0');
-}
-async function generateUniqueLoyaltyPin() {
-  for (let attempt = 0; attempt < 20; attempt++) {
-    const pin = randomLoyaltyPin();
-    if (pin === '0224') continue;
-    const existing = await db.ref('loyalty_customers').orderByChild('pin').equalTo(pin).once('value');
-    if (!existing.exists()) return pin;
-  }
-  throw new Error('تعذر توليد رمز عضوية فريد. حاول مرة أخرى.');
 }
 </script>
 

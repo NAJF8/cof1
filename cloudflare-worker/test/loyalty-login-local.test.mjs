@@ -42,10 +42,11 @@ assert.equal(root.loyalty_customers['101-100'].pin, undefined);
 assert.equal(root.loyalty_credentials['101-100'].pinHash.length > 20, true);
 
 result = await login('101-104', '9876');
-assert.equal(result.status, 404);
-assert.equal(result.body.error, 'PROFILE_NOT_FOUND');
-assert.equal(root.loyalty_customers['101-104'].pin, '9876');
+assert.equal(result.status, 200);
+assert.equal(decodeTokenPayload(result.body.token).uid, 'loyalty-member:101-104');
+assert.equal(root.loyalty_customers['101-104'].pin, undefined);
 assert.equal(root.loyalty_customers['101-104'].hearts, 1);
+assert.equal(root.loyalty_credentials['101-104'].pinHash.length > 20, true);
 
 result = await login('101-101', '9999');
 assert.equal(result.status, 401);

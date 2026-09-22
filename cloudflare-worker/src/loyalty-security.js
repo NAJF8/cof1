@@ -1,4 +1,4 @@
-const enc=new TextEncoder(),ITERATIONS=100000,LEGACY_ITERATIONS=310000,MAX_FAILURES=5,WINDOW_MS=900000;
+const enc=new TextEncoder(),ITERATIONS=100000,LEGACY_ITERATIONS=310000,MAX_FAILURES=5,WINDOW_MS=900000,LEGACY_DEFAULT_PIN='0224';
 const SAFE_CRYPTO_ERROR_NAMES=new Set(['OperationError','InvalidAccessError','NotSupportedError','TypeError','QuotaExceededError','AbortError','UnknownError']);
 function normalizeMembershipNumber(v){let n=String(v||'').trim().toUpperCase().replace(/\s+/g,'');if(n.startsWith('CLUB-'))n=n.slice(5);return /^101-[1-9]\d{0,11}$/.test(n)?n:null;}
 function validPin(v){return /^\d{4,6}$/.test(String(v||''));}
@@ -11,6 +11,12 @@ function timingSafeEqual(a,b){if(a.length!==b.length)return false;let d=0;for(le
 async function timingSafePinMatch(pin,c,pepper){if(!c?.pinHash||!c?.salt||!validPin(pin))return false;let it=Number(c.iterations);if(!Number.isInteger(it)||it<10000||it>500000)it=LEGACY_ITERATIONS;return timingSafeEqual(b64(await derivePin(pin,c.salt,pepper,null,it)),b64(c.pinHash));}
 async function attemptKey(membership,ip,pepper){const k=await crypto.subtle.importKey('raw',enc.encode(pepper),{name:'HMAC',hash:'SHA-256'},false,['sign']);const d=await crypto.subtle.sign('HMAC',k,enc.encode(`${membership}\n${ip||'unknown'}`));return [...new Uint8Array(d)].map(x=>x.toString(16).padStart(2,'0')).join('');}
 async function createCredential(pin,pepper,now=Date.now(),onStage){if(!validPin(pin))throw Error('INVALID_PIN');onStage?.('CRED_RANDOM_START');const saltBytes=crypto.getRandomValues(new Uint8Array(32));onStage?.('CRED_RANDOM_OK');onStage?.('CRED_SALT_ENCODE_START');const salt=out(saltBytes);onStage?.('CRED_SALT_ENCODE_OK');const pinHash=await derivePin(pin,salt,pepper,onStage);onStage?.('CRED_OBJECT_BUILD_START');const credential={pinHash,salt,algorithm:'PBKDF2-SHA512',iterations:ITERATIONS,version:1,failedAttempts:0,lockedUntil:0,updatedAt:now};onStage?.('CRED_OBJECT_BUILD_OK');return credential;}
-function generatePin(){const bytes=crypto.getRandomValues(new Uint32Array(1));return String(1000+(bytes[0]%9000));}
+function generatePin(){
+  const limit=Math.floor(0x100000000/10000)*10000;
+  let value;
+  do { const bytes=crypto.getRandomValues(new Uint32Array(1)); value=bytes[0]; } while(value>=limit || String(value%10000).padStart(4,'0')===LEGACY_DEFAULT_PIN);
+  return String(value%10000).padStart(4,'0');
+}
+async function pinIndexKey(pin,pepper){const bytes=await crypto.subtle.digest('SHA-256',enc.encode(`${pin}:${pepper}`));return [...new Uint8Array(bytes)].map(x=>x.toString(16).padStart(2,'0')).join('');}
 function publicProfile(m,c){return{membershipNumber:m,name:String(c?.name||c?.displayName||'عضو 101').slice(0,120),currentHearts:Number(c?.currentHearts??c?.hearts??0),totalRedemptions:Number(c?.totalRedemptions||0),memberType:String(c?.memberType||c?.membershipStatus||'عضو مميز').slice(0,80),clubNumber:c?.clubNumber?String(c.clubNumber).slice(0,80):null,subscription:c?.activeSubscriptionId?{active:true}:null};}
-export{ITERATIONS,LEGACY_ITERATIONS,MAX_FAILURES,WINDOW_MS,normalizeMembershipNumber,validPin,derivePin,timingSafeEqual,timingSafePinMatch,attemptKey,createCredential,generatePin,publicProfile,safeCredentialCryptoErrorName,createSafeCredentialDiagnosticError};
+export{ITERATIONS,LEGACY_ITERATIONS,MAX_FAILURES,WINDOW_MS,normalizeMembershipNumber,validPin,derivePin,timingSafeEqual,timingSafePinMatch,attemptKey,createCredential,generatePin,pinIndexKey,publicProfile,safeCredentialCryptoErrorName,createSafeCredentialDiagnosticError};

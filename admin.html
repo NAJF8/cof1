@@ -1993,11 +1993,6 @@ function loadLoyaltyPending(){
   }, error=>{ console.error('Pending loyalty listener failed:',error); });
 }
 
-function generateAdminPin(){
-  if(window.crypto?.getRandomValues){ const a=new Uint32Array(1); crypto.getRandomValues(a); return String(a[0]%10000).padStart(4,'0'); }
-  return String(Math.floor(Math.random()*10000)).padStart(4,'0');
-}
-
 async function activateLoyaltyPending(uid){
   if(!can('manage_loyalty_pending')) return showNotif('ليس لديك صلاحية تفعيل العضويات.','error');
   const storageKey=`loyalty-activation-operation:${uid}`;
@@ -3184,7 +3179,7 @@ function viewCustomerDetails(id){
         <small style="color:var(--text-muted)">رمز PIN الخاص بالعميل</small>
         <div style="display:flex;align-items:center;gap:8px;">
           <span id="custPinDisplay" style="font-family:monospace;font-weight:bold;letter-spacing:3px;">••••</span>
-          <button type="button" onclick="toggleCustPinReveal('${esc(c.pin||'0224')}')" style="background:none;border:none;cursor:pointer;font-size:14px;">👁️</button>
+          <button type="button" onclick="toggleCustPinReveal()" style="background:none;border:none;cursor:pointer;font-size:14px;" title="لا يمكن عرض PIN محفوظ؛ استخدم إصدار PIN">👁️</button>
         </div>
       </div>
     </div>
@@ -3272,11 +3267,11 @@ async function deleteClubSubscriber(subscriptionId){
   }
 }
 
-function toggleCustPinReveal(pin){
+function toggleCustPinReveal(){
   const el = document.getElementById('custPinDisplay');
   if(!el) return;
   if(el.textContent === '••••') {
-    el.textContent = pin;
+    el.textContent = 'غير متاح؛ أصدر PIN جديداً';
   } else {
     el.textContent = '••••';
   }
