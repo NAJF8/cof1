@@ -14,7 +14,9 @@ function token() { const now = Math.floor(Date.now() / 1000), head = Buffer.from
 globalThis.fetch = async (url, options = {}) => { const address = String(url); if (address.includes('service_accounts/v1/jwk')) return Response.json({ keys: [{ ...publicJwk, kid: 'fixture', alg: 'RS256', use: 'sig' }] }); if (address === 'https://oauth2.googleapis.com/token') return Response.json({ access_token: 'fixture', expires_in: 3600 }); if (!address.startsWith(env.FIREBASE_DATABASE_URL)) throw Error('unexpected request'); const path = decodeURIComponent(new URL(address).pathname).replace(/^\//, '').replace(/\.json$/, ''); const method = options.method || 'GET'; if (method === 'PUT' || method === 'PATCH') { setPath(path, JSON.parse(options.body)); return Response.json(root, { headers: { ETag: 'fixture-etag' } }); } let value = root; for (const part of path ? path.split('/') : []) value = value?.[part]; return new Response(JSON.stringify(value ?? null), { headers: { 'Content-Type': 'application/json', ETag: 'fixture-etag' } }); };
 async function call(mode, runId) { const request = new Request('https://worker.test/api/admin/loyalty/pin-migration', { method: 'POST', headers: { Origin: env.ALLOWED_ORIGINS, Authorization: `Bearer ${token()}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ mode, runId }) }); const response = await handleLoyaltyRoutes(request, env, new URL(request.url)); return { status: response.status, body: await response.json() }; }
 
-let result = await call('dry-run');
+let result = await call('apply');
+assert.equal(result.status, 400);
+result = await call('dry-run');
 assert.equal(result.status, 200); assert.equal(result.body.report.eligible, 2); assert.equal(result.body.report.alreadyEncrypted, 1); assert.equal(result.body.report.hashOnly, 1);
 result = await call('backup', 'repair-fixture-001');
 assert.equal(result.status, 200); assert.equal(result.body.backupVerified, true); assert.equal(result.body.backedUp, 2); assert.equal(typeof root.loyalty_pin_repair_runs['repair-fixture-001'].backup.ciphertext, 'string');
@@ -22,4 +24,6 @@ result = await call('apply', 'repair-fixture-001');
 assert.equal(result.status, 200); assert.equal(result.body.processed.migrated, 2);
 for (const membership of ['101-1', '101-2']) { const originalPin = membership === '101-1' ? '1111' : '2222', credential = root.loyalty_credentials[membership]; assert.equal(root.loyalty_customers[membership].pin, undefined); assert.equal(await timingSafePinMatch(originalPin, credential, env.LOYALTY_PIN_PEPPER), true); assert.equal(await decryptPin(credential.pinCiphertext, env.LOYALTY_PIN_REVEAL_KEY), originalPin); }
 assert.equal(JSON.stringify(root.loyalty_customers['101-2']).includes('2222'), false); assert.equal(root.loyalty_customers['101-3'].pin, undefined); assert.equal(root.loyalty_credentials['101-4'].pinCiphertext, undefined); assert.equal(root.loyalty_customers['101-5'].pin, undefined); assert.equal(JSON.stringify(root.loyalty_customers['101-2']), beforeProtected.replace('"pin":"2222",', ''));
+result = await call('apply', 'repair-fixture-001');
+assert.equal(result.status, 200); assert.equal(result.body.processed.migrated, 0); assert.equal(result.body.hasMore, false);
 console.log('legacy PIN repair fixture: PASS');
