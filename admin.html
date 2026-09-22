@@ -1024,10 +1024,12 @@ const db   = firebase.database();
 const storage = firebase.storage();
 const LOYALTY_SECURITY_ENDPOINT = 'https://coffee-101-ai-chat.coffee101.workers.dev';
 async function callLoyaltySecurity(path, options = {}) {
-  const headers = {'Content-Type':'application/json', ...(options.headers || {})};
+  const {safeDiagnosticTag, ...requestOptions} = options;
+  const headers = {'Content-Type':'application/json', ...(requestOptions.headers || {})};
   if (auth.currentUser) headers.Authorization = `Bearer ${await auth.currentUser.getIdToken()}`;
-  const response = await fetch(`${LOYALTY_SECURITY_ENDPOINT}${path}`, {...options, headers, body: options.body && typeof options.body !== 'string' ? JSON.stringify(options.body) : options.body});
+  const response = await fetch(`${LOYALTY_SECURITY_ENDPOINT}${path}`, {...requestOptions, headers, body: requestOptions.body && typeof requestOptions.body !== 'string' ? JSON.stringify(requestOptions.body) : requestOptions.body});
   const data = await response.json().catch(() => ({}));
+  if(safeDiagnosticTag) console.info(`[${safeDiagnosticTag}]`, {status: response.status, code: data.error || data.code || null, available: data.available === true});
   if (!response.ok) {
     const error = new Error(data.error || 'LOYALTY_SECURITY_FAILED');
     error.code = data.error || 'LOYALTY_SECURITY_FAILED';
@@ -3207,8 +3209,7 @@ function viewCustomerDetails(id){
       <div style="background:var(--surface2);padding:10px 14px;border-radius:10px;">
         <small style="color:var(--text-muted)">رمز PIN الخاص بالعميل</small>
         <div style="display:flex;align-items:center;gap:8px;">
-          <span id="custPinDisplay" style="font-family:monospace;font-weight:bold;letter-spacing:3px;">••••</span>
-          ${canRevealMemberPin() ? `<button type="button" onclick="revealCustomerPinAdmin('${esc(c.id)}')" style="background:none;border:none;cursor:pointer;font-size:14px;" title="عرض الرمز لمدة 15 ثانية">👁️</button>` : '<small style="color:var(--text-muted)">لا تملك صلاحية كشف PIN</small>'}
+          ${canRevealMemberPin() ? `<button type="button" id="custPinDisplay" onclick="revealCustomerPinAdmin('${esc(c.id)}')" style="background:none;border:0;padding:0;font-family:monospace;font-weight:bold;letter-spacing:3px;cursor:pointer;" title="عرض الرمز لمدة 15 ثانية" aria-label="عرض PIN لمدة 15 ثانية">••••</button><button type="button" onclick="revealCustomerPinAdmin('${esc(c.id)}')" style="background:none;border:none;cursor:pointer;font-size:14px;" title="عرض الرمز لمدة 15 ثانية" aria-label="عرض PIN لمدة 15 ثانية">👁️</button>` : '<span id="custPinDisplay" style="font-family:monospace;font-weight:bold;letter-spacing:3px;">••••</span><small style="color:var(--text-muted)">لا تملك صلاحية كشف PIN</small>'}
         </div>
       </div>
     </div>
@@ -3379,11 +3380,11 @@ async function applyOriginalPinRecovery(){
   finally{pinMigrationDryRunInFlight=false;if(button){button.disabled=!pinMigrationRunId;button.textContent='ترحيل العضويات المؤهلة';}}
 }
 async function revealCustomerPinAdmin(id){
-  if(!canRevealMemberPin() || !currentUser) return showNotif('لا تملك صلاحية كشف PIN.','error');
+  if(!canRevealMemberPin() || !auth.currentUser) return showNotif('لا تملك صلاحية كشف PIN.','error');
   const el = document.getElementById('custPinDisplay');
   if(!el) return;
   try {
-    const result = await callLoyaltySecurity('/api/admin/loyalty/reveal-pin', { method:'POST', body:{ membership:id } });
+    const result = await callLoyaltySecurity('/api/admin/loyalty/reveal-pin', { method:'POST', body:{ membership:id }, safeDiagnosticTag:'ADMIN_PIN_REVEAL' });
     const pin = String(result?.pin || '').trim();
     if(!/^\d{4,6}$/.test(pin)) {
       el.textContent = 'لا توجد نسخة PIN مشفّرة قابلة للاسترجاع';
