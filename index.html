@@ -4569,8 +4569,7 @@
             const activeMembership = String(membership || '').trim();
             const activeUid = String(currentFirebaseUser?.uid || auth?.currentUser?.uid || '');
             if (pinMemoryMembership && (pinMemoryMembership !== activeMembership || (pinMemoryUid && activeUid && pinMemoryUid !== activeUid))) clearPinMemory();
-            // Keep the control available for an authenticated Google member too.
-            // The click path performs an ownership-bound PIN verification before reveal.
+            if (pinMemoryMembership === activeMembership && !pinMemoryUid && activeUid) pinMemoryUid = activeUid;
             setPinRevealControls(Boolean(currentFirebaseUser && loyaltyCustomer && (hasPinMemory() ? pinMemoryMembership === activeMembership : true)));
             applyPinVisibility();
         }
@@ -4591,20 +4590,19 @@
         window.togglePinVisibility = async function() {
             if (isPinRevealed) { hidePinVisibility(); return; }
             if (!currentFirebaseUser || !loyaltyCustomer) return;
-            if (!hasPinMemory()) {
-                const enteredPin = window.prompt(currentLang === 'en' ? 'Enter your PIN to verify ownership.' : 'أدخل رمز PIN للتحقق من ملكية الحساب.');
-                const cleanPin = String(enteredPin || '').trim();
-                if (!/^\d{4,6}$/.test(cleanPin)) return;
-                try {
-                    await callLoyaltySecurity('/api/loyalty/verify-pin-for-reveal', { method: 'POST', body: { pin: cleanPin } });
-                    userPinRaw = cleanPin;
-                    rememberPinAfterAuth(cleanPin, loyaltyCustomer.membershipNumber);
-                } catch (error) {
-                    console.warn('[LOYALTY_PIN_REVEAL_FAILED]', { code: error?.code || 'PIN_REVEAL_FAILED', status: error?.httpStatus || null });
+            try {
+                const result = await callLoyaltySecurity('/api/loyalty/reveal-pin', { method: 'POST', body: {} });
+                const revealedPin = String(result?.data?.pin || '').trim();
+                const membership = String(result?.data?.membershipNumber || loyaltyCustomer.membershipNumber || '').trim();
+                if (revealedPin && /^\d{4,6}$/.test(revealedPin)) rememberPinAfterAuth(revealedPin, membership);
+                if (!hasPinMemory()) {
+                    showToast(currentLang === 'en' ? 'Direct PIN reveal is not available for this account yet.' : 'الكشف المباشر غير متاح لهذا الحساب حالياً.', 'error');
                     return;
                 }
+            } catch (error) {
+                console.warn('[LOYALTY_PIN_REVEAL_FAILED]', { code: error?.code || 'PIN_REVEAL_FAILED', status: error?.httpStatus || null });
+                return;
             }
-            if (!hasPinMemory()) return;
             isPinRevealed = true;
             applyPinVisibility();
             pinRevealTimer = setTimeout(hidePinVisibility, 15000);

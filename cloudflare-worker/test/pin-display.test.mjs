@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { webcrypto } from 'node:crypto';
 import { handleLoyaltyRoutes } from '../src/loyalty-routes.js';
 import { createCredential } from '../src/loyalty-security.js';
+import fs from 'node:fs';
 
 globalThis.crypto ||= webcrypto;
 const encoder = new TextEncoder();
@@ -41,6 +42,9 @@ const tokenFor = async uid => {
   return `${header}.${payload}.${b64url(signature)}`;
 };
 const env = { ALLOWED_ORIGINS: 'https://101coffees.com', FIREBASE_DATABASE_URL: 'https://fixture.firebaseio.test', FIREBASE_SERVICE_ACCOUNT_EMAIL: 'fixture@example.test', FIREBASE_SERVICE_ACCOUNT_PRIVATE_KEY: privatePem, LOYALTY_PIN_PEPPER: 'fixture-pepper' };
+const index = fs.readFileSync(new URL('../../index.html', import.meta.url), 'utf8');
+assert.match(index, /\/api\/loyalty\/reveal-pin/);
+assert.doesNotMatch(index, /Enter your PIN to verify ownership/);
 const call = async (path, uid) => handleLoyaltyRoutes(new Request(`https://worker.test${path}`, { method: 'POST', headers: { Origin: 'https://101coffees.com', Authorization: `Bearer ${await tokenFor(uid)}`, 'Content-Type': 'application/json' }, body: '{}' }), env, new URL(`https://worker.test${path}`));
 
 let response = await call('/api/loyalty/profile', 'member-uid');
