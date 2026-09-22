@@ -103,6 +103,24 @@ export function redemptionDescription(value) {
 function operationPath(kind, request) { return request ? `loyalty_operation_requests/${kind}/${encodeURIComponent(request).replace(/%/g, '_')}` : ''; }
 function replayOrPlan(root, kind, request) { if (!request) return null; const saved = root.loyalty_operation_requests?.[kind]?.[encodeURIComponent(request).replace(/%/g, '_')]; return saved?.result ? { replay: true, result: saved.result } : null; }
 async function atomicPlan(env, plan, diagnostics = {}) { return firebaseAdminAtomicPatch(env, plan, { attempts: 12, ...diagnostics }); }
+async function ensurePinLoginLink(env, membership, tokenUid) {
+  return atomicPlan(env, root => {
+    const customer = root?.loyalty_customers?.[membership];
+    if (!customer) throw Error('PROFILE_NOT_FOUND');
+    const directUid = String(customer.uid || '').trim();
+    if (directUid && directUid !== tokenUid) throw Error('PROFILE_LINK_CONFLICT');
+    const links = root?.loyalty_links || {};
+    const membershipLinks = Object.entries(links).filter(([, linked]) => security.normalizeMembershipNumber(linked) === membership).map(([uid]) => String(uid || '').trim()).filter(Boolean);
+    if (membershipLinks.some(uid => uid !== tokenUid)) throw Error('PROFILE_LINK_CONFLICT');
+    if (links[tokenUid] && security.normalizeMembershipNumber(links[tokenUid]) !== membership) throw Error('PROFILE_LINK_CONFLICT');
+    const uidMatches = Object.entries(root?.loyalty_customers || {}).filter(([id, value]) => id !== membership && String(value?.uid || '').trim() === tokenUid);
+    if (uidMatches.length) throw Error('PROFILE_LINK_CONFLICT');
+    const updates = {};
+    if (!directUid) updates[`loyalty_customers/${membership}/uid`] = tokenUid;
+    if (security.normalizeMembershipNumber(links[tokenUid]) !== membership) updates[`loyalty_links/${tokenUid}`] = membership;
+    return { updates, result: { ok: true, linked: true } };
+  }, { stage: 'PIN_LOGIN_UID_LINK' });
+}
 function normalizeStaffRole(value) { const role = String(value || '').trim().toLowerCase().replace(/[\s-]+/g, '_'); return role === 'superadmin' ? 'super_admin' : role; }
 async function staff(env, current, capability = 'staff') {
   let record = {};
@@ -174,6 +192,8 @@ async function login(request, env) {
       await firebaseAdminRequest(env, `loyalty_login_attempts/${key}`, { method: 'PUT', body: { failedAttempts: failures, firstFailureAt: within ? Number(state.firstFailureAt) : now, lastFailureAt: now, lockedUntil: failures >= security.MAX_FAILURES ? now + security.WINDOW_MS : 0 } });
       return loginFailure(request, env, requestId, stage, failures >= security.MAX_FAILURES ? 'RATE_LIMITED' : 'INVALID_CREDENTIALS', failures >= security.MAX_FAILURES ? 429 : 401);
     }
+    stage = 'UID_LINK_WRITE';
+    await ensurePinLoginLink(env, membership, tokenUid);
     stage = 'PIN_REVEAL_ENSURE';
     if (credential && !credential.pinCiphertext && String(env.LOYALTY_PIN_REVEAL_KEY || '').trim()) { try { await ensurePinCiphertext(env, membership, credential, pin); } catch (error) { console.warn('[PIN_REVEAL_ENSURE_FAILED]', { stage, code: String(error?.message || 'PIN_REVEAL_WRITE_FAILED').slice(0, 80) }); } }
     stage = 'FIREBASE_AUTH';
