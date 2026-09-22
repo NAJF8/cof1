@@ -23,6 +23,7 @@ function origins(env) { return String(env.ALLOWED_ORIGINS || 'https://najf8.gith
 function cors(request, env) { const origin = request.headers.get('Origin'); return origin && origins(env).includes(origin) ? { 'Access-Control-Allow-Origin': origin, 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, Authorization', 'Cache-Control': 'no-store', Vary: 'Origin' } : null; }
 function response(request, env, body, status = 200) { return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', ...(cors(request, env) || {}) } }); }
 function fail(request, env, error, status) { return response(request, env, { ok: false, error }, status); }
+function pinRevealAuthorizationFailure(request, env, error, status, stage) { return response(request, env, { ok: false, error, stage }, status); }
 function loginRequestId() { return crypto.randomUUID(); }
 function loginFailure(request, env, requestId, stage, code, status) { console.warn('[LOYALTY_LOGIN_FAILURE]', { requestId, stage, code }); return response(request, env, { ok: false, error: code, requestId }, status); }
 function giftDiagnostic(marker, details = {}) { console.info(marker, details); }
@@ -561,6 +562,12 @@ async function revealPinForAdmin(request, env, current) {
   await firebaseAdminRequest(env, `loyalty_logs/${auditId}`, { method: 'PUT', body: { type: 'PIN_REVEALED', membership, actorUid: current.uid, actorEmail: current.email, actorRole: actor.role, timestamp: Date.now() } });
   return response(request, env, { ok: true, available: true, pin, membershipNumber: membership });
 }
+async function revealPinAuthorization(request, env, current) {
+  const actor = await staff(env, current, 'reveal-pin');
+  const canRevealMemberPin = actor.role === 'super_admin' || (actor.role === 'manager' && actor.record?.permissions?.canRevealMemberPin === true);
+  if (!canRevealMemberPin) throw Error('FORBIDDEN');
+  return response(request, env, { ok: true, canRevealMemberPin: true, stage: 'WORKER_AUTHORIZATION' });
+}
 function recoveryFingerprint(c) { return `${String(c?.pinHash || '')}.${String(c?.salt || '')}.${String(c?.algorithm || '')}.${Number(c?.iterations || 0)}`; }
 async function planOriginalPinRecovery(root, env) {
   const customers=root?.loyalty_customers||{}, credentials=root?.loyalty_credentials||{}, pepper=String(env.LOYALTY_PIN_PEPPER||''), revealKey=String(env.LOYALTY_PIN_REVEAL_KEY||''), plan=[], reasons={}, add=r=>reasons[r]=(reasons[r]||0)+1;
@@ -1003,6 +1010,7 @@ async function route(request, env, url) {
     if (path === '/api/loyalty/verify-pin-for-reveal' && request.method === 'POST') return await verifyPinForReveal(request, env, current);
     if (path === '/api/loyalty/reveal-pin' && request.method === 'POST') return await revealPin(request, env, current);
     if (path === '/api/admin/loyalty/reveal-pin' && request.method === 'POST') return await revealPinForAdmin(request, env, current);
+    if (path === '/api/admin/loyalty/reveal-pin-authorization' && request.method === 'POST') return await revealPinAuthorization(request, env, current);
     if (path === '/api/admin/loyalty/pin-migration' && request.method === 'POST') return await recoverOriginalPins(request, env, current);
     if (path === '/api/loyalty/provision-google') return await provision(request, env, current);
     if (path === '/api/admin/provision-super-admin') { await staff(env, current, 'provision-super-admin'); return await provision(request, env, current, true); }
@@ -1033,6 +1041,7 @@ async function route(request, env, url) {
     const rawCode = String(error?.message || '');
     const code = ['AUTH_REQUIRED', 'AUTH_INVALID', 'INVALID_CONTENT_TYPE', 'PAYLOAD_TOO_LARGE', 'FORBIDDEN', 'NOT_FOUND', 'ALREADY_EXISTS', 'GIFT_NOT_FOUND', 'GIFT_ALREADY_REDEEMED', 'GIFT_EXPIRED', 'GIFT_NOT_AVAILABLE', 'GIFT_ALREADY_DECIDED', 'GIFT_NOT_PENDING', 'CONCURRENT_MODIFICATION', 'INVALID_ARGUMENT', 'INVALID_INPUT', 'INVALID_MEMBERSHIP', 'INVALID_PENDING', 'INVALID_PIN', 'INSUFFICIENT_HEARTS', 'HEARTS_OUT_OF_RANGE', 'CLUB_UNAVAILABLE', 'CLUB_MEMBER_NOT_FOUND', 'CLUB_PHONE_AMBIGUOUS', 'CLAIM_INVALID', 'PIN_RESERVATION_FAILED', 'PIN_REVEAL_WRITE_UNVERIFIED', 'PIN_BACKUP_UNVERIFIED', 'PIN_RECOVERY_CONFIGURATION_MISSING', 'CONFIRMATION_REQUIRED', 'VERIFIED_EMAIL_REQUIRED', 'PROFILE_NOT_FOUND', 'PROFILE_LINK_CONFLICT', 'BACKEND_AUTH_ERROR', 'INTERNAL_ERROR', 'SUB_REQUEST_NOT_FOUND', 'SUB_REQUEST_NOT_PENDING', 'SUB_PLAN_NOT_FOUND', 'SUB_CUSTOMER_ALREADY_ACTIVE', 'SUB_CUSTOMER_DATA_INCOMPLETE'].includes(rawCode) ? rawCode : rawCode.startsWith('FIREBASE_') ? (rawCode.includes('401') || rawCode.includes('403') ? 'BACKEND_AUTH_ERROR' : 'INTERNAL_ERROR') : 'REQUEST_FAILED';
     const status = ['AUTH_REQUIRED', 'AUTH_INVALID'].includes(code) ? 401 : code === 'FORBIDDEN' ? 403 : ['CLUB_MEMBER_NOT_FOUND', 'NOT_FOUND', 'PROFILE_NOT_FOUND', 'SUB_REQUEST_NOT_FOUND'].includes(code) ? 404 : ['BACKEND_AUTH_ERROR', 'INTERNAL_ERROR', 'PIN_REVEAL_WRITE_UNVERIFIED'].includes(code) ? 500 : ['GIFT_ALREADY_REDEEMED', 'SUB_REQUEST_NOT_PENDING', 'SUB_CUSTOMER_ALREADY_ACTIVE', 'CONCURRENT_MODIFICATION'].includes(code) ? 409 : code === 'INVALID_CONTENT_TYPE' ? 415 : code === 'PAYLOAD_TOO_LARGE' ? 413 : 400;
+    if (url.pathname === '/api/admin/loyalty/reveal-pin-authorization') return pinRevealAuthorizationFailure(request, env, code, status, ['AUTH_REQUIRED', 'AUTH_INVALID'].includes(code) ? 'WORKER_AUTHENTICATION' : code === 'FORBIDDEN' ? 'WORKER_AUTHORIZATION' : 'WORKER_FAILURE');
     return fail(request, env, code, status);
   }
 }

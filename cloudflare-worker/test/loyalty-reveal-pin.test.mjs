@@ -67,6 +67,7 @@ assert.equal(root.loyalty_credentials['101-2'].pinHash, beforeHash);
 assert.equal((await reveal(token('member-2', '101-2'))).body.pin, '2468');
 
 async function adminReveal(auth, membership) { const request = new Request('https://worker.test/api/admin/loyalty/reveal-pin', { method: 'POST', headers: { Origin: env.ALLOWED_ORIGINS, Authorization: `Bearer ${auth}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ membership }) }); const response = await handleLoyaltyRoutes(request, env, new URL(request.url)); return { status: response.status, body: await response.json() }; }
+async function revealAuthorization(auth) { const request = new Request('https://worker.test/api/admin/loyalty/reveal-pin-authorization', { method: 'POST', headers: { Origin: env.ALLOWED_ORIGINS, Authorization: `Bearer ${auth}`, 'Content-Type': 'application/json' }, body: '{}' }); const response = await handleLoyaltyRoutes(request, env, new URL(request.url)); return { status: response.status, body: await response.json() }; }
 let adminResult = await adminReveal(token('admin-1'), '101-2');
 assert.equal(adminResult.status, 200);
 assert.equal(adminResult.body.pin, '2468');
@@ -98,6 +99,19 @@ assert.equal(adminResult.body.available, false);
 assert.equal('pinCiphertext' in root.loyalty_credentials['101-4'], false);
 adminResult = await adminReveal(token('admin-1', '', Math.floor(Date.now() / 1000) - 1), '101-2');
 assert.equal(adminResult.status, 401);
+
+let authorization = await revealAuthorization(token('admin-1'));
+assert.equal(authorization.status, 200);
+assert.equal(authorization.body.canRevealMemberPin, true);
+assert.equal(authorization.body.stage, 'WORKER_AUTHORIZATION');
+authorization = await revealAuthorization(token('admin-2'));
+assert.equal(authorization.status, 403);
+assert.equal(authorization.body.error, 'FORBIDDEN');
+assert.equal(authorization.body.stage, 'WORKER_AUTHORIZATION');
+authorization = await revealAuthorization(token('admin-1', '', Math.floor(Date.now() / 1000) - 1));
+assert.equal(authorization.status, 401);
+assert.equal(authorization.body.error, 'AUTH_INVALID');
+assert.equal(authorization.body.stage, 'WORKER_AUTHENTICATION');
 
 result = await verify(token('member-1', '101-1'), '2468');
 assert.equal(result.status, 400);

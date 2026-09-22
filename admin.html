@@ -1026,7 +1026,9 @@ const LOYALTY_SECURITY_ENDPOINT = 'https://coffee-101-ai-chat.coffee101.workers.
 async function callLoyaltySecurity(path, options = {}) {
   const {safeDiagnosticTag, ...requestOptions} = options;
   const headers = {'Content-Type':'application/json', ...(requestOptions.headers || {})};
-  if (auth.currentUser) headers.Authorization = `Bearer ${await auth.currentUser.getIdToken()}`;
+  if (!auth.currentUser) { const error = new Error('AUTH_REQUIRED'); error.code = 'AUTH_REQUIRED'; error.stage = 'AUTH_SESSION'; throw error; }
+  try { headers.Authorization = `Bearer ${await auth.currentUser.getIdToken()}`; }
+  catch (cause) { const error = new Error('AUTH_TOKEN_REFRESH_FAILED'); error.code = 'AUTH_TOKEN_REFRESH_FAILED'; error.stage = 'AUTH_TOKEN'; error.cause = cause; throw error; }
   const response = await fetch(`${LOYALTY_SECURITY_ENDPOINT}${path}`, {...requestOptions, headers, body: requestOptions.body && typeof requestOptions.body !== 'string' ? JSON.stringify(requestOptions.body) : requestOptions.body});
   const data = await response.json().catch(() => ({}));
   if(safeDiagnosticTag) console.info(`[${safeDiagnosticTag}]`, {status: response.status, code: data.error || data.code || null, available: data.available === true});
@@ -1036,7 +1038,7 @@ async function callLoyaltySecurity(path, options = {}) {
     error.safeDiagnostics = {
       error: data.error || null,
       status: response.status,
-      stage: data.stage || null,
+      stage: data.stage || 'WORKER_RESPONSE',
       code: data.code || null,
       firebaseOp: data.firebaseOp || null,
       firebaseStatus: data.firebaseStatus || null
@@ -3209,7 +3211,7 @@ function viewCustomerDetails(id){
       <div style="background:var(--surface2);padding:10px 14px;border-radius:10px;">
         <small style="color:var(--text-muted)">رمز PIN الخاص بالعميل</small>
         <div style="display:flex;align-items:center;gap:8px;">
-          ${canRevealMemberPin() ? `<button type="button" id="custPinDisplay" onclick="revealCustomerPinAdmin('${esc(c.id)}')" style="background:none;border:0;padding:0;font-family:monospace;font-weight:bold;letter-spacing:3px;cursor:pointer;" title="عرض الرمز لمدة 15 ثانية" aria-label="عرض PIN لمدة 15 ثانية">••••</button><button type="button" onclick="revealCustomerPinAdmin('${esc(c.id)}')" style="background:none;border:none;cursor:pointer;font-size:14px;" title="عرض الرمز لمدة 15 ثانية" aria-label="عرض PIN لمدة 15 ثانية">👁️</button>` : '<span id="custPinDisplay" style="font-family:monospace;font-weight:bold;letter-spacing:3px;">••••</span><small style="color:var(--text-muted)">لا تملك صلاحية كشف PIN</small>'}
+          ${adminPinRevealControl(c.id)}
         </div>
       </div>
     </div>
@@ -3241,6 +3243,7 @@ function viewCustomerDetails(id){
       `).join('') : '<div style="color:var(--text-muted);text-align:center;padding:10px;">لا توجد معاملات مسجلة</div>'}
     </div>
   `;
+  refreshAdminPinRevealAuthorization(c.id);
   
   m.style.display = 'flex';
 }
@@ -3299,6 +3302,30 @@ async function deleteClubSubscriber(subscriptionId){
 
 let adminPinRevealTimer = null;
 function canRevealMemberPin(){ return currentRole === 'super_admin' || (currentRole === 'manager' && currentAdminPermissions?.canRevealMemberPin === true); }
+function adminPinRevealControl(membership){
+  if(!auth.currentUser) return '<span id="custPinDisplay" style="font-family:monospace;font-weight:bold;letter-spacing:3px;">••••</span><small id="custPinRevealStatus" style="color:var(--text-muted)">لا توجد جلسة Firebase فعالة</small>';
+  return `<span id="custPinDisplay" style="font-family:monospace;font-weight:bold;letter-spacing:3px;">••••</span><small id="custPinRevealStatus" data-membership="${esc(membership)}" style="color:var(--text-muted)">جارٍ التحقق من صلاحية الكشف…</small>`;
+}
+function adminPinRevealMessage(code, stage){
+  const messages={AUTH_REQUIRED:'لا توجد جلسة Firebase فعالة.',AUTH_TOKEN_REFRESH_FAILED:'تعذر الحصول على ID Token من الجلسة الحالية.',AUTH_INVALID:'انتهت صلاحية الجلسة أو رفض Worker الـID Token.',FORBIDDEN:'الحساب مصادق، لكن Worker لم يؤكد صلاحية Super Admin أو Manager المخوّل.',PIN_NOT_AVAILABLE:'لا توجد نسخة PIN مشفّرة قابلة للاسترجاع.'};
+  return `${messages[code]||'تعذر التحقق من صلاحية كشف PIN.'} (${code} / ${stage||'UNKNOWN'})`;
+}
+async function refreshAdminPinRevealAuthorization(membership){
+  const status=document.getElementById('custPinRevealStatus');
+  if(!status||status.dataset.membership!==String(membership)) return;
+  try{
+    await callLoyaltySecurity('/api/admin/loyalty/reveal-pin-authorization',{method:'POST',body:{},safeDiagnosticTag:'ADMIN_PIN_REVEAL_AUTH'});
+    if(status.dataset.membership!==String(membership))return;
+    const display=document.getElementById('custPinDisplay'); if(!display)return;
+    display.outerHTML=`<button type="button" id="custPinDisplay" onclick="revealCustomerPinAdmin('${esc(membership)}')" style="background:none;border:0;padding:0;font-family:monospace;font-weight:bold;letter-spacing:3px;cursor:pointer;" title="عرض الرمز لمدة 15 ثانية" aria-label="عرض PIN لمدة 15 ثانية">••••</button>`;
+    status.outerHTML=`<button type="button" onclick="revealCustomerPinAdmin('${esc(membership)}')" style="background:none;border:none;cursor:pointer;font-size:14px;" title="عرض الرمز لمدة 15 ثانية" aria-label="عرض PIN لمدة 15 ثانية">👁️</button>`;
+  }catch(error){
+    if(status.dataset.membership!==String(membership))return;
+    const code=String(error?.code||error?.message||'PIN_REVEAL_AUTH_FAILED'),stage=error?.stage||error?.safeDiagnostics?.stage||'WORKER_RESPONSE';
+    status.textContent=adminPinRevealMessage(code,stage);
+    console.info('[ADMIN_PIN_REVEAL_AUTH_RESULT]',{code,stage,status:error?.safeDiagnostics?.status||null});
+  }
+}
 let pinMigrationDryRunInFlight=false;
 const PIN_MIGRATION_REASON_LABELS={
   eligible:'مؤهل للإصلاح',
@@ -3380,7 +3407,7 @@ async function applyOriginalPinRecovery(){
   finally{pinMigrationDryRunInFlight=false;if(button){button.disabled=!pinMigrationRunId;button.textContent='ترحيل العضويات المؤهلة';}}
 }
 async function revealCustomerPinAdmin(id){
-  if(!canRevealMemberPin() || !auth.currentUser) return showNotif('لا تملك صلاحية كشف PIN.','error');
+  if(!auth.currentUser) return showNotif(adminPinRevealMessage('AUTH_REQUIRED','AUTH_SESSION'),'error');
   const el = document.getElementById('custPinDisplay');
   if(!el) return;
   try {
@@ -3396,7 +3423,8 @@ async function revealCustomerPinAdmin(id){
   } catch(error) {
     el.textContent = '••••';
     const code = String(error?.code || error?.message || 'PIN_REVEAL_FAILED');
-    showNotif(code === 'AUTH_REQUIRED' || code === 'AUTH_INVALID' ? 'انتهت جلسة الإدارة. سجّل الدخول مرة أخرى.' : 'تعذر عرض PIN أو لا توجد نسخة مفعّلة.','error');
+    const stage=error?.stage||error?.safeDiagnostics?.stage||'WORKER_RESPONSE';
+    showNotif(adminPinRevealMessage(code,stage),'error');
   }
 }
 
