@@ -623,15 +623,8 @@ async function applyLegacyPinRepairRecord(env, runId, membership) {
   await atomicPlan(env, current => {
     const customer = current?.loyalty_customers?.[membership], credential = current?.loyalty_credentials?.[membership];
     if (String(customer?.pin || '') !== assessment.pin || credentialFingerprint(credential) !== assessment.credentialFingerprint || current?.loyalty_pin_index?.[assessment.indexKey] && current.loyalty_pin_index[assessment.indexKey] !== membership) throw Error('PIN_MIGRATION_CONCURRENT_CHANGE');
-    return { updates: { [`loyalty_credentials/${membership}`]: nextCredential, [`loyalty_pin_index/${assessment.indexKey}`]: membership, [pinRepairPath(runId, `prepared/${membership}`)]: { preparedAt: Date.now(), createdCredential: assessment.createCredential } }, result: { prepared: true } };
+    return { updates: { [`loyalty_credentials/${membership}`]: nextCredential, [`loyalty_pin_index/${assessment.indexKey}`]: membership, [`loyalty_customers/${membership}/pin`]: null, [pinRepairPath(runId, `completed/${membership}`)]: { completedAt: Date.now(), createdCredential: assessment.createCredential } }, result: { migrated: true } };
   }, { stage: 'PIN_REPAIR_ATOMIC' });
-  const prepared = await firebaseAdminRequest(env, '') || {}, preparedCredential = prepared?.loyalty_credentials?.[membership];
-  if (String(prepared?.loyalty_customers?.[membership]?.pin || '') !== assessment.pin || !credentialShapeIsUsable(preparedCredential) || !preparedCredential.pinCiphertext || !await security.timingSafePinMatch(assessment.pin, preparedCredential, String(env.LOYALTY_PIN_PEPPER || '').trim()) || await security.decryptPin(preparedCredential.pinCiphertext, String(env.LOYALTY_PIN_REVEAL_KEY || '').trim()) !== assessment.pin) throw Error('PIN_REVEAL_WRITE_UNVERIFIED');
-  await atomicPlan(env, current => {
-    const customer = current?.loyalty_customers?.[membership], credential = current?.loyalty_credentials?.[membership];
-    if (String(customer?.pin || '') !== assessment.pin || credentialFingerprint(credential) !== credentialFingerprint(nextCredential) || current?.loyalty_pin_index?.[assessment.indexKey] !== membership) throw Error('PIN_MIGRATION_CONCURRENT_CHANGE');
-    return { updates: { [`loyalty_customers/${membership}/pin`]: null, [pinRepairPath(runId, `completed/${membership}`)]: { completedAt: Date.now(), createdCredential: assessment.createCredential } }, result: { migrated: true } };
-  }, { stage: 'PIN_REPAIR_DELETE_LEGACY' });
   const saved = await firebaseAdminRequest(env, '') || {}, savedCredential = saved?.loyalty_credentials?.[membership];
   if (saved?.loyalty_customers?.[membership]?.pin || !credentialShapeIsUsable(savedCredential) || !savedCredential.pinCiphertext || !await security.timingSafePinMatch(assessment.pin, savedCredential, String(env.LOYALTY_PIN_PEPPER || '').trim()) || await security.decryptPin(savedCredential.pinCiphertext, String(env.LOYALTY_PIN_REVEAL_KEY || '').trim()) !== assessment.pin) throw Error('PIN_REVEAL_WRITE_UNVERIFIED');
   return 'migrated';
