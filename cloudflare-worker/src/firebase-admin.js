@@ -190,9 +190,9 @@ async function firebaseAdminAtomicPatch(env, plan, options = {}) {
   const attempts = Math.max(1, Math.min(Number(options.attempts) || 8, 20));
   const read = options.read || ((currentEnv) => firebaseAdminReadWithEtag(currentEnv, ''));
   const maxRootBytes = Number.isFinite(Number(options.maxRootBytes)) ? Number(options.maxRootBytes) : 10 * 1024 * 1024;
-  const write = options.write || (async (currentEnv, mergedRoot, etag, retry, writeOptions) => {
+  const write = options.write || (async (currentEnv, mergedRoot, etag, retry, writeOptions, updates) => {
     const base = String(currentEnv.FIREBASE_DATABASE_URL || 'https://coffee-30fa7-default-rtdb.firebaseio.com').replace(/\/$/, '');
-    const response = await firebaseFetch(`${base}/.json`, { method: 'PUT', headers: { Authorization: `Bearer ${await serviceAccountToken(currentEnv)}`, 'Content-Type': 'application/json', Accept: 'application/json', 'If-Match': etag }, body: JSON.stringify(mergedRoot) });
+    const response = await firebaseFetch(`${base}/.json`, { method: 'PATCH', headers: { Authorization: `Bearer ${await serviceAccountToken(currentEnv)}`, 'Content-Type': 'application/json', Accept: 'application/json', 'If-Match': etag }, body: JSON.stringify(updates) });
     const text = await response.text();
     console.info({ tag: 'FIREBASE_ROOT_PUT', status: response.status, retry });
       if (response.status === 412) {
@@ -225,7 +225,7 @@ async function firebaseAdminAtomicPatch(env, plan, options = {}) {
     options.onStage?.('ROOT_MERGE_OK');
     try {
       options.onStage?.('ATOMIC_PUT_START');
-      await write(env, options.write ? mergedRoot : JSON.parse(serializedRoot), snapshot.etag, attempt, options);
+      await write(env, options.write ? mergedRoot : JSON.parse(serializedRoot), snapshot.etag, attempt, options, decision.updates);
       options.onStage?.('ATOMIC_PUT_OK');
       return decision.result;
     } catch (error) {
