@@ -888,6 +888,7 @@ body,.top-bar,.card,.stat-card,.main-content,.sidebar,.auth-card,.table-wrap,tab
             <label>الصلاحية (Role)</label>
             <select id="newAdminRole">
               <option value="admin">Admin — إدارة كاملة</option>
+              <option value="manager">Manager — مدير</option>
               <option value="cashier">Cashier - كاشير برنامج العضوية</option>
               <option value="editor">Editor — تعديل المنتجات فقط</option>
               <option value="viewer">Viewer — قراءة فقط</option>
@@ -899,8 +900,8 @@ body,.top-bar,.card,.stat-card,.main-content,.sidebar,.auth-card,.table-wrap,tab
       <div class="card">
         <h3>المشرفون النشطون</h3>
         <div class="table-wrap">
-          <table><thead><tr><th>البريد</th><th>الاسم</th><th>الصلاحية</th><th>الحالة</th><th>تاريخ الإضافة</th><th>إجراءات</th></tr></thead>
-          <tbody id="adminsTable"><tr><td colspan="6" style="text-align:center;color:#aaa;padding:20px">جاري التحميل...</td></tr></tbody></table>
+          <table><thead><tr><th>البريد</th><th>الاسم</th><th>الصلاحية</th><th>كشف PIN</th><th>الحالة</th><th>تاريخ الإضافة</th><th>إجراءات</th></tr></thead>
+          <tbody id="adminsTable"><tr><td colspan="7" style="text-align:center;color:#aaa;padding:20px">جاري التحميل...</td></tr></tbody></table>
         </div>
       </div>
       <div class="card">
@@ -1033,7 +1034,7 @@ async function callLoyaltySecurity(path, options = {}) {
 }
 
 // ── State ─────────────────────────────────────────────────
-let currentUser  = null, currentRole = null;
+let currentUser  = null, currentRole = null, currentAdminPermissions = {};
 let products=[], categoriesDB=[], eventsDB=[], tablesDB=[], eventBookingsDB=[], eventCapacityDB={}, settings={...DEFAULT_SETTINGS};
 let rewardsDB=[], bookingsDB=[], adminsData={}, pendingAdmins={}, ordersDB=[], loyaltyPendingDB=[];
 let backgroundSettings = { type: 'none', imageUrl: '', videoUrl: '', fallbackImageUrl: '', posterUrl: '', enabled: true };
@@ -1192,9 +1193,10 @@ function showScreen(screen){
 
 // This must be called independently of Firebase data loading. The dashboard is
 // therefore visible even if a later listener or a permission read fails.
-function showAdminDashboard(user, role){
+function showAdminDashboard(user, role, permissions = {}){
   currentUser=user;
   currentRole=role;
+  currentAdminPermissions=permissions||{};
   showScreen('app');
   try { initAdminApp(user, role); }
   catch(error) {
@@ -1218,7 +1220,7 @@ auth.onAuthStateChanged(async user => {
   // ── 1. Super Admin Direct Pass (Never block super admin!) ──
   if(isSuperAdmin(email)){
     bootstrapSuperAdmin(user); // background sync
-    showAdminDashboard(user, 'super_admin');
+    showAdminDashboard(user, 'super_admin', {});
     return;
   }
 
@@ -1228,7 +1230,7 @@ auth.onAuthStateChanged(async user => {
     if(adminSnap.exists()){
       const a=adminSnap.val();
       if(a.status==='active'){
-        showAdminDashboard(user,a.role); return;
+        showAdminDashboard(user,a.role,a.permissions||{}); return;
       } else {
         document.getElementById('unauthorizedEmail').textContent=email+' (الحساب معطل)';
         showScreen('unauthorized'); return;
@@ -1256,7 +1258,7 @@ auth.onAuthStateChanged(async user => {
         updates['pending_admins/'+eKey] = null;
         await db.ref().update(updates);
       } catch(e){}
-      showAdminDashboard(user,p.role); return;
+      showAdminDashboard(user,p.role,p.permissions||{}); return;
     }
 
     // ── 4. Not found ──
@@ -1265,7 +1267,7 @@ auth.onAuthStateChanged(async user => {
   } catch (error) {
     console.error("Auth error:", error);
     if (isSuperAdmin(email)) {
-      showAdminDashboard(user, 'super_admin');
+      showAdminDashboard(user, 'super_admin', {});
       return;
     }
     document.getElementById('unauthorizedEmail').textContent=email + ' (خطأ في الصلاحيات)';
@@ -1312,7 +1314,7 @@ function initAdminApp(user, role){
   const nameEl=document.getElementById('userName');
   if(nameEl) nameEl.textContent=user.displayName||user.email;
   const roleEl=document.getElementById('userRoleSpan');
-  const roleLabels={super_admin:'Super Admin',admin:'Admin',cashier:'Cashier',editor:'Editor',viewer:'Viewer'};
+  const roleLabels={super_admin:'Super Admin',admin:'Admin',manager:'Manager',cashier:'Cashier',editor:'Editor',viewer:'Viewer'};
   if(roleEl) roleEl.innerHTML=`<span class="role-badge role-${role}">${roleLabels[role]||role}</span>`;
 
   // Show role-specific nav items
@@ -1822,12 +1824,13 @@ function startAdminListener(){
 function renderAdminsTable(){
   const tb=document.getElementById('adminsTable'); if(!tb) return;
   const entries=Object.entries(adminsData);
-  if(!entries.length){tb.innerHTML=`<tr><td colspan="6" style="text-align:center;color:#aaa;padding:20px">لا يوجد مشرفون</td></tr>`;return;}
-  const roleLabels={super_admin:'Super Admin',admin:'Admin',cashier:'Cashier',editor:'Editor',viewer:'Viewer'};
+  if(!entries.length){tb.innerHTML=`<tr><td colspan="7" style="text-align:center;color:#aaa;padding:20px">لا يوجد مشرفون</td></tr>`;return;}
+  const roleLabels={super_admin:'Super Admin',admin:'Admin',manager:'Manager',cashier:'Cashier',editor:'Editor',viewer:'Viewer'};
   tb.innerHTML=entries.map(([uid,a])=>`<tr>
     <td style="word-break:break-all;font-size:12px">${esc(a.email||'-')}</td>
     <td style="font-size:12px">${esc(a.displayName||'-')}</td>
     <td><span class="role-badge role-${a.role||'viewer'}">${roleLabels[a.role]||a.role}</span></td>
+    <td>${a.role==='manager'?`<label class="switch" title="صلاحية مستقلة لكشف PIN"><input type="checkbox" ${a.permissions?.canRevealMemberPin===true?'checked':''} onchange="toggleAdminPinReveal('${uid}',this.checked)"><span class="slider"></span></label>`:'—'}</td>
     <td class="${a.status==='active'?'status-active':'status-disabled'}">${a.status==='active'?'✅ نشط':'⛔ معطل'}</td>
     <td dir="ltr" style="font-size:11px;color:#999">${a.addedAt?new Date(a.addedAt).toLocaleDateString('en-GB'):'-'}</td>
     <td class="action-btns">
@@ -1837,6 +1840,7 @@ function renderAdminsTable(){
         </button>
         <select onchange="changeAdminRole('${uid}',this.value)" style="padding:4px;border-radius:6px;font-family:Cairo;border:1px solid #ddd;font-size:11px">
           <option value="admin"  ${a.role==='admin'?'selected':''}>Admin</option>
+          <option value="manager" ${a.role==='manager'?'selected':''}>Manager</option>
           <option value="editor" ${a.role==='editor'?'selected':''}>Editor</option>
           <option value="viewer" ${a.role==='viewer'?'selected':''}>Viewer</option>
         </select>
@@ -1850,7 +1854,7 @@ function renderPendingAdmins(){
   const tb=document.getElementById('pendingAdminsTable'); if(!tb) return;
   const entries=Object.entries(pendingAdmins);
   if(!entries.length){tb.innerHTML=`<tr><td colspan="5" style="text-align:center;color:#aaa;padding:16px">لا يوجد انتظار</td></tr>`;return;}
-  const roleLabels={admin:'Admin',editor:'Editor',viewer:'Viewer'};
+  const roleLabels={admin:'Admin',manager:'Manager',editor:'Editor',viewer:'Viewer'};
   tb.innerHTML=entries.map(([key,p])=>`<tr>
     <td style="word-break:break-all;font-size:12px">${(console.log('[INVITE_RENDERED]', {key}) || esc(p.email||key.replace(/,/g,'.').replace(/_at_/g,'@')))}</td>
     <td><span class="role-badge role-${p.role||'viewer'}">${roleLabels[p.role]||p.role}</span></td>
@@ -1890,6 +1894,14 @@ function changeAdminRole(uid,newRole){
   if(!can('manage_admins')) return;
   const a=adminsData[uid]; if(a?.role==='super_admin') return alert('لا يمكن تغيير صلاحية Super Admin.');
   db.ref('admins/'+uid+'/role').set(newRole).then(()=>showNotif('تم تغيير الصلاحية.')).catch(e=>showNotif('خطأ: '+e.message,'error'));
+}
+function toggleAdminPinReveal(uid,enabled){
+  if(!can('manage_admins')) return;
+  const a=adminsData[uid];
+  if(a?.role!=='manager') return showNotif('صلاحية كشف PIN متاحة للمدير فقط.','error');
+  db.ref('admins/'+uid+'/permissions/canRevealMemberPin').set(enabled===true)
+    .then(()=>showNotif(enabled?'تم منح صلاحية كشف PIN للمدير.':'تم سحب صلاحية كشف PIN فوراً.'))
+    .catch(e=>showNotif('تعذر تحديث صلاحية كشف PIN: '+e.message,'error'));
 }
 function deleteAdmin(uid){
   if(!can('manage_admins')) return;
@@ -3179,7 +3191,7 @@ function viewCustomerDetails(id){
         <small style="color:var(--text-muted)">رمز PIN الخاص بالعميل</small>
         <div style="display:flex;align-items:center;gap:8px;">
           <span id="custPinDisplay" style="font-family:monospace;font-weight:bold;letter-spacing:3px;">••••</span>
-          ${currentRole === 'super_admin' ? `<button type="button" onclick="revealCustomerPinAdmin('${esc(c.id)}')" style="background:none;border:none;cursor:pointer;font-size:14px;" title="إعادة مصادقة Google ثم عرض الرمز لمدة 15 ثانية">👁️</button>` : '<small style="color:var(--text-muted)">الكشف متاح لـ Super Admin فقط</small>'}
+          ${canRevealMemberPin() ? `<button type="button" onclick="revealCustomerPinAdmin('${esc(c.id)}')" style="background:none;border:none;cursor:pointer;font-size:14px;" title="عرض الرمز لمدة 15 ثانية">👁️</button>` : '<small style="color:var(--text-muted)">لا تملك صلاحية كشف PIN</small>'}
         </div>
       </div>
     </div>
@@ -3268,6 +3280,7 @@ async function deleteClubSubscriber(subscriptionId){
 }
 
 let adminPinRevealTimer = null;
+function canRevealMemberPin(){ return currentRole === 'super_admin' || (currentRole === 'manager' && currentAdminPermissions?.canRevealMemberPin === true); }
 async function auditAndRepairPinReveals(){
   if(currentRole!=='super_admin'||!currentUser)return showNotif('الفحص متاح لـ Super Admin فقط.','error');
   try{
@@ -3279,17 +3292,14 @@ async function auditAndRepairPinReveals(){
   }catch(error){ showNotif('تعذر فحص كشف PIN: '+String(error?.code||error?.message||'PIN_REVEAL_AUDIT_FAILED'),'error'); }
 }
 async function revealCustomerPinAdmin(id){
-  if(currentRole !== 'super_admin' || !currentUser) return showNotif('الكشف متاح لـ Super Admin فقط.','error');
+  if(!canRevealMemberPin() || !currentUser) return showNotif('لا تملك صلاحية كشف PIN.','error');
   const el = document.getElementById('custPinDisplay');
   if(!el) return;
   try {
-    const provider = new firebase.auth.GoogleAuthProvider();
-    provider.addScope('email');
-    await currentUser.reauthenticateWithPopup(provider);
     const result = await callLoyaltySecurity('/api/admin/loyalty/reveal-pin', { method:'POST', body:{ membership:id } });
     const pin = String(result?.pin || '').trim();
     if(!/^\d{4,6}$/.test(pin)) {
-      el.textContent = 'لا توجد نسخة مشفّرة — يحتاج صاحب العضوية إدخال PIN الحالي مرة واحدة';
+      el.textContent = 'لا توجد نسخة PIN مشفّرة قابلة للاسترجاع';
       return;
     }
     el.textContent = pin;
@@ -3298,7 +3308,7 @@ async function revealCustomerPinAdmin(id){
   } catch(error) {
     el.textContent = '••••';
     const code = String(error?.code || error?.message || 'PIN_REVEAL_FAILED');
-    showNotif(code === 'AUTH_RECENT_REQUIRED' ? 'انتهت المصادقة الإضافية. أعد المحاولة.' : 'تعذر عرض PIN أو لا توجد نسخة مفعّلة.','error');
+    showNotif(code === 'AUTH_REQUIRED' || code === 'AUTH_INVALID' ? 'انتهت جلسة الإدارة. سجّل الدخول مرة أخرى.' : 'تعذر عرض PIN أو لا توجد نسخة مفعّلة.','error');
   }
 }
 

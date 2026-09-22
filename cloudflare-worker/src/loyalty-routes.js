@@ -531,18 +531,18 @@ async function revealPin(request, env, current) {
 }
 async function revealPinForAdmin(request, env, current) {
   const actor = await staff(env, current, 'reveal-pin');
-  if (actor.role !== 'super_admin') throw Error('FORBIDDEN');
-  if (!current.authTime || Math.floor(Date.now() / 1000) - current.authTime > 300) throw Error('AUTH_RECENT_REQUIRED');
+  const canReveal = actor.role === 'super_admin' || (actor.role === 'manager' && actor.record?.permissions?.canRevealMemberPin === true);
+  if (!canReveal) throw Error('FORBIDDEN');
   const payload = await body(request), membership = security.normalizeMembershipNumber(payload.membership);
   if (!membership) throw Error('INVALID_MEMBERSHIP');
   const [customer, credential] = await Promise.all([firebaseAdminRequest(env, `loyalty_customers/${membership}`), firebaseAdminRequest(env, `loyalty_credentials/${membership}`)]);
-  if (!credential?.pinCiphertext && await ensureTrustedLegacyPinCiphertext(env, membership, customer, credential)) credential.pinCiphertext = await firebaseAdminRequest(env, `loyalty_credentials/${membership}/pinCiphertext`);
   if (!credential?.pinCiphertext) return response(request, env, { ok: true, available: false, membershipNumber: membership });
   const revealKey = String(env.LOYALTY_PIN_REVEAL_KEY || '').trim();
   if (!revealKey) return response(request, env, { ok: true, available: false, membershipNumber: membership });
-  const pin = await security.decryptPin(credential.pinCiphertext, revealKey);
+  let pin;
+  try { pin = await security.decryptPin(credential.pinCiphertext, revealKey); } catch { return response(request, env, { ok: true, available: false, membershipNumber: membership }); }
   const auditId = `pin_reveal_${crypto.randomUUID()}`;
-  await firebaseAdminRequest(env, `loyalty_logs/${auditId}`, { method: 'PUT', body: { type: 'PIN_REVEALED', membership, actorUid: current.uid, actorRole: actor.role, timestamp: Date.now() } });
+  await firebaseAdminRequest(env, `loyalty_logs/${auditId}`, { method: 'PUT', body: { type: 'PIN_REVEALED', membership, actorUid: current.uid, actorEmail: current.email, actorRole: actor.role, timestamp: Date.now() } });
   return response(request, env, { ok: true, available: true, pin, membershipNumber: membership });
 }
 async function auditPinReveals(request, env, current) {
