@@ -568,12 +568,14 @@ body,.top-bar,.card,.stat-card,.main-content,.sidebar,.auth-card,.table-wrap,tab
         <h3>🛡️ فحص رموز الأعضاء القديمة</h3>
         <p class="muted">فحص قراءة فقط للحسابات القديمة. لا يغيّر PIN أو Credential أو أي بيانات عضوية.</p>
         <button class="btn btn-primary" id="pinMigrationDryRunBtn" type="button" onclick="runPinMigrationDryRun()">فحص رموز الأعضاء القديمة</button>
+        <button class="btn btn-outline" id="pinMigrationDiagnosticBtn" type="button" onclick="runPinMigrationDiagnostic()">فحص تفصيلي للعضويات (قراءة فقط)</button>
         <button class="btn btn-warning" id="pinMigrationApplyBtn" type="button" onclick="applyOriginalPinRecovery()">استرجاع النسخ المثبتة فقط</button>
         <div id="pinMigrationStatus" role="status" aria-live="polite" style="margin-top:12px"></div>
         <div id="pinMigrationReport" hidden style="margin-top:14px">
           <div id="pinMigrationSummary" class="stats-grid"></div>
           <div id="pinMigrationReasons" style="margin-top:12px"></div>
         </div>
+        <div id="pinMigrationDiagnosticReport" hidden style="margin-top:14px;overflow:auto"></div>
       </div>
       <div class="card">
         <div style="display:flex; gap:10px; margin-bottom:15px;">
@@ -3309,6 +3311,33 @@ const PIN_MIGRATION_REASON_LABELS={
   cipher_invalid:'النسخة المشفّرة غير قابلة للتحقق',
   configuration_missing:'إعدادات الخادم غير مكتملة'
 };
+const PIN_DIAGNOSTIC_REASON_LABELS={
+  already_encrypted:'لديه نسخة مشفّرة صالحة',
+  hash_only:'Hash-only بلا Legacy PIN',
+  no_legacy_pin_or_credential:'لا يوجد Legacy PIN ولا Credential صالح',
+  legacy_pin_without_credential:'يوجد Legacy PIN بلا Credential صالح',
+  configuration_missing:'إعدادات الخادم غير مكتملة',
+  credential_mismatch:'Legacy PIN لا يطابق Credential الحالي',
+  eligible_missing_ciphertext:'مطابق ومرشح لإضافة نسخة مشفّرة'
+};
+let pinMigrationDiagnosticInFlight=false;
+function renderPinMigrationDiagnostic(result){
+  const box=document.getElementById('pinMigrationDiagnosticReport'); if(!box)return;
+  const rows=Array.isArray(result?.memberships)?result.memberships:[], table=document.createElement('table'); table.style.minWidth='760px';
+  table.innerHTML='<thead><tr><th>العضوية</th><th>Legacy PIN</th><th>Credential صالح</th><th>مطابقة Credential</th><th>السبب</th></tr></thead>';
+  const body=document.createElement('tbody');
+  for(const row of rows){const tr=document.createElement('tr'), values=[row.membership,row.hasLegacyPin?'نعم':'لا',row.hasValidCredential?'نعم':'لا',row.legacyMatchesCredential===null?'غير منطبق':row.legacyMatchesCredential?'نعم':'لا',PIN_DIAGNOSTIC_REASON_LABELS[row.reason]||'غير مصنّف']; for(const value of values){const td=document.createElement('td');td.textContent=String(value);tr.append(td);} body.append(tr);}
+  table.append(body); box.replaceChildren(table); box.hidden=false;
+}
+async function runPinMigrationDiagnostic(){
+  if(pinMigrationDiagnosticInFlight)return;
+  if(currentRole!=='super_admin'||!isSuperAdmin(currentUser?.email)||!auth.currentUser)return showNotif('الفحص التفصيلي متاح للسوبر أدمن فقط وبجلسة فعالة.','error');
+  const button=document.getElementById('pinMigrationDiagnosticBtn'),status=document.getElementById('pinMigrationStatus'); pinMigrationDiagnosticInFlight=true;
+  if(button){button.disabled=true;button.textContent='جارٍ الفحص التفصيلي للقراءة فقط...';} if(status)status.textContent='يتم تصنيف كل العضويات دون أي كتابة على Firebase.';
+  try{const result=await callLoyaltySecurity('/api/admin/loyalty/pin-migration',{method:'POST',body:{mode:'diagnostic'}});renderPinMigrationDiagnostic(result);if(status)status.textContent=`اكتمل الفحص التفصيلي: ${Number(result?.totalMemberships||0)} عضوية — لم تُجرَ أي كتابة.`;}
+  catch(error){if(status)status.textContent='تعذر تنفيذ الفحص التفصيلي للقراءة فقط.';showNotif('تعذر تنفيذ الفحص التفصيلي.','error');}
+  finally{pinMigrationDiagnosticInFlight=false;if(button){button.disabled=false;button.textContent='فحص تفصيلي للعضويات (قراءة فقط)';}}
+}
 function renderPinMigrationReport(report){
   const summary=document.getElementById('pinMigrationSummary'), reasons=document.getElementById('pinMigrationReasons'), box=document.getElementById('pinMigrationReport');
   if(!summary||!reasons||!box)return;

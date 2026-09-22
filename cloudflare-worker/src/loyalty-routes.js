@@ -555,9 +555,28 @@ async function planOriginalPinRecovery(root, env) {
   }
   return {plan,report:{totalMemberships:Object.keys(customers).length,eligible:plan.length,alreadyEncrypted:Number(reasons.already_encrypted||0),hashOnly:Number(reasons.hash_only||0),cannotRecover:Object.values(reasons).reduce((n,v)=>n+Number(v||0),0)-Number(reasons.already_encrypted||0),reasons}};
 }
+async function diagnoseOriginalPinRecovery(root, env) {
+  const customers=root?.loyalty_customers||{}, credentials=root?.loyalty_credentials||{}, pepper=String(env.LOYALTY_PIN_PEPPER||'').trim(), revealKey=String(env.LOYALTY_PIN_REVEAL_KEY||'').trim(), memberships=[];
+  for(const membership of Object.keys(customers).sort()) {
+    const customer=customers[membership]||{}, credential=credentials[membership], hasLegacyPin=security.validPin(customer.pin), hasValidCredential=credentialShapeIsUsable(credential);
+    let legacyMatchesCredential=null, hasValidCiphertext=false;
+    if(typeof credential?.pinCiphertext==='string'&&credential.pinCiphertext.length>0&&revealKey){try{await security.decryptPin(credential.pinCiphertext,revealKey);hasValidCiphertext=true;}catch{}}
+    if(hasLegacyPin&&hasValidCredential&&pepper){try{legacyMatchesCredential=await security.timingSafePinMatch(String(customer.pin).trim(),credential,pepper);}catch{legacyMatchesCredential=false;}}
+    let reason='no_legacy_pin';
+    if(hasValidCiphertext)reason='already_encrypted';
+    else if(!hasLegacyPin&&hasValidCredential)reason='hash_only';
+    else if(!hasLegacyPin&&!hasValidCredential)reason='no_legacy_pin_or_credential';
+    else if(!hasValidCredential)reason='legacy_pin_without_credential';
+    else if(!pepper||!revealKey)reason='configuration_missing';
+    else if(legacyMatchesCredential===false)reason='credential_mismatch';
+    else if(legacyMatchesCredential===true)reason='eligible_missing_ciphertext';
+    memberships.push({membership,hasLegacyPin,hasValidCredential,legacyMatchesCredential,reason});
+  }
+  return {totalMemberships:memberships.length,memberships};
+}
 async function recoverOriginalPins(request, env, current) {
-  const actor=await staff(env,current,'reveal-pin'); if(actor.role!=='super_admin') throw Error('FORBIDDEN'); const payload=await body(request), mode=String(payload.mode||'dry-run'); if(!['dry-run','apply'].includes(mode)) throw Error('INVALID_ARGUMENT');
-  const root=await firebaseAdminRequest(env,'')||{}, planned=await planOriginalPinRecovery(root,env); if(mode==='dry-run') return response(request,env,{ok:true,report:planned.report});
+  const actor=await staff(env,current,'reveal-pin'); if(actor.role!=='super_admin') throw Error('FORBIDDEN'); const payload=await body(request), mode=String(payload.mode||'dry-run'); if(!['dry-run','diagnostic','apply'].includes(mode)) throw Error('INVALID_ARGUMENT');
+  const root=await firebaseAdminRequest(env,'')||{}, planned=await planOriginalPinRecovery(root,env); if(mode==='diagnostic') return response(request,env,{ok:true,mode,...await diagnoseOriginalPinRecovery(root,env)}); if(mode==='dry-run') return response(request,env,{ok:true,report:planned.report});
   if(payload.confirmOriginalPins!==true) throw Error('CONFIRMATION_REQUIRED'); const backupKey=String(env.PIN_BACKUP_ENCRYPTION_KEY||''), revealKey=String(env.LOYALTY_PIN_REVEAL_KEY||''); if(!backupKey||!revealKey) throw Error('PIN_RECOVERY_CONFIGURATION_MISSING');
   const backupId=`pin_recovery_${crypto.randomUUID()}`, payloadBackup={version:1,createdAt:Date.now(),entries:planned.plan.map(x=>({membership:x.membership,fingerprint:x.fingerprint,previousCiphertext:null}))}, ciphertext=await security.encryptRecoveryPayload(payloadBackup,backupKey);
   await firebaseAdminRequest(env,`loyalty_pin_recovery_backups/${backupId}`,{method:'PUT',body:{version:1,algorithm:'AES-256-GCM',ciphertext,createdAt:payloadBackup.createdAt,entryCount:payloadBackup.entries.length}});
