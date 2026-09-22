@@ -564,6 +564,16 @@ body,.top-bar,.card,.stat-card,.main-content,.sidebar,.auth-card,.table-wrap,tab
     <!-- ─── LOYALTY CUSTOMERS ─── -->
     <section class="admin-section" id="loyalty_customers">
       <div class="section-title">👥 قاعدة بيانات العملاء</div>
+      <div class="card" id="pinMigrationCard" hidden>
+        <h3>🛡️ فحص رموز الأعضاء القديمة</h3>
+        <p class="muted">فحص قراءة فقط للحسابات القديمة. لا يغيّر PIN أو Credential أو أي بيانات عضوية.</p>
+        <button class="btn btn-primary" id="pinMigrationDryRunBtn" type="button" onclick="runPinMigrationDryRun()">فحص رموز الأعضاء القديمة</button>
+        <div id="pinMigrationStatus" role="status" aria-live="polite" style="margin-top:12px"></div>
+        <div id="pinMigrationReport" hidden style="margin-top:14px">
+          <div id="pinMigrationSummary" class="stats-grid"></div>
+          <div id="pinMigrationReasons" style="margin-top:12px"></div>
+        </div>
+      </div>
       <div class="card">
         <div style="display:flex; gap:10px; margin-bottom:15px;">
            <input type="text" id="adminCustSearch" class="input-text" placeholder="البحث بالاسم, الهاتف, رقم العضوية, أو البريد..." style="flex:1" oninput="renderAdminCustomers()">
@@ -1197,6 +1207,7 @@ function showAdminDashboard(user, role, permissions = {}){
   currentUser=user;
   currentRole=role;
   currentAdminPermissions=permissions||{};
+  setPinMigrationVisibility();
   showScreen('app');
   try { initAdminApp(user, role); }
   catch(error) {
@@ -1205,6 +1216,11 @@ function showAdminDashboard(user, role, permissions = {}){
     if(status) status.textContent='⚠️ تعذر تحميل بعض البيانات — اللوحة ما زالت متاحة';
     showNotif('تم فتح لوحة الإدارة، لكن تعذر تحميل بعض بيانات Firebase: '+error.message,'error');
   }
+}
+
+function setPinMigrationVisibility(){
+  const card=document.getElementById('pinMigrationCard');
+  if(card) card.hidden=!(currentRole==='super_admin' && isSuperAdmin(currentUser?.email));
 }
 
 async function bootstrapSuperAdmin(user){
@@ -3281,6 +3297,42 @@ async function deleteClubSubscriber(subscriptionId){
 
 let adminPinRevealTimer = null;
 function canRevealMemberPin(){ return currentRole === 'super_admin' || (currentRole === 'manager' && currentAdminPermissions?.canRevealMemberPin === true); }
+let pinMigrationDryRunInFlight=false;
+const PIN_MIGRATION_REASON_LABELS={
+  eligible:'مؤهل للإصلاح',
+  hash_only:'Hash-only — مؤجل حتى تسجيل دخول ناجح',
+  already_encrypted:'لديه نسخة مشفّرة مسبقاً',
+  no_legacy_pin:'لا يوجد PIN قديم',
+  credential_mismatch:'عدم توافق PIN القديم مع Credential الحالي',
+  cipher_mismatch:'عدم توافق النسخة المشفّرة مع PIN القديم',
+  cipher_invalid:'النسخة المشفّرة غير قابلة للتحقق',
+  configuration_missing:'إعدادات الخادم غير مكتملة'
+};
+function renderPinMigrationReport(report){
+  const summary=document.getElementById('pinMigrationSummary'), reasons=document.getElementById('pinMigrationReasons'), box=document.getElementById('pinMigrationReport');
+  if(!summary||!reasons||!box)return;
+  summary.replaceChildren();
+  const fields=[['إجمالي السجلات المفحوصة','totalMemberships'],['المؤهلة للإصلاح','eligible'],['Hash-only','hashOnly'],['لديها نسخة مشفّرة','alreadyEncrypted'],['غير قابلة للتحقق','cannotRecover']];
+  for(const [label,key] of fields){const card=document.createElement('div');card.className='stat-card';const value=document.createElement('h3');value.textContent=String(Number(report?.[key]||0));const text=document.createElement('p');text.textContent=label;card.append(value,text);summary.append(card);}
+  reasons.replaceChildren();
+  const heading=document.createElement('strong');heading.textContent='أسباب غير حساسة:';reasons.append(heading);
+  const list=document.createElement('ul');list.style.margin='8px 0 0';
+  for(const [key,count] of Object.entries(report?.reasons||{})){if(!PIN_MIGRATION_REASON_LABELS[key])continue;const item=document.createElement('li');item.textContent=`${PIN_MIGRATION_REASON_LABELS[key]}: ${Number(count||0)}`;list.append(item);}
+  reasons.append(list);box.hidden=false;
+}
+async function runPinMigrationDryRun(){
+  if(pinMigrationDryRunInFlight)return;
+  if(currentRole!=='super_admin'||!isSuperAdmin(currentUser?.email)||!auth.currentUser)return showNotif('الفحص متاح للسوبر أدمن فقط وبجلسة فعالة.','error');
+  const button=document.getElementById('pinMigrationDryRunBtn'),status=document.getElementById('pinMigrationStatus');
+  pinMigrationDryRunInFlight=true;if(button){button.disabled=true;button.textContent='جارٍ الفحص للقراءة فقط...';}if(status)status.textContent='يتم فحص السجلات دون أي كتابة على Firebase.';
+  try{
+    const result=await callLoyaltySecurity('/api/admin/loyalty/pin-migration',{method:'POST',body:{mode:'dry-run'}});
+    renderPinMigrationReport(result?.report||{});if(status)status.textContent='اكتمل الفحص — لم تُجرَ أي كتابة.';
+  }catch(error){
+    if(status)status.textContent=error?.code==='AUTH_REQUIRED'||error?.code==='AUTH_INVALID'?'انتهت جلسة الإدارة. سجّل الدخول مرة أخرى.':error?.code==='FORBIDDEN'?'لا تملك صلاحية Super Admin لهذا الفحص.':'تعذر تنفيذ الفحص للقراءة فقط.';
+    document.getElementById('pinMigrationReport')?.setAttribute('hidden','');
+  }finally{pinMigrationDryRunInFlight=false;if(button){button.disabled=false;button.textContent='فحص رموز الأعضاء القديمة';}}
+}
 async function revealCustomerPinAdmin(id){
   if(!canRevealMemberPin() || !currentUser) return showNotif('لا تملك صلاحية كشف PIN.','error');
   const el = document.getElementById('custPinDisplay');
