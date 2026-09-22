@@ -4587,16 +4587,6 @@
             setPinRevealControls(false);
             applyPinVisibility();
         }
-        async function activatePinRevealOnce() {
-            const entered = window.prompt(currentLang === 'en' ? 'Enter your current PIN once to enable secure reveal:' : 'أدخل رمز PIN الحالي مرة واحدة لتفعيل الكشف الآمن:');
-            const pin = String(entered || '').trim();
-            if (!/^\d{4,6}$/.test(pin)) {
-                showToast(currentLang === 'en' ? 'No PIN was saved. Direct reveal remains unavailable.' : 'لم يتم حفظ أي رمز. يبقى الكشف المباشر غير متاح.', 'error');
-                return false;
-            }
-            const result = await callLoyaltySecurity('/api/loyalty/verify-pin-for-reveal', { method: 'POST', body: { pin } });
-            return Boolean(result?.data?.verified && result?.data?.available);
-        }
         window.togglePinVisibility = async function() {
             if (isPinRevealed) { hidePinVisibility(); return; }
             if (!currentFirebaseUser || !loyaltyCustomer) return;
@@ -4606,12 +4596,8 @@
                 const membership = String(result?.data?.membershipNumber || loyaltyCustomer.membershipNumber || '').trim();
                 if (revealedPin && /^\d{4,6}$/.test(revealedPin)) rememberPinAfterAuth(revealedPin, membership);
                 if (!hasPinMemory()) {
-                    const activated = await activatePinRevealOnce();
-                    if (!activated) return;
-                    const activatedResult = await callLoyaltySecurity('/api/loyalty/reveal-pin', { method: 'POST', body: {} });
-                    const activatedPin = String(activatedResult?.data?.pin || '').trim();
-                    if (activatedPin && /^\d{4,6}$/.test(activatedPin)) rememberPinAfterAuth(activatedPin, membership);
-                    if (!hasPinMemory()) return;
+                    showToast(currentLang === 'en' ? 'PIN reveal is unavailable for this account.' : 'لا توجد نسخة موثوقة قابلة للكشف لهذا الحساب.', 'error');
+                    return;
                 }
             } catch (error) {
                 console.warn('[LOYALTY_PIN_REVEAL_FAILED]', { code: error?.code || 'PIN_REVEAL_FAILED', status: error?.httpStatus || null });

@@ -190,6 +190,23 @@ async function ensurePinCiphertext(env, membership, credential, pin) {
   if (saved !== ciphertext) throw Error('PIN_REVEAL_WRITE_UNVERIFIED');
   return true;
 }
+async function ensureTrustedLegacyPinCiphertext(env, membership, customer, credential) {
+  if (credential?.pinCiphertext) return true;
+  const legacyPin = String(customer?.pin || '').trim();
+  const pepper = String(env.LOYALTY_PIN_PEPPER || '').trim();
+  const revealKey = String(env.LOYALTY_PIN_REVEAL_KEY || '').trim();
+  if (!security.validPin(legacyPin) || !pepper || !revealKey || !credentialShapeIsUsable(credential)) return false;
+  if (!await security.timingSafePinMatch(legacyPin, credential, pepper)) return false;
+  const latest = await firebaseAdminReadWithEtag(env, `loyalty_credentials/${membership}`);
+  const latestCredential = latest.data;
+  if (latestCredential?.pinCiphertext) return true;
+  if (!credentialShapeIsUsable(latestCredential) || latestCredential.pinHash !== credential.pinHash || latestCredential.salt !== credential.salt || Number(latestCredential.iterations) !== Number(credential.iterations)) return false;
+  const ciphertext = await security.encryptPin(legacyPin, revealKey);
+  await firebaseAdminConditionalPut(env, `loyalty_credentials/${membership}`, { ...latestCredential, pinCiphertext: ciphertext }, latest.etag);
+  const saved = await firebaseAdminRequest(env, `loyalty_credentials/${membership}`);
+  if (!saved || saved.pinCiphertext !== ciphertext || saved.pinHash !== latestCredential.pinHash || saved.salt !== latestCredential.salt || Number(saved.iterations) !== Number(latestCredential.iterations)) throw Error('PIN_REVEAL_WRITE_UNVERIFIED');
+  return true;
+}
 function normalizedEmail(value) { return String(value || '').trim().toLowerCase(); }
 function cleanText(value, limit) { return typeof value === 'string' ? value.trim().replace(/\s+/g, ' ').slice(0, limit) : ''; }
 function normalizeIraqiPhone(value) {
@@ -505,6 +522,7 @@ async function revealPin(request, env, current) {
   const linkedMembership = security.normalizeMembershipNumber(await firebaseAdminRequest(env, `loyalty_links/${current.uid}`));
   if (linkedMembership !== resolved.membership) throw Error('PROFILE_NOT_FOUND');
   const credential = await firebaseAdminRequest(env, `loyalty_credentials/${resolved.membership}`);
+  if (!credential?.pinCiphertext && await ensureTrustedLegacyPinCiphertext(env, resolved.membership, resolved.customer, credential)) credential.pinCiphertext = await firebaseAdminRequest(env, `loyalty_credentials/${resolved.membership}/pinCiphertext`);
   if (!credential?.pinCiphertext) return response(request, env, { ok: true, available: false, membershipNumber: resolved.membership });
   const revealKey = String(env.LOYALTY_PIN_REVEAL_KEY || '').trim();
   if (!revealKey) return response(request, env, { ok: true, available: false, membershipNumber: resolved.membership });
@@ -517,7 +535,8 @@ async function revealPinForAdmin(request, env, current) {
   if (!current.authTime || Math.floor(Date.now() / 1000) - current.authTime > 300) throw Error('AUTH_RECENT_REQUIRED');
   const payload = await body(request), membership = security.normalizeMembershipNumber(payload.membership);
   if (!membership) throw Error('INVALID_MEMBERSHIP');
-  const credential = await firebaseAdminRequest(env, `loyalty_credentials/${membership}`);
+  const [customer, credential] = await Promise.all([firebaseAdminRequest(env, `loyalty_customers/${membership}`), firebaseAdminRequest(env, `loyalty_credentials/${membership}`)]);
+  if (!credential?.pinCiphertext && await ensureTrustedLegacyPinCiphertext(env, membership, customer, credential)) credential.pinCiphertext = await firebaseAdminRequest(env, `loyalty_credentials/${membership}/pinCiphertext`);
   if (!credential?.pinCiphertext) return response(request, env, { ok: true, available: false, membershipNumber: membership });
   const revealKey = String(env.LOYALTY_PIN_REVEAL_KEY || '').trim();
   if (!revealKey) return response(request, env, { ok: true, available: false, membershipNumber: membership });
@@ -525,6 +544,32 @@ async function revealPinForAdmin(request, env, current) {
   const auditId = `pin_reveal_${crypto.randomUUID()}`;
   await firebaseAdminRequest(env, `loyalty_logs/${auditId}`, { method: 'PUT', body: { type: 'PIN_REVEALED', membership, actorUid: current.uid, actorRole: actor.role, timestamp: Date.now() } });
   return response(request, env, { ok: true, available: true, pin, membershipNumber: membership });
+}
+async function auditPinReveals(request, env, current) {
+  const actor = await staff(env, current, 'reveal-pin');
+  if (actor.role !== 'super_admin') throw Error('FORBIDDEN');
+  if (!current.authTime || Math.floor(Date.now() / 1000) - current.authTime > 300) throw Error('AUTH_RECENT_REQUIRED');
+  const payload = request.method === 'POST' ? await body(request) : {}, repair = payload.repair === true;
+  const root = await firebaseAdminRequest(env, ''), customers = root?.loyalty_customers || {}, credentials = root?.loyalty_credentials || {};
+  const keyConfigured = Boolean(String(env.LOYALTY_PIN_REVEAL_KEY || '').trim()), counts = { totalAccounts: 0, encryptedValid: 0, legacyRepairable: 0, hashOnly: 0, invalidOrUnavailable: 0, repaired: 0 };
+  for (const [membership, customer] of Object.entries(customers)) {
+    if (!customer || customer.status === 'inactive' || customer.deleted === true) continue;
+    counts.totalAccounts += 1;
+    const credential = credentials[membership];
+    let encryptedValid = false;
+    if (keyConfigured && credential?.pinCiphertext) {
+      try { const pin = await security.decryptPin(credential.pinCiphertext, String(env.LOYALTY_PIN_REVEAL_KEY)); encryptedValid = await security.timingSafePinMatch(pin, credential, String(env.LOYALTY_PIN_PEPPER || '')); } catch { encryptedValid = false; }
+    }
+    if (encryptedValid) { counts.encryptedValid += 1; continue; }
+    const legacyPinMatches = keyConfigured && security.validPin(customer.pin) && credentialShapeIsUsable(credential) && await security.timingSafePinMatch(String(customer.pin), credential, String(env.LOYALTY_PIN_PEPPER || ''));
+    if (legacyPinMatches) {
+      counts.legacyRepairable += 1;
+      if (repair && await ensureTrustedLegacyPinCiphertext(env, membership, customer, credential)) counts.repaired += 1;
+      continue;
+    }
+    if (credentialShapeIsUsable(credential)) counts.hashOnly += 1; else counts.invalidOrUnavailable += 1;
+  }
+  return response(request, env, { ok: true, keyConfigured, repairRequested: repair, counts });
 }
 async function verifyMemberPin(env, membership, pin) {
   const pepper = String(env.LOYALTY_PIN_PEPPER || ''), normalizedPin = String(pin || '').trim();
@@ -872,6 +917,7 @@ async function route(request, env, url) {
     if (path === '/api/loyalty/verify-pin-for-reveal' && request.method === 'POST') return await verifyPinForReveal(request, env, current);
     if (path === '/api/loyalty/reveal-pin' && request.method === 'POST') return await revealPin(request, env, current);
     if (path === '/api/admin/loyalty/reveal-pin' && request.method === 'POST') return await revealPinForAdmin(request, env, current);
+    if (path === '/api/admin/loyalty/pin-reveal-audit' && ['GET', 'POST'].includes(request.method)) return await auditPinReveals(request, env, current);
     if (path === '/api/loyalty/provision-google') return await provision(request, env, current);
     if (path === '/api/admin/provision-super-admin') { await staff(env, current, 'provision-super-admin'); return await provision(request, env, current, true); }
     if (path === '/api/subscription/claim') return await submitClaim(request, env, current);

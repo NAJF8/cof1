@@ -563,7 +563,7 @@ body,.top-bar,.card,.stat-card,.main-content,.sidebar,.auth-card,.table-wrap,tab
 
     <!-- ─── LOYALTY CUSTOMERS ─── -->
     <section class="admin-section" id="loyalty_customers">
-      <div class="section-title">👥 قاعدة بيانات العملاء</div>
+      <div class="section-title" style="display:flex;align-items:center;justify-content:space-between;gap:12px;">👥 قاعدة بيانات العملاء <button type="button" class="btn btn-secondary" onclick="auditAndRepairPinReveals()">🔐 فحص وإصلاح كشف PIN</button></div>
       <div class="card">
         <div style="display:flex; gap:10px; margin-bottom:15px;">
            <input type="text" id="adminCustSearch" class="input-text" placeholder="البحث بالاسم, الهاتف, رقم العضوية, أو البريد..." style="flex:1" oninput="renderAdminCustomers()">
@@ -3268,6 +3268,14 @@ async function deleteClubSubscriber(subscriptionId){
 }
 
 let adminPinRevealTimer = null;
+async function auditAndRepairPinReveals(){
+  if(currentRole!=='super_admin'||!currentUser)return showNotif('الفحص متاح لـ Super Admin فقط.','error');
+  try{
+    const result=await callLoyaltySecurity('/api/admin/loyalty/pin-reveal-audit',{method:'POST',body:{repair:true}});
+    const counts=result?.counts||{};
+    showNotif(`تم الفحص: ${Number(counts.repaired||0)} حسابات أُصلحت، ${Number(counts.hashOnly||0)} تعتمد على Hash فقط، والباقي لديه نسخة مشفّرة أو غير متاح.`);
+  }catch(error){ showNotif('تعذر فحص كشف PIN: '+String(error?.code||error?.message||'PIN_REVEAL_AUDIT_FAILED'),'error'); }
+}
 async function revealCustomerPinAdmin(id){
   if(currentRole !== 'super_admin' || !currentUser) return showNotif('الكشف متاح لـ Super Admin فقط.','error');
   const el = document.getElementById('custPinDisplay');

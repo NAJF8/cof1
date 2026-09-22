@@ -45,6 +45,7 @@ const env = { ALLOWED_ORIGINS: 'https://101coffees.com', FIREBASE_DATABASE_URL: 
 const index = fs.readFileSync(new URL('../../index.html', import.meta.url), 'utf8');
 assert.match(index, /\/api\/loyalty\/reveal-pin/);
 assert.doesNotMatch(index, /Enter your PIN to verify ownership/);
+assert.doesNotMatch(index, /Enter your current PIN once|activatePinRevealOnce/);
 const call = async (path, uid) => handleLoyaltyRoutes(new Request(`https://worker.test${path}`, { method: 'POST', headers: { Origin: 'https://101coffees.com', Authorization: `Bearer ${await tokenFor(uid)}`, 'Content-Type': 'application/json' }, body: '{}' }), env, new URL(`https://worker.test${path}`));
 
 let response = await call('/api/loyalty/profile', 'member-uid');

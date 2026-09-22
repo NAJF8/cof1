@@ -81,7 +81,6 @@ exports.provisionGoogleSuperAdmin = onCall(
       createdAt: Number(current.createdAt || now),
       updatedAt: now
     };
-    if (!customer.pin) customer.pin = "0224";
     const addedAt = Number((await db.ref(`admins/${uid}/addedAt`).once("value")).val() || now);
     await db.ref().update({
       [`admins/${uid}`]: { email, displayName: String(request.auth.token.name || "Super Admin").slice(0, 120), role: "super_admin", status: "active", addedAt, addedBy: "server" },
