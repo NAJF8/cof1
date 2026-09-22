@@ -959,6 +959,17 @@
             align-items: center;
             justify-content: center;
         }
+
+        .event-details-image {
+            display: block;
+            width: 100%;
+            max-height: min(52vh, 420px);
+            height: auto;
+            object-fit: contain;
+            object-position: center;
+            margin: 4px 0 18px;
+            border-radius: 14px;
+        }
         
         .event-meta {
             display: grid;
@@ -3938,7 +3949,9 @@
         function renderEventDetails() {
             const ev = eventsDB.find(item => item.id === activeEventDetailsId), content = document.getElementById('eventDetailsContent');
             if (!ev || !content) return;
-            content.innerHTML = `<div class="modal-title"><span class="eyebrow">WORKSHOP DETAILS</span><h2 id="eventDetailsTitle">${esc(eventTitle(ev))}</h2></div><p>${esc(eventDescription(ev) || '')}</p><div class="checkout-summary"><div class="summary-line"><span>التاريخ</span><strong dir="ltr">${esc(ev.date || '—')}</strong></div><div class="summary-line"><span>الوقت</span><strong dir="ltr">${esc(ev.startTime || '—')}${ev.endTime ? ' - ' + esc(ev.endTime) : ''}</strong></div><div class="summary-line"><span>السعر</span><strong>${Number(ev.price) === 0 ? 'مجاناً' : money(ev.price)}</strong></div><div class="summary-line"><span>التوفر</span><strong>يُحسب بعد اختيار الوقت والمدة</strong></div></div><button class="primary-btn full" type="button" data-book-event="${esc(ev.id)}">احجز طاولتك</button>`;
+            const imageSrc = safeImgSrc(ev.image || ev.imageUrl);
+            const imageMarkup = imageSrc ? `<img class="event-details-image" src="${esc(imageSrc)}" alt="${esc(eventTitle(ev))}" loading="lazy" decoding="async" onerror="this.style.display='none'">` : '';
+            content.innerHTML = `<div class="modal-title"><span class="eyebrow">WORKSHOP DETAILS</span><h2 id="eventDetailsTitle">${esc(eventTitle(ev))}</h2></div>${imageMarkup}<p>${esc(eventDescription(ev) || '')}</p><div class="checkout-summary"><div class="summary-line"><span>التاريخ</span><strong dir="ltr">${esc(ev.date || '—')}</strong></div><div class="summary-line"><span>الوقت</span><strong dir="ltr">${esc(ev.startTime || '—')}${ev.endTime ? ' - ' + esc(ev.endTime) : ''}</strong></div><div class="summary-line"><span>السعر</span><strong>${Number(ev.price) === 0 ? 'مجاناً' : money(ev.price)}</strong></div><div class="summary-line"><span>التوفر</span><strong>يُحسب بعد اختيار الوقت والمدة</strong></div></div><button class="primary-btn full" type="button" data-book-event="${esc(ev.id)}">احجز طاولتك</button>`;
         }
 
         function eventCard(e) {
@@ -5655,6 +5668,12 @@
                 if (button) return openEventBooking(button.dataset.bookEvent);
                 const details = event.target.closest('[data-event-details]');
                 if (details) openEventDetails(details.dataset.eventDetails);
+            });
+            document.getElementById('eventDetailsContent')?.addEventListener('click', event => {
+                const button = event.target.closest('[data-book-event]');
+                if (!button) return;
+                setModalOpen(document.getElementById('eventDetailsModal'), false);
+                openEventBooking(button.dataset.bookEvent);
             });
 
             // Checkout type radio change
