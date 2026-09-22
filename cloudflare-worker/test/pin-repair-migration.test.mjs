@@ -21,7 +21,10 @@ assert.equal(result.status, 200); assert.equal(result.body.report.eligible, 2); 
 result = await call('backup', 'repair-fixture-001');
 assert.equal(result.status, 200); assert.equal(result.body.backupVerified, true); assert.equal(result.body.backedUp, 2); assert.equal(typeof root.loyalty_pin_repair_runs['repair-fixture-001'].backup.ciphertext, 'string');
 result = await call('apply', 'repair-fixture-001');
-assert.equal(result.status, 200); assert.equal(result.body.processed.migrated, 2);
+assert.equal(result.status, 200); assert.equal(result.body.processed.migrated, 1); assert.equal(result.body.hasMore, true);
+assert.equal(root.loyalty_customers['101-1'].pin, undefined); assert.equal(await timingSafePinMatch('1111', root.loyalty_credentials['101-1'], env.LOYALTY_PIN_PEPPER), true); assert.equal(await decryptPin(root.loyalty_credentials['101-1'].pinCiphertext, env.LOYALTY_PIN_REVEAL_KEY), '1111');
+result = await call('apply', 'repair-fixture-001');
+assert.equal(result.status, 200); assert.equal(result.body.processed.migrated, 1); assert.equal(result.body.hasMore, false);
 for (const membership of ['101-1', '101-2']) { const originalPin = membership === '101-1' ? '1111' : '2222', credential = root.loyalty_credentials[membership]; assert.equal(root.loyalty_customers[membership].pin, undefined); assert.equal(await timingSafePinMatch(originalPin, credential, env.LOYALTY_PIN_PEPPER), true); assert.equal(await decryptPin(credential.pinCiphertext, env.LOYALTY_PIN_REVEAL_KEY), originalPin); }
 assert.equal(JSON.stringify(root.loyalty_customers['101-2']).includes('2222'), false); assert.equal(root.loyalty_customers['101-3'].pin, undefined); assert.equal(root.loyalty_credentials['101-4'].pinCiphertext, undefined); assert.equal(root.loyalty_customers['101-5'].pin, undefined); assert.equal(JSON.stringify(root.loyalty_customers['101-2']), beforeProtected.replace('"pin":"2222",', ''));
 result = await call('apply', 'repair-fixture-001');

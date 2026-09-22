@@ -3374,9 +3374,9 @@ async function applyOriginalPinRecovery(){
   if(pinMigrationDryRunInFlight||!pinMigrationRunId)return;
   if(currentRole!=='super_admin'||!isSuperAdmin(currentUser?.email)||!auth.currentUser)return showNotif('الترحيل متاح للسوبر أدمن فقط وبجلسة فعالة.','error');
   const button=document.getElementById('pinMigrationApplyBtn'),status=document.getElementById('pinMigrationStatus');if(button){button.disabled=true;button.textContent='جارٍ الترحيل والتحقق...';}pinMigrationDryRunInFlight=true;
-  try{let result;do{result=await callLoyaltySecurity('/api/admin/loyalty/pin-migration',{method:'POST',body:{mode:'apply',runId:pinMigrationRunId}});renderPinMigrationReport(result?.report||{});if(status)status.textContent=`تم إصلاح ${Number(result?.processed?.migrated||0)} في هذه الدفعة؛ المتبقي: ${Number(result?.report?.eligible||0)}.`;}while(result?.hasMore===true);if(status)status.textContent='اكتمل ترحيل العضويات المؤهلة مع التحقق قبل حذف Legacy PIN.';await runPinMigrationDryRun();}
+  try{let result;do{result=await callLoyaltySecurity('/api/admin/loyalty/pin-migration',{method:'POST',body:{mode:'apply',runId:pinMigrationRunId}});renderPinMigrationReport(result?.report||{});if(status)status.textContent=`تم إصلاح ${Number(result?.processed?.migrated||0)} في هذه الدفعة؛ المتبقي: ${Number(result?.report?.eligible||0)}.`;if(result?.hasMore===true)await new Promise(resolve=>setTimeout(resolve,3000));}while(result?.hasMore===true);if(status)status.textContent='اكتمل ترحيل العضويات المؤهلة مع التحقق قبل حذف Legacy PIN.';await runPinMigrationDryRun();}
   catch(error){if(status)status.textContent='تم إيقاف الترحيل عند أول تعارض أو فشل تحقق.';showNotif('توقف الترحيل للحماية.','error');}
-  finally{pinMigrationDryRunInFlight=false;if(button){button.disabled=true;button.textContent='ترحيل العضويات المؤهلة';}}
+  finally{pinMigrationDryRunInFlight=false;if(button){button.disabled=!pinMigrationRunId;button.textContent='ترحيل العضويات المؤهلة';}}
 }
 async function revealCustomerPinAdmin(id){
   if(!canRevealMemberPin() || !currentUser) return showNotif('لا تملك صلاحية كشف PIN.','error');

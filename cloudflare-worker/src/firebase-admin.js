@@ -36,6 +36,16 @@ function firebaseErrorDetails(text, fallbackCode) {
     return { firebaseErrorCode: fallbackCode || null, firebaseErrorMessage: null };
   }
 }
+function retryableFirebaseStatus(status) { return status === 429 || status >= 500; }
+async function firebaseFetch(url, options) {
+  let response;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    response = await fetch(url, options);
+    if (!retryableFirebaseStatus(response.status) || attempt === 2) return response;
+    await new Promise(resolve => setTimeout(resolve, 500 * (attempt + 1)));
+  }
+  return response;
+}
 function firebasePayloadDiagnostics(updates, includeGroups = true) {
   const counts = { undefined: 0, nan: 0, infinity: 0, bigint: 0, dateObjects: 0, otherInvalidTypes: 0 };
   const invalidPaths = [], paths = Object.keys(updates || {}), seen = new Map(), collisions = [], visitedObjects = new WeakSet();
@@ -92,7 +102,7 @@ function firebasePayloadDiagnostics(updates, includeGroups = true) {
 }
 async function firebaseAdminRequest(env, path, options = {}) {
   const base = String(env.FIREBASE_DATABASE_URL || 'https://coffee-30fa7-default-rtdb.firebaseio.com').replace(/\/$/, '');
-  const response = await fetch(`${base}/${String(path).replace(/^\//, '')}.json`, { method: options.method || 'GET', headers: { Authorization: `Bearer ${await serviceAccountToken(env)}`, 'Content-Type': 'application/json', Accept: 'application/json' }, body: options.body === undefined ? undefined : JSON.stringify(options.body) });
+  const response = await firebaseFetch(`${base}/${String(path).replace(/^\//, '')}.json`, { method: options.method || 'GET', headers: { Authorization: `Bearer ${await serviceAccountToken(env)}`, 'Content-Type': 'application/json', Accept: 'application/json' }, body: options.body === undefined ? undefined : JSON.stringify(options.body) });
   const text = await response.text(); let data = null; try { data = text ? JSON.parse(text) : null; } catch { data = text; }
   if (!response.ok) {
     const error = new Error(`FIREBASE_${response.status}`);
@@ -105,7 +115,7 @@ async function firebaseAdminRequest(env, path, options = {}) {
 }
 async function firebaseAdminReadWithEtag(env, path = '') {
   const base = String(env.FIREBASE_DATABASE_URL || 'https://coffee-30fa7-default-rtdb.firebaseio.com').replace(/\/$/, '');
-  const response = await fetch(`${base}/${String(path).replace(/^\//, '')}.json`, { headers: { Authorization: `Bearer ${await serviceAccountToken(env)}`, Accept: 'application/json', 'X-Firebase-ETag': 'true' } });
+  const response = await firebaseFetch(`${base}/${String(path).replace(/^\//, '')}.json`, { headers: { Authorization: `Bearer ${await serviceAccountToken(env)}`, Accept: 'application/json', 'X-Firebase-ETag': 'true' } });
   const text = await response.text(); let data = null; try { data = text ? JSON.parse(text) : null; } catch { data = text; }
   const etag = response.headers.get('ETag');
   console.info({ tag: 'FIREBASE_ROOT_READ', status: response.status, hasEtag: Boolean(etag) });
@@ -122,7 +132,7 @@ async function firebaseAdminReadWithEtag(env, path = '') {
 }
 async function firebaseAdminConditionalPut(env, path, body, etag) {
   const base = String(env.FIREBASE_DATABASE_URL || 'https://coffee-30fa7-default-rtdb.firebaseio.com').replace(/\/$/, '');
-  const response = await fetch(`${base}/${String(path).replace(/^\//, '')}.json`, { method: 'PUT', headers: { Authorization: `Bearer ${await serviceAccountToken(env)}`, 'Content-Type': 'application/json', Accept: 'application/json', 'If-Match': etag }, body: JSON.stringify(body) });
+  const response = await firebaseFetch(`${base}/${String(path).replace(/^\//, '')}.json`, { method: 'PUT', headers: { Authorization: `Bearer ${await serviceAccountToken(env)}`, 'Content-Type': 'application/json', Accept: 'application/json', 'If-Match': etag }, body: JSON.stringify(body) });
   const text = await response.text();
   if (response.status === 412) {
     const error = new Error('FIREBASE_ETAG_CONFLICT');
@@ -182,7 +192,7 @@ async function firebaseAdminAtomicPatch(env, plan, options = {}) {
   const maxRootBytes = Number.isFinite(Number(options.maxRootBytes)) ? Number(options.maxRootBytes) : 10 * 1024 * 1024;
   const write = options.write || (async (currentEnv, mergedRoot, etag, retry, writeOptions) => {
     const base = String(currentEnv.FIREBASE_DATABASE_URL || 'https://coffee-30fa7-default-rtdb.firebaseio.com').replace(/\/$/, '');
-    const response = await fetch(`${base}/.json`, { method: 'PUT', headers: { Authorization: `Bearer ${await serviceAccountToken(currentEnv)}`, 'Content-Type': 'application/json', Accept: 'application/json', 'If-Match': etag }, body: JSON.stringify(mergedRoot) });
+    const response = await firebaseFetch(`${base}/.json`, { method: 'PUT', headers: { Authorization: `Bearer ${await serviceAccountToken(currentEnv)}`, 'Content-Type': 'application/json', Accept: 'application/json', 'If-Match': etag }, body: JSON.stringify(mergedRoot) });
     const text = await response.text();
     console.info({ tag: 'FIREBASE_ROOT_PUT', status: response.status, retry });
       if (response.status === 412) {

@@ -574,7 +574,10 @@ async function diagnoseOriginalPinRecovery(root, env) {
   }
   return {totalMemberships:memberships.length,memberships};
 }
-const PIN_REPAIR_BATCH_SIZE = 5;
+// Each member repair performs multiple full-root reads/writes and verification
+// passes. Keep the resumable unit below the Worker request timeout so a 503
+// cannot strand the final member of an otherwise successful batch.
+const PIN_REPAIR_BATCH_SIZE = 1;
 function pinRepairRunId(value) { const id = String(value || '').trim(); return /^[A-Za-z0-9._:-]{8,120}$/.test(id) ? id : ''; }
 function pinRepairPath(runId, suffix = '') { return `loyalty_pin_repair_runs/${runId}${suffix ? `/${suffix}` : ''}`; }
 function credentialFingerprint(credential) { return credentialShapeIsUsable(credential) ? `${credential.pinHash}.${credential.salt}.${credential.algorithm || ''}.${Number(credential.iterations || 0)}` : ''; }
