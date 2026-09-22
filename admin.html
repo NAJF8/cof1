@@ -3274,7 +3274,8 @@ async function auditAndRepairPinReveals(){
     const provider=new firebase.auth.GoogleAuthProvider(); provider.addScope('email'); await currentUser.reauthenticateWithPopup(provider);
     const result=await callLoyaltySecurity('/api/admin/loyalty/pin-reveal-audit',{method:'POST',body:{repair:true}});
     const counts=result?.counts||{};
-    showNotif(`تم الفحص: ${Number(counts.repaired||0)} حسابات أُصلحت، ${Number(counts.hashOnly||0)} تعتمد على Hash فقط، والباقي لديه نسخة مشفّرة أو غير متاح.`);
+    const repaired=Number(counts.repaired||0), encrypted=Number(counts.encryptedValid||0), hashOnly=Number(counts.hashOnly||0), invalid=Number(counts.invalidOrUnavailable||0), legacyPending=Math.max(0,Number(counts.legacyRepairable||0)-repaired), canReveal=encrypted+repaired, cannotReveal=hashOnly+invalid+legacyPending;
+    showNotif(`تم الفحص: قابل للكشف ${canReveal}، غير قابل للكشف ${cannotReveal}، أُصلحت ${repaired}، وHash-only: ${hashOnly}.`);
   }catch(error){ showNotif('تعذر فحص كشف PIN: '+String(error?.code||error?.message||'PIN_REVEAL_AUDIT_FAILED'),'error'); }
 }
 async function revealCustomerPinAdmin(id){
