@@ -563,7 +563,7 @@ body,.top-bar,.card,.stat-card,.main-content,.sidebar,.auth-card,.table-wrap,tab
 
     <!-- ─── LOYALTY CUSTOMERS ─── -->
     <section class="admin-section" id="loyalty_customers">
-      <div class="section-title" style="display:flex;align-items:center;justify-content:space-between;gap:12px;">👥 قاعدة بيانات العملاء <button type="button" class="btn btn-secondary" onclick="auditAndRepairPinReveals()">🔐 فحص وإصلاح كشف PIN</button></div>
+      <div class="section-title">👥 قاعدة بيانات العملاء</div>
       <div class="card">
         <div style="display:flex; gap:10px; margin-bottom:15px;">
            <input type="text" id="adminCustSearch" class="input-text" placeholder="البحث بالاسم, الهاتف, رقم العضوية, أو البريد..." style="flex:1" oninput="renderAdminCustomers()">
@@ -3281,16 +3281,6 @@ async function deleteClubSubscriber(subscriptionId){
 
 let adminPinRevealTimer = null;
 function canRevealMemberPin(){ return currentRole === 'super_admin' || (currentRole === 'manager' && currentAdminPermissions?.canRevealMemberPin === true); }
-async function auditAndRepairPinReveals(){
-  if(currentRole!=='super_admin'||!currentUser)return showNotif('الفحص متاح لـ Super Admin فقط.','error');
-  try{
-    const provider=new firebase.auth.GoogleAuthProvider(); provider.addScope('email'); await currentUser.reauthenticateWithPopup(provider);
-    const result=await callLoyaltySecurity('/api/admin/loyalty/pin-reveal-audit',{method:'POST',body:{repair:true}});
-    const counts=result?.counts||{};
-    const repaired=Number(counts.repaired||0), encrypted=Number(counts.encryptedValid||0), hashOnly=Number(counts.hashOnly||0), invalid=Number(counts.invalidOrUnavailable||0), legacyPending=Math.max(0,Number(counts.legacyRepairable||0)-repaired), canReveal=encrypted+repaired, cannotReveal=hashOnly+invalid+legacyPending;
-    showNotif(`تم الفحص: قابل للكشف ${canReveal}، غير قابل للكشف ${cannotReveal}، أُصلحت ${repaired}، وHash-only: ${hashOnly}.`);
-  }catch(error){ showNotif('تعذر فحص كشف PIN: '+String(error?.code||error?.message||'PIN_REVEAL_AUDIT_FAILED'),'error'); }
-}
 async function revealCustomerPinAdmin(id){
   if(!canRevealMemberPin() || !currentUser) return showNotif('لا تملك صلاحية كشف PIN.','error');
   const el = document.getElementById('custPinDisplay');

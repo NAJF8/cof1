@@ -8,7 +8,7 @@ const key = createPrivateKey(privateKey.export({ type: 'pkcs8', format: 'pem' })
 const env = { ALLOWED_ORIGINS: 'https://101coffees.com', FIREBASE_DATABASE_URL: 'https://fixture.firebaseio.test', FIREBASE_SERVICE_ACCOUNT_EMAIL: 'fixture@example.test', FIREBASE_SERVICE_ACCOUNT_PRIVATE_KEY: key.export({ type: 'pkcs8', format: 'pem' }), LOYALTY_PIN_PEPPER: 'fixture-pepper', LOYALTY_PIN_REVEAL_KEY: 'independent-reveal-secret' };
 const legacyCredential = await createCredential('1357', env.LOYALTY_PIN_PEPPER);
 const hashOnlyCredential = await createCredential('8642', env.LOYALTY_PIN_PEPPER);
-const root = { admins: { 'admin-1': { role: 'super_admin', status: 'active' }, 'manager-1': { role: 'manager', status: 'active', permissions: { canRevealMemberPin: true } }, 'manager-2': { role: 'manager', status: 'active', permissions: { canRevealMemberPin: false } }, 'cashier-1': { role: 'cashier', status: 'active' } }, loyalty_customers: { '101-1': { uid: 'member-1', currentHearts: 2 }, '101-2': { uid: 'member-2', currentHearts: 1 }, '101-3': { uid: 'member-3', currentHearts: 0, pin: '1357' }, '101-4': { uid: 'member-4', currentHearts: 0 } }, loyalty_links: { 'member-1': '101-1', 'member-2': '101-2', 'member-3': '101-3', 'member-4': '101-4' }, loyalty_credentials: { '101-1': await createCredential('5678', env.LOYALTY_PIN_PEPPER), '101-2': await createCredential('2468', env.LOYALTY_PIN_PEPPER), '101-3': legacyCredential, '101-4': hashOnlyCredential } };
+const root = { admins: { 'admin-1': { role: 'super_admin', status: 'active' }, 'admin-2': { role: 'admin', status: 'active' }, 'manager-1': { role: 'manager', status: 'active', permissions: { canRevealMemberPin: true } }, 'manager-2': { role: 'manager', status: 'active', permissions: { canRevealMemberPin: false } }, 'cashier-1': { role: 'cashier', status: 'active' } }, loyalty_customers: { '101-1': { uid: 'member-1', currentHearts: 2 }, '101-2': { uid: 'member-2', currentHearts: 1 }, '101-3': { uid: 'member-3', currentHearts: 0, pin: '1357' }, '101-4': { uid: 'member-4', currentHearts: 0 } }, loyalty_links: { 'member-1': '101-1', 'member-2': '101-2', 'member-3': '101-3', 'member-4': '101-4' }, loyalty_credentials: { '101-1': await createCredential('5678', env.LOYALTY_PIN_PEPPER), '101-2': await createCredential('2468', env.LOYALTY_PIN_PEPPER), '101-3': legacyCredential, '101-4': hashOnlyCredential } };
 root.loyalty_credentials['101-1'].pinCiphertext = await encryptPin('5678', env.LOYALTY_PIN_REVEAL_KEY);
 const publicJwk = publicKey.export({ format: 'jwk' });
 let writes = 0;
@@ -73,6 +73,8 @@ assert.equal(adminResult.body.pin, '2468');
 assert.equal(Object.values(root.loyalty_logs || {}).some(log => log.type === 'PIN_REVEALED' && log.actorUid === 'admin-1' && log.actorEmail === 'admin-1@example.test' && log.membership === '101-2' && !('pin' in log)), true);
 adminResult = await adminReveal(token('member-1'), '101-2');
 assert.equal(adminResult.status, 403);
+adminResult = await adminReveal(token('admin-2'), '101-2');
+assert.equal(adminResult.status, 403);
 adminResult = await adminReveal(token('admin-1', '', Math.floor(Date.now() / 1000) + 3600, Math.floor(Date.now() / 1000) - 301), '101-2');
 assert.equal(adminResult.status, 200);
 adminResult = await adminReveal(token('manager-1', '', Math.floor(Date.now() / 1000) + 3600, Math.floor(Date.now() / 1000) - 301), '101-2');
@@ -109,12 +111,8 @@ assert.equal(result.status, 404);
 assert.equal(result.body.error, 'PROFILE_NOT_FOUND');
 
 const auditRequest = new Request('https://worker.test/api/admin/loyalty/pin-reveal-audit', { method: 'POST', headers: { Origin: env.ALLOWED_ORIGINS, Authorization: `Bearer ${token('admin-1')}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ repair: true }) });
-let auditResponse = await handleLoyaltyRoutes(auditRequest, env, new URL(auditRequest.url));
-let auditBody = await auditResponse.json();
-assert.equal(auditResponse.status, 200);
-assert.equal(auditBody.counts.hashOnly, 1);
-assert.equal(auditBody.counts.invalidOrUnavailable, 0);
-assert.equal(auditBody.counts.repaired, 0);
-assert.equal('pin' in auditBody, false);
+const auditResponse = await handleLoyaltyRoutes(auditRequest, env, new URL(auditRequest.url));
+assert.equal(auditResponse.status, 404);
+assert.equal((await auditResponse.json()).error, 'NOT_FOUND');
 
 console.log('loyalty reveal PIN hash ownership fixtures: PASS');
