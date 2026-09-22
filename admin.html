@@ -3179,7 +3179,7 @@ function viewCustomerDetails(id){
         <small style="color:var(--text-muted)">رمز PIN الخاص بالعميل</small>
         <div style="display:flex;align-items:center;gap:8px;">
           <span id="custPinDisplay" style="font-family:monospace;font-weight:bold;letter-spacing:3px;">••••</span>
-          <button type="button" onclick="toggleCustPinReveal()" style="background:none;border:none;cursor:pointer;font-size:14px;" title="لا يمكن عرض PIN محفوظ؛ استخدم إصدار PIN">👁️</button>
+          <button type="button" onclick="toggleCustPinReveal()" style="background:none;border:none;cursor:pointer;font-size:14px;" title="الرمز الحالي محفوظ بأمان ولا يمكن عرضه">👁️</button>
         </div>
       </div>
     </div>
@@ -3271,7 +3271,7 @@ function toggleCustPinReveal(){
   const el = document.getElementById('custPinDisplay');
   if(!el) return;
   if(el.textContent === '••••') {
-    el.textContent = 'غير متاح؛ أصدر PIN جديداً';
+    el.textContent = 'الرمز الحالي محفوظ بأمان ولا يمكن عرضه';
   } else {
     el.textContent = '••••';
   }
