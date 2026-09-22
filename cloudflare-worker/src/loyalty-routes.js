@@ -545,6 +545,26 @@ async function revealPinForAdmin(request, env, current) {
   await firebaseAdminRequest(env, `loyalty_logs/${auditId}`, { method: 'PUT', body: { type: 'PIN_REVEALED', membership, actorUid: current.uid, actorEmail: current.email, actorRole: actor.role, timestamp: Date.now() } });
   return response(request, env, { ok: true, available: true, pin, membershipNumber: membership });
 }
+function recoveryFingerprint(c) { return `${String(c?.pinHash || '')}.${String(c?.salt || '')}.${String(c?.algorithm || '')}.${Number(c?.iterations || 0)}`; }
+async function planOriginalPinRecovery(root, env) {
+  const customers=root?.loyalty_customers||{}, credentials=root?.loyalty_credentials||{}, pepper=String(env.LOYALTY_PIN_PEPPER||''), revealKey=String(env.LOYALTY_PIN_REVEAL_KEY||''), plan=[], reasons={}, add=r=>reasons[r]=(reasons[r]||0)+1;
+  for(const membership of Object.keys(customers).sort()) { const customer=customers[membership], credential=credentials[membership], legacyPin=String(customer?.pin||'').trim();
+    if(credential?.pinCiphertext) { try { await security.decryptPin(credential.pinCiphertext,revealKey); add('already_encrypted'); } catch { add('cipher_invalid'); } continue; }
+    if(security.validPin(legacyPin)) { if(!credentialShapeIsUsable(credential)||!pepper||!revealKey) { add('configuration_or_credential_invalid'); continue; } let matches=false; try { matches=await security.timingSafePinMatch(legacyPin,credential,pepper); } catch {} if(!matches) { add('credential_mismatch'); continue; } plan.push({membership,pin:legacyPin,fingerprint:recoveryFingerprint(credential)}); continue; }
+    add(credentialShapeIsUsable(credential)?'hash_only':'no_legacy_pin');
+  }
+  return {plan,report:{totalMemberships:Object.keys(customers).length,eligible:plan.length,alreadyEncrypted:Number(reasons.already_encrypted||0),hashOnly:Number(reasons.hash_only||0),cannotRecover:Object.values(reasons).reduce((n,v)=>n+Number(v||0),0)-Number(reasons.already_encrypted||0),reasons}};
+}
+async function recoverOriginalPins(request, env, current) {
+  const actor=await staff(env,current,'reveal-pin'); if(actor.role!=='super_admin') throw Error('FORBIDDEN'); const payload=await body(request), mode=String(payload.mode||'dry-run'); if(!['dry-run','apply'].includes(mode)) throw Error('INVALID_ARGUMENT');
+  const root=await firebaseAdminRequest(env,'')||{}, planned=await planOriginalPinRecovery(root,env); if(mode==='dry-run') return response(request,env,{ok:true,report:planned.report});
+  if(payload.confirmOriginalPins!==true) throw Error('CONFIRMATION_REQUIRED'); const backupKey=String(env.PIN_BACKUP_ENCRYPTION_KEY||''), revealKey=String(env.LOYALTY_PIN_REVEAL_KEY||''); if(!backupKey||!revealKey) throw Error('PIN_RECOVERY_CONFIGURATION_MISSING');
+  const backupId=`pin_recovery_${crypto.randomUUID()}`, payloadBackup={version:1,createdAt:Date.now(),entries:planned.plan.map(x=>({membership:x.membership,fingerprint:x.fingerprint,previousCiphertext:null}))}, ciphertext=await security.encryptRecoveryPayload(payloadBackup,backupKey);
+  await firebaseAdminRequest(env,`loyalty_pin_recovery_backups/${backupId}`,{method:'PUT',body:{version:1,algorithm:'AES-256-GCM',ciphertext,createdAt:payloadBackup.createdAt,entryCount:payloadBackup.entries.length}});
+  const savedBackup=await firebaseAdminRequest(env,`loyalty_pin_recovery_backups/${backupId}`), verified=await security.decryptRecoveryPayload(savedBackup?.ciphertext,backupKey); if(!savedBackup||verified?.version!==1||verified?.entries?.length!==payloadBackup.entries.length) throw Error('PIN_BACKUP_UNVERIFIED');
+  let restored=0,skipped=0; for(const item of planned.plan) { const latest=await firebaseAdminReadWithEtag(env,`loyalty_credentials/${item.membership}`), credential=latest.data; if(!credential||credential.pinCiphertext||recoveryFingerprint(credential)!==item.fingerprint||!await security.timingSafePinMatch(item.pin,credential,String(env.LOYALTY_PIN_PEPPER||''))) { skipped++; continue; } const pinCiphertext=await security.encryptPin(item.pin,revealKey); await firebaseAdminConditionalPut(env,`loyalty_credentials/${item.membership}`,{...credential,pinCiphertext},latest.etag); const saved=await firebaseAdminRequest(env,`loyalty_credentials/${item.membership}`); if(!saved?.pinCiphertext||recoveryFingerprint(saved)!==item.fingerprint) throw Error('PIN_REVEAL_WRITE_UNVERIFIED'); restored++; }
+  return response(request,env,{ok:true,backupVerified:true,backupId,restored,skipped,report:planned.report});
+}
 async function verifyMemberPin(env, membership, pin) {
   const pepper = String(env.LOYALTY_PIN_PEPPER || ''), normalizedPin = String(pin || '').trim();
   if (!security.validPin(normalizedPin) || !pepper) throw Error('INVALID_PIN');
@@ -891,6 +911,7 @@ async function route(request, env, url) {
     if (path === '/api/loyalty/verify-pin-for-reveal' && request.method === 'POST') return await verifyPinForReveal(request, env, current);
     if (path === '/api/loyalty/reveal-pin' && request.method === 'POST') return await revealPin(request, env, current);
     if (path === '/api/admin/loyalty/reveal-pin' && request.method === 'POST') return await revealPinForAdmin(request, env, current);
+    if (path === '/api/admin/loyalty/pin-migration' && request.method === 'POST') return await recoverOriginalPins(request, env, current);
     if (path === '/api/loyalty/provision-google') return await provision(request, env, current);
     if (path === '/api/admin/provision-super-admin') { await staff(env, current, 'provision-super-admin'); return await provision(request, env, current, true); }
     if (path === '/api/subscription/claim') return await submitClaim(request, env, current);
@@ -918,7 +939,7 @@ async function route(request, env, url) {
     if (url.pathname === '/api/admin/club/search') console.error('[CLUB_SEARCH_FAIL]', { code: String(error?.message || 'UNKNOWN').slice(0, 80) });
     console.error('[LOYALTY_ROUTE_FAILED]', { path: url.pathname, code: String(error?.message || 'UNKNOWN').slice(0, 80) });
     const rawCode = String(error?.message || '');
-    const code = ['AUTH_REQUIRED', 'AUTH_INVALID', 'INVALID_CONTENT_TYPE', 'PAYLOAD_TOO_LARGE', 'FORBIDDEN', 'NOT_FOUND', 'ALREADY_EXISTS', 'GIFT_NOT_FOUND', 'GIFT_ALREADY_REDEEMED', 'GIFT_EXPIRED', 'GIFT_NOT_AVAILABLE', 'GIFT_ALREADY_DECIDED', 'GIFT_NOT_PENDING', 'CONCURRENT_MODIFICATION', 'INVALID_ARGUMENT', 'INVALID_INPUT', 'INVALID_MEMBERSHIP', 'INVALID_PENDING', 'INVALID_PIN', 'INSUFFICIENT_HEARTS', 'HEARTS_OUT_OF_RANGE', 'CLUB_UNAVAILABLE', 'CLUB_MEMBER_NOT_FOUND', 'CLUB_PHONE_AMBIGUOUS', 'CLAIM_INVALID', 'PIN_RESERVATION_FAILED', 'PIN_REVEAL_WRITE_UNVERIFIED', 'VERIFIED_EMAIL_REQUIRED', 'PROFILE_NOT_FOUND', 'PROFILE_LINK_CONFLICT', 'BACKEND_AUTH_ERROR', 'INTERNAL_ERROR', 'SUB_REQUEST_NOT_FOUND', 'SUB_REQUEST_NOT_PENDING', 'SUB_PLAN_NOT_FOUND', 'SUB_CUSTOMER_ALREADY_ACTIVE', 'SUB_CUSTOMER_DATA_INCOMPLETE'].includes(rawCode) ? rawCode : rawCode.startsWith('FIREBASE_') ? (rawCode.includes('401') || rawCode.includes('403') ? 'BACKEND_AUTH_ERROR' : 'INTERNAL_ERROR') : 'REQUEST_FAILED';
+    const code = ['AUTH_REQUIRED', 'AUTH_INVALID', 'INVALID_CONTENT_TYPE', 'PAYLOAD_TOO_LARGE', 'FORBIDDEN', 'NOT_FOUND', 'ALREADY_EXISTS', 'GIFT_NOT_FOUND', 'GIFT_ALREADY_REDEEMED', 'GIFT_EXPIRED', 'GIFT_NOT_AVAILABLE', 'GIFT_ALREADY_DECIDED', 'GIFT_NOT_PENDING', 'CONCURRENT_MODIFICATION', 'INVALID_ARGUMENT', 'INVALID_INPUT', 'INVALID_MEMBERSHIP', 'INVALID_PENDING', 'INVALID_PIN', 'INSUFFICIENT_HEARTS', 'HEARTS_OUT_OF_RANGE', 'CLUB_UNAVAILABLE', 'CLUB_MEMBER_NOT_FOUND', 'CLUB_PHONE_AMBIGUOUS', 'CLAIM_INVALID', 'PIN_RESERVATION_FAILED', 'PIN_REVEAL_WRITE_UNVERIFIED', 'PIN_BACKUP_UNVERIFIED', 'PIN_RECOVERY_CONFIGURATION_MISSING', 'CONFIRMATION_REQUIRED', 'VERIFIED_EMAIL_REQUIRED', 'PROFILE_NOT_FOUND', 'PROFILE_LINK_CONFLICT', 'BACKEND_AUTH_ERROR', 'INTERNAL_ERROR', 'SUB_REQUEST_NOT_FOUND', 'SUB_REQUEST_NOT_PENDING', 'SUB_PLAN_NOT_FOUND', 'SUB_CUSTOMER_ALREADY_ACTIVE', 'SUB_CUSTOMER_DATA_INCOMPLETE'].includes(rawCode) ? rawCode : rawCode.startsWith('FIREBASE_') ? (rawCode.includes('401') || rawCode.includes('403') ? 'BACKEND_AUTH_ERROR' : 'INTERNAL_ERROR') : 'REQUEST_FAILED';
     const status = ['AUTH_REQUIRED', 'AUTH_INVALID'].includes(code) ? 401 : code === 'FORBIDDEN' ? 403 : ['CLUB_MEMBER_NOT_FOUND', 'NOT_FOUND', 'PROFILE_NOT_FOUND', 'SUB_REQUEST_NOT_FOUND'].includes(code) ? 404 : ['BACKEND_AUTH_ERROR', 'INTERNAL_ERROR', 'PIN_REVEAL_WRITE_UNVERIFIED'].includes(code) ? 500 : ['GIFT_ALREADY_REDEEMED', 'SUB_REQUEST_NOT_PENDING', 'SUB_CUSTOMER_ALREADY_ACTIVE', 'CONCURRENT_MODIFICATION'].includes(code) ? 409 : code === 'INVALID_CONTENT_TYPE' ? 415 : code === 'PAYLOAD_TOO_LARGE' ? 413 : 400;
     return fail(request, env, code, status);
   }

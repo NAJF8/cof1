@@ -568,6 +568,7 @@ body,.top-bar,.card,.stat-card,.main-content,.sidebar,.auth-card,.table-wrap,tab
         <h3>🛡️ فحص رموز الأعضاء القديمة</h3>
         <p class="muted">فحص قراءة فقط للحسابات القديمة. لا يغيّر PIN أو Credential أو أي بيانات عضوية.</p>
         <button class="btn btn-primary" id="pinMigrationDryRunBtn" type="button" onclick="runPinMigrationDryRun()">فحص رموز الأعضاء القديمة</button>
+        <button class="btn btn-warning" id="pinMigrationApplyBtn" type="button" onclick="applyOriginalPinRecovery()">استرجاع النسخ المثبتة فقط</button>
         <div id="pinMigrationStatus" role="status" aria-live="polite" style="margin-top:12px"></div>
         <div id="pinMigrationReport" hidden style="margin-top:14px">
           <div id="pinMigrationSummary" class="stats-grid"></div>
@@ -3332,6 +3333,14 @@ async function runPinMigrationDryRun(){
     if(status)status.textContent=error?.code==='AUTH_REQUIRED'||error?.code==='AUTH_INVALID'?'انتهت جلسة الإدارة. سجّل الدخول مرة أخرى.':error?.code==='FORBIDDEN'?'لا تملك صلاحية Super Admin لهذا الفحص.':'تعذر تنفيذ الفحص للقراءة فقط.';
     document.getElementById('pinMigrationReport')?.setAttribute('hidden','');
   }finally{pinMigrationDryRunInFlight=false;if(button){button.disabled=false;button.textContent='فحص رموز الأعضاء القديمة';}}
+}
+async function applyOriginalPinRecovery(){
+  if(currentRole!=='super_admin'||!isSuperAdmin(currentUser?.email)||!auth.currentUser)return showNotif('الإصلاح متاح للسوبر أدمن فقط وبجلسة فعالة.','error');
+  if(!confirm('سيُنشئ النظام نسخة احتياطية مشفّرة ويتحقق منها، ثم يضيف نسخ PIN مشفّرة للحسابات المطابقة فقط. لا يتم تغيير PIN أو Hash أو Salt. متابعة؟'))return;
+  const status=document.getElementById('pinMigrationStatus'),button=document.getElementById('pinMigrationApplyBtn');if(button)button.disabled=true;if(status)status.textContent='يجري إنشاء نسخة احتياطية مشفّرة والتحقق منها قبل الإصلاح...';
+  try{const result=await callLoyaltySecurity('/api/admin/loyalty/pin-migration',{method:'POST',body:{mode:'apply',confirmOriginalPins:true}});renderPinMigrationReport(result?.report||{});if(status)status.textContent=`اكتمل الإصلاح: ${Number(result?.restored||0)} رمزاً مثبتاً. النسخة الاحتياطية تم التحقق منها.`;}
+  catch(error){if(status)status.textContent='لم يكتمل الإصلاح؛ لم يتم اعتبار أي PIN مسترجعاً.';showNotif('تعذر إكمال استعادة PIN الآمنة.','error');}
+  finally{if(button)button.disabled=false;}
 }
 async function revealCustomerPinAdmin(id){
   if(!canRevealMemberPin() || !currentUser) return showNotif('لا تملك صلاحية كشف PIN.','error');
