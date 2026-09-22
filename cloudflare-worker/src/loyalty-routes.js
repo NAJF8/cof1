@@ -574,15 +574,76 @@ async function diagnoseOriginalPinRecovery(root, env) {
   }
   return {totalMemberships:memberships.length,memberships};
 }
+const PIN_REPAIR_BATCH_SIZE = 5;
+function pinRepairRunId(value) { const id = String(value || '').trim(); return /^[A-Za-z0-9._:-]{8,120}$/.test(id) ? id : ''; }
+function pinRepairPath(runId, suffix = '') { return `loyalty_pin_repair_runs/${runId}${suffix ? `/${suffix}` : ''}`; }
+function credentialFingerprint(credential) { return credentialShapeIsUsable(credential) ? `${credential.pinHash}.${credential.salt}.${credential.algorithm || ''}.${Number(credential.iterations || 0)}` : ''; }
+async function assessLegacyPinRepair(env, root, membership) {
+  const customer = root?.loyalty_customers?.[membership] || null, credential = root?.loyalty_credentials?.[membership] || null;
+  const pin = String(customer?.pin || '').trim(), hasLegacyPin = security.validPin(pin), usable = credentialShapeIsUsable(credential), ciphertext = String(credential?.pinCiphertext || '');
+  if (!hasLegacyPin) {
+    if (ciphertext) { try { await security.decryptPin(ciphertext, String(env.LOYALTY_PIN_REVEAL_KEY || '').trim()); return { kind: 'already_encrypted', membership }; } catch { return { kind: 'cipher_invalid', membership }; } }
+    return { kind: usable ? 'hash_only' : 'no_legacy_pin', membership };
+  }
+  const pepper = String(env.LOYALTY_PIN_PEPPER || '').trim(), revealKey = String(env.LOYALTY_PIN_REVEAL_KEY || '').trim();
+  if (!pepper || !revealKey) return { kind: 'configuration_missing', membership };
+  if (ciphertext) { try { if (await security.decryptPin(ciphertext, revealKey) !== pin) return { kind: 'cipher_mismatch', membership }; } catch { return { kind: 'cipher_invalid', membership }; } }
+  if (usable) { try { if (!await security.timingSafePinMatch(pin, credential, pepper)) return { kind: 'credential_mismatch', membership }; } catch { return { kind: 'credential_mismatch', membership }; } }
+  const indexKey = await security.pinIndexKey(pin, pepper), indexedMembership = String(root?.loyalty_pin_index?.[indexKey] || '');
+  if (indexedMembership && indexedMembership !== membership) return { kind: 'pin_index_conflict', membership };
+  return { kind: 'eligible', membership, pin, createCredential: !usable, indexKey, credentialFingerprint: credentialFingerprint(credential) };
+}
+async function legacyPinRepairReport(env, root) {
+  const customers = root?.loyalty_customers || {}, reasons = {}, eligible = [];
+  for (const membership of Object.keys(customers).sort()) { if (security.normalizeMembershipNumber(membership) !== membership) continue; const assessment = await assessLegacyPinRepair(env, root, membership); reasons[assessment.kind] = Number(reasons[assessment.kind] || 0) + 1; if (assessment.kind === 'eligible') eligible.push(assessment); }
+  return { report: { totalMemberships: Object.keys(customers).length, eligible: eligible.length, alreadyEncrypted: Number(reasons.already_encrypted || 0), hashOnly: Number(reasons.hash_only || 0), cannotRecover: Object.entries(reasons).filter(([key]) => !['eligible', 'already_encrypted', 'hash_only'].includes(key)).reduce((sum, [, count]) => sum + Number(count || 0), 0), reasons }, eligible };
+}
+async function writeAndVerifyPinRepairBackup(env, root, runId, eligible) {
+  const backupKey = String(env.PIN_BACKUP_ENCRYPTION_KEY || '').trim(); if (!backupKey) throw Error('PIN_RECOVERY_CONFIGURATION_MISSING');
+  const entries = [];
+  for (const item of eligible) entries.push({ membership: item.membership, customer: root.loyalty_customers[item.membership], credential: root.loyalty_credentials?.[item.membership] || null, pinIndex: root.loyalty_pin_index?.[item.indexKey] || null, indexKey: item.indexKey });
+  const payload = { version: 2, type: 'legacy_pin_repair', createdAt: Date.now(), entries }, ciphertext = await security.encryptRecoveryPayload(payload, backupKey);
+  await firebaseAdminRequest(env, pinRepairPath(runId, 'backup'), { method: 'PUT', body: { version: 2, algorithm: 'AES-256-GCM', ciphertext, createdAt: payload.createdAt, entryCount: entries.length } });
+  const saved = await firebaseAdminRequest(env, pinRepairPath(runId, 'backup')), restored = await security.decryptRecoveryPayload(saved?.ciphertext, backupKey);
+  if (!saved || restored?.version !== 2 || restored?.type !== 'legacy_pin_repair' || restored?.entries?.length !== entries.length || restored.entries.some((entry, index) => entry.membership !== entries[index].membership || entry.customer?.pin !== entries[index].customer?.pin)) throw Error('PIN_BACKUP_UNVERIFIED');
+  await firebaseAdminRequest(env, pinRepairPath(runId, 'metadata'), { method: 'PUT', body: { version: 2, backupVerified: true, memberships: entries.map(entry => entry.membership), createdAt: payload.createdAt } });
+  return entries.length;
+}
+async function applyLegacyPinRepairRecord(env, runId, membership) {
+  const root = await firebaseAdminRequest(env, '') || {}, metadata = root?.loyalty_pin_repair_runs?.[runId]?.metadata, backup = root?.loyalty_pin_repair_runs?.[runId]?.backup;
+  if (!metadata?.backupVerified || !Array.isArray(metadata.memberships) || !metadata.memberships.includes(membership) || !backup?.ciphertext) throw Error('PIN_BACKUP_UNVERIFIED');
+  const backupPayload = await security.decryptRecoveryPayload(backup.ciphertext, String(env.PIN_BACKUP_ENCRYPTION_KEY || '').trim()); const backupEntry = backupPayload?.entries?.find(entry => entry.membership === membership);
+  if (!backupEntry || !security.validPin(backupEntry.customer?.pin)) throw Error('PIN_BACKUP_UNVERIFIED');
+  const assessment = await assessLegacyPinRepair(env, root, membership); if (assessment.kind !== 'eligible' || assessment.pin !== backupEntry.customer.pin || credentialFingerprint(root?.loyalty_credentials?.[membership]) !== credentialFingerprint(backupEntry.credential)) return 'skipped';
+  const nextCredential = assessment.createCredential ? await createLoyaltyCredential(assessment.pin, env) : { ...root.loyalty_credentials[membership] };
+  if (!nextCredential.pinCiphertext || !await security.timingSafePinMatch(assessment.pin, nextCredential, String(env.LOYALTY_PIN_PEPPER || '').trim()) || await security.decryptPin(nextCredential.pinCiphertext, String(env.LOYALTY_PIN_REVEAL_KEY || '').trim()) !== assessment.pin) throw Error('PIN_REVEAL_WRITE_UNVERIFIED');
+  await atomicPlan(env, current => {
+    const customer = current?.loyalty_customers?.[membership], credential = current?.loyalty_credentials?.[membership];
+    if (String(customer?.pin || '') !== assessment.pin || credentialFingerprint(credential) !== assessment.credentialFingerprint || current?.loyalty_pin_index?.[assessment.indexKey] && current.loyalty_pin_index[assessment.indexKey] !== membership) throw Error('PIN_MIGRATION_CONCURRENT_CHANGE');
+    return { updates: { [`loyalty_credentials/${membership}`]: nextCredential, [`loyalty_pin_index/${assessment.indexKey}`]: membership, [pinRepairPath(runId, `prepared/${membership}`)]: { preparedAt: Date.now(), createdCredential: assessment.createCredential } }, result: { prepared: true } };
+  }, { stage: 'PIN_REPAIR_ATOMIC' });
+  const prepared = await firebaseAdminRequest(env, '') || {}, preparedCredential = prepared?.loyalty_credentials?.[membership];
+  if (String(prepared?.loyalty_customers?.[membership]?.pin || '') !== assessment.pin || !credentialShapeIsUsable(preparedCredential) || !preparedCredential.pinCiphertext || !await security.timingSafePinMatch(assessment.pin, preparedCredential, String(env.LOYALTY_PIN_PEPPER || '').trim()) || await security.decryptPin(preparedCredential.pinCiphertext, String(env.LOYALTY_PIN_REVEAL_KEY || '').trim()) !== assessment.pin) throw Error('PIN_REVEAL_WRITE_UNVERIFIED');
+  await atomicPlan(env, current => {
+    const customer = current?.loyalty_customers?.[membership], credential = current?.loyalty_credentials?.[membership];
+    if (String(customer?.pin || '') !== assessment.pin || credentialFingerprint(credential) !== credentialFingerprint(nextCredential) || current?.loyalty_pin_index?.[assessment.indexKey] !== membership) throw Error('PIN_MIGRATION_CONCURRENT_CHANGE');
+    return { updates: { [`loyalty_customers/${membership}/pin`]: null, [pinRepairPath(runId, `completed/${membership}`)]: { completedAt: Date.now(), createdCredential: assessment.createCredential } }, result: { migrated: true } };
+  }, { stage: 'PIN_REPAIR_DELETE_LEGACY' });
+  const saved = await firebaseAdminRequest(env, '') || {}, savedCredential = saved?.loyalty_credentials?.[membership];
+  if (saved?.loyalty_customers?.[membership]?.pin || !credentialShapeIsUsable(savedCredential) || !savedCredential.pinCiphertext || !await security.timingSafePinMatch(assessment.pin, savedCredential, String(env.LOYALTY_PIN_PEPPER || '').trim()) || await security.decryptPin(savedCredential.pinCiphertext, String(env.LOYALTY_PIN_REVEAL_KEY || '').trim()) !== assessment.pin) throw Error('PIN_REVEAL_WRITE_UNVERIFIED');
+  return 'migrated';
+}
 async function recoverOriginalPins(request, env, current) {
-  const actor=await staff(env,current,'reveal-pin'); if(actor.role!=='super_admin') throw Error('FORBIDDEN'); const payload=await body(request), mode=String(payload.mode||'dry-run'); if(!['dry-run','diagnostic','apply'].includes(mode)) throw Error('INVALID_ARGUMENT');
-  const root=await firebaseAdminRequest(env,'')||{}, planned=await planOriginalPinRecovery(root,env); if(mode==='diagnostic') return response(request,env,{ok:true,mode,...await diagnoseOriginalPinRecovery(root,env)}); if(mode==='dry-run') return response(request,env,{ok:true,report:planned.report});
-  if(payload.confirmOriginalPins!==true) throw Error('CONFIRMATION_REQUIRED'); const backupKey=String(env.PIN_BACKUP_ENCRYPTION_KEY||''), revealKey=String(env.LOYALTY_PIN_REVEAL_KEY||''); if(!backupKey||!revealKey) throw Error('PIN_RECOVERY_CONFIGURATION_MISSING');
-  const backupId=`pin_recovery_${crypto.randomUUID()}`, payloadBackup={version:1,createdAt:Date.now(),entries:planned.plan.map(x=>({membership:x.membership,fingerprint:x.fingerprint,previousCiphertext:null}))}, ciphertext=await security.encryptRecoveryPayload(payloadBackup,backupKey);
-  await firebaseAdminRequest(env,`loyalty_pin_recovery_backups/${backupId}`,{method:'PUT',body:{version:1,algorithm:'AES-256-GCM',ciphertext,createdAt:payloadBackup.createdAt,entryCount:payloadBackup.entries.length}});
-  const savedBackup=await firebaseAdminRequest(env,`loyalty_pin_recovery_backups/${backupId}`), verified=await security.decryptRecoveryPayload(savedBackup?.ciphertext,backupKey); if(!savedBackup||verified?.version!==1||verified?.entries?.length!==payloadBackup.entries.length) throw Error('PIN_BACKUP_UNVERIFIED');
-  let restored=0,skipped=0; for(const item of planned.plan) { const latest=await firebaseAdminReadWithEtag(env,`loyalty_credentials/${item.membership}`), credential=latest.data; if(!credential||credential.pinCiphertext||recoveryFingerprint(credential)!==item.fingerprint||!await security.timingSafePinMatch(item.pin,credential,String(env.LOYALTY_PIN_PEPPER||''))) { skipped++; continue; } const pinCiphertext=await security.encryptPin(item.pin,revealKey); await firebaseAdminConditionalPut(env,`loyalty_credentials/${item.membership}`,{...credential,pinCiphertext},latest.etag); const saved=await firebaseAdminRequest(env,`loyalty_credentials/${item.membership}`); if(!saved?.pinCiphertext||recoveryFingerprint(saved)!==item.fingerprint) throw Error('PIN_REVEAL_WRITE_UNVERIFIED'); restored++; }
-  return response(request,env,{ok:true,backupVerified:true,backupId,restored,skipped,report:planned.report});
+  const actor = await staff(env, current, 'pin-migration'); if (actor.role !== 'super_admin') throw Error('FORBIDDEN'); const payload = await body(request), mode = String(payload.mode || 'dry-run').trim(), runId = pinRepairRunId(payload.runId);
+  if (!['dry-run', 'diagnostic', 'backup', 'apply'].includes(mode)) throw Error('INVALID_ARGUMENT'); const root = await firebaseAdminRequest(env, '') || {};
+  if (mode === 'diagnostic') return response(request, env, { ok: true, mode, ...await diagnoseOriginalPinRecovery(root, env) });
+  const planned = await legacyPinRepairReport(env, root); if (mode === 'dry-run') return response(request, env, { ok: true, mode, report: planned.report });
+  if (!runId) throw Error('PIN_MIGRATION_RUN_ID_REQUIRED');
+  if (mode === 'backup') return response(request, env, { ok: true, mode, runId, backedUp: await writeAndVerifyPinRepairBackup(env, root, runId, planned.eligible), backupVerified: true, report: planned.report });
+  const completed = root?.loyalty_pin_repair_runs?.[runId]?.completed || {}, pending = (root?.loyalty_pin_repair_runs?.[runId]?.metadata?.memberships || []).filter(membership => !completed[membership]).slice(0, PIN_REPAIR_BATCH_SIZE), processed = { migrated: 0, skipped: 0 };
+  for (const membership of pending) { const result = await applyLegacyPinRepairRecord(env, runId, membership); processed[result] += 1; }
+  const after = await firebaseAdminRequest(env, '') || {}, report = await legacyPinRepairReport(env, after);
+  return response(request, env, { ok: true, mode, runId, processed, hasMore: (after?.loyalty_pin_repair_runs?.[runId]?.metadata?.memberships || []).some(membership => !after?.loyalty_pin_repair_runs?.[runId]?.completed?.[membership]), report: report.report });
 }
 async function verifyMemberPin(env, membership, pin) {
   const pepper = String(env.LOYALTY_PIN_PEPPER || ''), normalizedPin = String(pin || '').trim();

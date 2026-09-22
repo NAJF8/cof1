@@ -567,9 +567,7 @@ body,.top-bar,.card,.stat-card,.main-content,.sidebar,.auth-card,.table-wrap,tab
       <div class="card" id="pinMigrationCard" hidden>
         <h3>🛡️ فحص رموز الأعضاء القديمة</h3>
         <p class="muted">فحص قراءة فقط للحسابات القديمة. لا يغيّر PIN أو Credential أو أي بيانات عضوية.</p>
-        <button class="btn btn-primary" id="pinMigrationDryRunBtn" type="button" onclick="runPinMigrationDryRun()">فحص رموز الأعضاء القديمة</button>
-        <button class="btn btn-outline" id="pinMigrationDiagnosticBtn" type="button" onclick="runPinMigrationDiagnostic()">فحص تفصيلي للعضويات (قراءة فقط)</button>
-        <button class="btn btn-warning" id="pinMigrationApplyBtn" type="button" onclick="applyOriginalPinRecovery()">استرجاع النسخ المثبتة فقط</button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-primary" id="pinMigrationDryRunBtn" type="button" onclick="runPinMigrationDryRun()">فحص رموز الأعضاء القديمة</button><button class="btn btn-outline" id="pinMigrationDiagnosticBtn" type="button" onclick="runPinMigrationDiagnostic()">فحص تفصيلي للعضويات (قراءة فقط)</button><button class="btn btn-outline" id="pinMigrationBackupBtn" type="button" onclick="runPinMigrationBackup()">إنشاء Backup مشفّر والتحقق منه</button><button class="btn btn-warning" id="pinMigrationApplyBtn" type="button" onclick="applyOriginalPinRecovery()" disabled>ترحيل العضويات المؤهلة</button></div>
         <div id="pinMigrationStatus" role="status" aria-live="polite" style="margin-top:12px"></div>
         <div id="pinMigrationReport" hidden style="margin-top:14px">
           <div id="pinMigrationSummary" class="stats-grid"></div>
@@ -3363,13 +3361,22 @@ async function runPinMigrationDryRun(){
     document.getElementById('pinMigrationReport')?.setAttribute('hidden','');
   }finally{pinMigrationDryRunInFlight=false;if(button){button.disabled=false;button.textContent='فحص رموز الأعضاء القديمة';}}
 }
+let pinMigrationRunId='';
+async function runPinMigrationBackup(){
+  if(pinMigrationDryRunInFlight)return;
+  if(currentRole!=='super_admin'||!isSuperAdmin(currentUser?.email)||!auth.currentUser)return showNotif('النسخ متاح للسوبر أدمن فقط وبجلسة فعالة.','error');
+  const button=document.getElementById('pinMigrationBackupBtn'),applyButton=document.getElementById('pinMigrationApplyBtn'),status=document.getElementById('pinMigrationStatus');pinMigrationDryRunInFlight=true;if(button){button.disabled=true;button.textContent='جارٍ إنشاء النسخة والتحقق...';}if(applyButton)applyButton.disabled=true;
+  try{pinMigrationRunId=`pin-repair-${Date.now()}-${crypto.randomUUID().slice(0,8)}`;const result=await callLoyaltySecurity('/api/admin/loyalty/pin-migration',{method:'POST',body:{mode:'backup',runId:pinMigrationRunId}});if(result?.backupVerified!==true)throw new Error('PIN_BACKUP_UNVERIFIED');renderPinMigrationReport(result?.report||{});if(status)status.textContent=`تم إنشاء Backup مشفّر والتحقق من استعادته: ${Number(result?.backedUp||0)} عضوية.`;if(applyButton)applyButton.disabled=false;}
+  catch(error){pinMigrationRunId='';if(status)status.textContent='تعذر إنشاء أو التحقق من Backup. لم يبدأ الترحيل.';showNotif('تم إيقاف العملية قبل الترحيل: '+(error?.code||error?.message||'BACKUP_FAILED'),'error');}
+  finally{pinMigrationDryRunInFlight=false;if(button){button.disabled=false;button.textContent='إنشاء Backup مشفّر والتحقق منه';}}
+}
 async function applyOriginalPinRecovery(){
-  if(currentRole!=='super_admin'||!isSuperAdmin(currentUser?.email)||!auth.currentUser)return showNotif('الإصلاح متاح للسوبر أدمن فقط وبجلسة فعالة.','error');
-  if(!confirm('سيُنشئ النظام نسخة احتياطية مشفّرة ويتحقق منها، ثم يضيف نسخ PIN مشفّرة للحسابات المطابقة فقط. لا يتم تغيير PIN أو Hash أو Salt. متابعة؟'))return;
-  const status=document.getElementById('pinMigrationStatus'),button=document.getElementById('pinMigrationApplyBtn');if(button)button.disabled=true;if(status)status.textContent='يجري إنشاء نسخة احتياطية مشفّرة والتحقق منها قبل الإصلاح...';
-  try{const result=await callLoyaltySecurity('/api/admin/loyalty/pin-migration',{method:'POST',body:{mode:'apply',confirmOriginalPins:true}});renderPinMigrationReport(result?.report||{});if(status)status.textContent=`اكتمل الإصلاح: ${Number(result?.restored||0)} رمزاً مثبتاً. النسخة الاحتياطية تم التحقق منها.`;}
-  catch(error){if(status)status.textContent='لم يكتمل الإصلاح؛ لم يتم اعتبار أي PIN مسترجعاً.';showNotif('تعذر إكمال استعادة PIN الآمنة.','error');}
-  finally{if(button)button.disabled=false;}
+  if(pinMigrationDryRunInFlight||!pinMigrationRunId)return;
+  if(currentRole!=='super_admin'||!isSuperAdmin(currentUser?.email)||!auth.currentUser)return showNotif('الترحيل متاح للسوبر أدمن فقط وبجلسة فعالة.','error');
+  const button=document.getElementById('pinMigrationApplyBtn'),status=document.getElementById('pinMigrationStatus');if(button){button.disabled=true;button.textContent='جارٍ الترحيل والتحقق...';}pinMigrationDryRunInFlight=true;
+  try{let result;do{result=await callLoyaltySecurity('/api/admin/loyalty/pin-migration',{method:'POST',body:{mode:'apply',runId:pinMigrationRunId}});renderPinMigrationReport(result?.report||{});if(status)status.textContent=`تم إصلاح ${Number(result?.processed?.migrated||0)} في هذه الدفعة؛ المتبقي: ${Number(result?.report?.eligible||0)}.`;}while(result?.hasMore===true);if(status)status.textContent='اكتمل ترحيل العضويات المؤهلة مع التحقق قبل حذف Legacy PIN.';await runPinMigrationDryRun();}
+  catch(error){if(status)status.textContent='تم إيقاف الترحيل عند أول تعارض أو فشل تحقق.';showNotif('توقف الترحيل للحماية.','error');}
+  finally{pinMigrationDryRunInFlight=false;if(button){button.disabled=true;button.textContent='ترحيل العضويات المؤهلة';}}
 }
 async function revealCustomerPinAdmin(id){
   if(!canRevealMemberPin() || !currentUser) return showNotif('لا تملك صلاحية كشف PIN.','error');
