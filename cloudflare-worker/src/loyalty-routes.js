@@ -724,15 +724,25 @@ async function provision(request, env, current, superAdmin = false) {
   return response(request, env, result);
 }
 async function createLoyaltyCustomer(request, env, current) {
-  const actor = await staff(env, current, 'manage_customers'), p = await body(request), name = String(p.name || '').trim(), phone = String(p.phone || '').trim(), memberType = p.memberType === 'عضو مميز' ? 'عضو مميز' : 'زبون', hearts = Number(p.hearts || 0);
-  if (!name || name.length > 120 || phone.length > 40 || !Number.isInteger(hearts) || hearts < 0 || hearts > 5) throw Error('INVALID_ARGUMENT');
-  const pepper = String(env.LOYALTY_PIN_PEPPER || ''); if (!pepper) throw Error('INTERNAL_ERROR');
+  const actor = await staff(env, current, 'manage_customers'), p = await body(request), name = String(p.name || '').trim(), phone = String(p.phone || '').trim(), memberType = p.memberType === 'عضو مميز' ? 'عضو مميز' : 'زبون', hearts = Number(p.hearts || 0), id = requestId(p);
+  if (!id || !name || name.length > 120 || phone.length > 40 || !Number.isInteger(hearts) || hearts < 0 || hearts > 5) throw Error('INVALID_ARGUMENT');
+  const pepper = String(env.LOYALTY_PIN_PEPPER || ''), revealKey = String(env.LOYALTY_PIN_REVEAL_KEY || '').trim(); if (!pepper || !revealKey) throw Error('INTERNAL_ERROR');
   const result = await atomicPlan(env, async root => {
+    const replay = replayOrPlan(root, 'customer-create', id);
+    if (replay) {
+      if (replay.result.actorUid !== current.uid) throw Error('FORBIDDEN');
+      const membership = security.normalizeMembershipNumber(replay.result.membershipNumber), credential = membership ? root.loyalty_credentials?.[membership] : null;
+      if (!membership || !credential?.pinCiphertext) throw Error('PIN_REVEAL_WRITE_UNVERIFIED');
+      const pin = await security.decryptPin(credential.pinCiphertext, revealKey);
+      if (!security.validPin(pin) || !await security.timingSafePinMatch(pin, credential, pepper)) throw Error('PIN_REVEAL_WRITE_UNVERIFIED');
+      return { replay: true, result: { ok: true, membershipNumber: membership, pin, requestId: id, resumed: true } };
+    }
     let counter = Number(root.loyalty_counter) || 0, membership;
     do { counter += 1; membership = `101-${counter}`; } while (root.loyalty_customers?.[membership]);
     const now = Date.now(), pinData = await chooseUniqueLoyaltyPin(root, pepper), credential = await createLoyaltyCredential(pinData.pin, env, now), customer = { name, phone, hearts, currentHearts: hearts, totalEarned: hearts, totalHeartsEarned: hearts, totalSpent: 0, memberType, createdAt: now, createdBy: actor.record.displayName || current.name || 'كاشير', updatedAt: now };
-    const logId = `register_${crypto.randomUUID()}`, updates = { [`loyalty_customers/${membership}`]: customer, [`loyalty_credentials/${membership}`]: credential, [`loyalty_pin_index/${pinData.indexKey}`]: membership, [`loyalty_counter`]: counter, [`loyalty_logs/${logId}`]: { type: 'register', cardId: membership, customerName: name, cashierName: actor.record.displayName || current.name || 'كاشير', timestamp: now } };
-    return { updates, result: { ok: true, membershipNumber: membership, pin: pinData.pin, profile: safeCustomer(membership, customer) } };
+    if (!credential.pinCiphertext || !await security.timingSafePinMatch(pinData.pin, credential, pepper) || await security.decryptPin(credential.pinCiphertext, revealKey) !== pinData.pin) throw Error('PIN_REVEAL_WRITE_UNVERIFIED');
+    const logId = `register_${crypto.randomUUID()}`, outcome = { ok: true, membershipNumber: membership, pin: pinData.pin, requestId: id, profile: safeCustomer(membership, customer) }, storedResult = { membershipNumber: membership, actorUid: current.uid, requestId: id }, updates = { [`loyalty_customers/${membership}`]: customer, [`loyalty_credentials/${membership}`]: credential, [`loyalty_pin_index/${pinData.indexKey}`]: membership, [`loyalty_counter`]: counter, [`loyalty_logs/${logId}`]: { type: 'register', cardId: membership, customerName: name, cashierName: actor.record.displayName || current.name || 'كاشير', timestamp: now, requestId: id }, [operationPath('customer-create', id)]: { result: storedResult, createdAt: now } };
+    return { updates, result: outcome };
   }, { stage: 'LOYALTY_CUSTOMER_CREATE' });
   return response(request, env, result);
 }

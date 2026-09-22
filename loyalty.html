@@ -1554,6 +1554,7 @@ async function quickDeleteCustomer(cardId, name) {
 // ── New Customer Creation Modal ──
 function openNewCustomerModal() {
   if (!requirePermission('manage_customers')) return;
+  pendingNewCustomerRequestId = null;
   document.getElementById('newCustName').value = '';
   document.getElementById('newCustPhone').value = '';
   document.getElementById('newCustHearts').value = '0';
@@ -1564,6 +1565,16 @@ function openNewCustomerModal() {
 
 function closeNewCustomerModal() {
   document.getElementById('newCustomerModal').style.display = 'none';
+}
+
+let pendingNewCustomerRequestId = null;
+function createMembershipErrorMessage(error) {
+  const code = error?.code || '';
+  if (error instanceof TypeError || /failed to fetch/i.test(String(error?.message || ''))) return 'تعذر الاتصال بخدمة العضويات. قد تكون العملية قد اكتملت؛ أعد المحاولة بنفس البيانات لاسترجاع النتيجة دون إنشاء عضوية ثانية.';
+  if (code === 'AUTH_REQUIRED' || code === 'AUTH_INVALID') return 'انتهت جلسة الدخول. سجّل الدخول مرة أخرى ثم أعد المحاولة.';
+  if (code === 'FORBIDDEN') return 'ليس لديك صلاحية إنشاء عضوية.';
+  if (code === 'PIN_REVEAL_WRITE_UNVERIFIED') return 'لم يكتمل تسليم اعتماد PIN بأمان؛ لم تُنشأ عضوية جديدة.';
+  return 'تعذر إنشاء العضوية حالياً. أعد المحاولة؛ سيستأنف الطلب نفسه دون تكرار.';
 }
 
 async function submitNewCustomer() {
@@ -1579,8 +1590,10 @@ async function submitNewCustomer() {
   }
   
   try {
-    const result = await callLoyaltySecurity('/api/admin/loyalty/create', { method: 'POST', body: { name, phone, hearts, memberType } });
-    const newCardId = result.data?.membershipNumber;
+    const requestId = pendingNewCustomerRequestId || crypto.randomUUID();
+    pendingNewCustomerRequestId = requestId;
+    const result = await callLoyaltySecurity('/api/admin/loyalty/create', { method: 'POST', body: { requestId, name, phone, hearts, memberType } });
+    const newCardId = result.membershipNumber;
     if (!newCardId) throw new Error('تعذر إنشاء رقم العضوية');
     
     closeNewCustomerModal();
@@ -1589,8 +1602,9 @@ async function submitNewCustomer() {
     
     // Open the new customer profile
     openCustomer(newCardId);
+    pendingNewCustomerRequestId = null;
   } catch(e) {
-    alert('حدث خطأ أثناء إنشاء العضوية: ' + e.message);
+    alert(createMembershipErrorMessage(e));
   }
 }
 </script>
