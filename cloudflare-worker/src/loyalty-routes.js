@@ -62,7 +62,7 @@ function b64url(bytes) { let text = ''; for (const byte of new Uint8Array(bytes)
 function jsonPart(value) { return b64url(new TextEncoder().encode(JSON.stringify(value))); }
 function pemBytes(value) { return b64(String(value).replace(/-----BEGIN PRIVATE KEY-----|-----END PRIVATE KEY-----|\s+/g, '')); }
 async function signingKeys() { if (publicKeys.expiresAt > Date.now() && Object.keys(publicKeys.value).length) return publicKeys.value; const r = await fetch('https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com'); if (!r.ok) throw Error('AUTH_KEYS_UNAVAILABLE'); const value = {}; for (const key of (await r.json()).keys || []) if (key.kid) value[key.kid] = key; publicKeys = { value, expiresAt: Date.now() + 300000 }; return value; }
-async function verifyIdToken(token) { const parts = String(token || '').split('.'); if (parts.length !== 3) throw Error('AUTH_INVALID'); let header, claims; try { header = JSON.parse(new TextDecoder().decode(b64(parts[0]))); claims = JSON.parse(new TextDecoder().decode(b64(parts[1]))); } catch { throw Error('AUTH_INVALID'); } const jwk = (await signingKeys())[header.kid]; if (header.alg !== 'RS256' || !jwk) throw Error('AUTH_INVALID'); const key = await crypto.subtle.importKey('jwk', jwk, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['verify']); if (!await crypto.subtle.verify('RSASSA-PKCS1-v1_5', key, b64(parts[2]), new TextEncoder().encode(`${parts[0]}.${parts[1]}`))) throw Error('AUTH_INVALID'); const now = Math.floor(Date.now() / 1000); if (!claims.sub || claims.aud !== PROJECT_ID || claims.iss !== `https://securetoken.google.com/${PROJECT_ID}` || Number(claims.exp) <= now || Number(claims.iat || 0) > now + 300) throw Error('AUTH_INVALID'); return { uid: String(claims.sub), email: String(claims.email || '').toLowerCase(), emailVerified: claims.email_verified === true, name: String(claims.name || ''), picture: String(claims.picture || '') }; }
+async function verifyIdToken(token) { const parts = String(token || '').split('.'); if (parts.length !== 3) throw Error('AUTH_INVALID'); let header, claims; try { header = JSON.parse(new TextDecoder().decode(b64(parts[0]))); claims = JSON.parse(new TextDecoder().decode(b64(parts[1]))); } catch { throw Error('AUTH_INVALID'); } const jwk = (await signingKeys())[header.kid]; if (header.alg !== 'RS256' || !jwk) throw Error('AUTH_INVALID'); const key = await crypto.subtle.importKey('jwk', jwk, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['verify']); if (!await crypto.subtle.verify('RSASSA-PKCS1-v1_5', key, b64(parts[2]), new TextEncoder().encode(`${parts[0]}.${parts[1]}`))) throw Error('AUTH_INVALID'); const now = Math.floor(Date.now() / 1000); if (!claims.sub || claims.aud !== PROJECT_ID || claims.iss !== `https://securetoken.google.com/${PROJECT_ID}` || Number(claims.exp) <= now || Number(claims.iat || 0) > now + 300) throw Error('AUTH_INVALID'); return { uid: String(claims.sub), email: String(claims.email || '').toLowerCase(), emailVerified: claims.email_verified === true, authTime: Number(claims.auth_time || 0), name: String(claims.name || ''), picture: String(claims.picture || '') }; }
 async function auth(request) { const header = request.headers.get('Authorization') || ''; if (!header.startsWith('Bearer ')) throw Error('AUTH_REQUIRED'); return verifyIdToken(header.slice(7).trim()); }
 async function optionalAuth(request) { const header = request.headers.get('Authorization') || ''; if (!header) return null; if (!header.startsWith('Bearer ')) throw Error('AUTH_INVALID'); return verifyIdToken(header.slice(7).trim()); }
 async function customToken(env, uid, membership) { const email = String(env.FIREBASE_SERVICE_ACCOUNT_EMAIL || '').trim(), privateKey = String(env.FIREBASE_SERVICE_ACCOUNT_PRIVATE_KEY || ''); if (!email || !privateKey) throw Error('FIREBASE_SERVICE_ACCOUNT_NOT_CONFIGURED'); const fingerprint = privateKey.slice(0, 24); if (customTokenKey.fingerprint !== fingerprint) customTokenKey = { fingerprint, value: await crypto.subtle.importKey('pkcs8', pemBytes(privateKey), { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']) }; const now = Math.floor(Date.now() / 1000), head = jsonPart({ alg: 'RS256', typ: 'JWT' }), claim = jsonPart({ iss: email, sub: email, aud: 'https://identitytoolkit.googleapis.com/google.identity.identitytoolkit.v1.IdentityToolkit', iat: now, exp: now + 3600, uid, claims: { loyaltyMembership: membership } }), signature = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', customTokenKey.value, new TextEncoder().encode(`${head}.${claim}`)); return `${head}.${claim}.${b64url(signature)}`; }
@@ -157,6 +157,8 @@ async function login(request, env) {
       await firebaseAdminRequest(env, `loyalty_login_attempts/${key}`, { method: 'PUT', body: { failedAttempts: failures, firstFailureAt: within ? Number(state.firstFailureAt) : now, lastFailureAt: now, lockedUntil: failures >= security.MAX_FAILURES ? now + security.WINDOW_MS : 0 } });
       return loginFailure(request, env, requestId, stage, failures >= security.MAX_FAILURES ? 'RATE_LIMITED' : 'INVALID_CREDENTIALS', failures >= security.MAX_FAILURES ? 429 : 401);
     }
+    stage = 'PIN_REVEAL_ENSURE';
+    if (credential && !credential.pinCiphertext && String(env.LOYALTY_PIN_REVEAL_KEY || '').trim()) { try { await ensurePinCiphertext(env, membership, credential, pin); } catch (error) { console.warn('[PIN_REVEAL_ENSURE_FAILED]', { stage, code: String(error?.message || 'PIN_REVEAL_WRITE_FAILED').slice(0, 80) }); } }
     stage = 'FIREBASE_AUTH';
     await firebaseAdminRequest(env, `loyalty_login_attempts/${key}`, { method: 'DELETE' });
     const token = await customToken(env, tokenUid, membership);
@@ -174,6 +176,19 @@ async function saveCredentialAndRemoveLegacyPin(env, membership, credential) {
   const saved = await firebaseAdminRequest(env, `loyalty_credentials/${membership}`);
   if (!saved || saved.pinHash !== credential.pinHash || saved.salt !== credential.salt || saved.algorithm !== credential.algorithm || Number(saved.iterations) !== Number(credential.iterations) || (credential.pinCiphertext && saved.pinCiphertext !== credential.pinCiphertext)) throw Error('CREDENTIAL_WRITE_UNVERIFIED');
   await firebaseAdminRequest(env, `loyalty_customers/${membership}/pin`, { method: 'DELETE' });
+}
+async function ensurePinCiphertext(env, membership, credential, pin) {
+  if (credential?.pinCiphertext) return false;
+  const revealKey = String(env.LOYALTY_PIN_REVEAL_KEY || '').trim();
+  if (!revealKey) return false;
+  const latest = await firebaseAdminRequest(env, `loyalty_credentials/${membership}`);
+  if (latest?.pinCiphertext) return false;
+  if (!latest || latest.pinHash !== credential.pinHash || latest.salt !== credential.salt || Number(latest.iterations) !== Number(credential.iterations)) throw Error('CREDENTIAL_CHANGED');
+  const ciphertext = await security.encryptPin(pin, revealKey);
+  await firebaseAdminRequest(env, `loyalty_credentials/${membership}/pinCiphertext`, { method: 'PUT', body: ciphertext });
+  const saved = await firebaseAdminRequest(env, `loyalty_credentials/${membership}/pinCiphertext`);
+  if (saved !== ciphertext) throw Error('PIN_REVEAL_WRITE_UNVERIFIED');
+  return true;
 }
 function normalizedEmail(value) { return String(value || '').trim().toLowerCase(); }
 function cleanText(value, limit) { return typeof value === 'string' ? value.trim().replace(/\s+/g, ' ').slice(0, limit) : ''; }
@@ -481,7 +496,8 @@ async function verifyPinForReveal(request, env, current) {
   if (linkedMembership !== resolved.membership) throw Error('PROFILE_NOT_FOUND');
   const credential = await firebaseAdminRequest(env, `loyalty_credentials/${resolved.membership}`);
   if (!await security.timingSafePinMatch(pin, credential, pepper)) throw Error('INVALID_PIN');
-  return response(request, env, { ok: true, verified: true });
+  const activated = await ensurePinCiphertext(env, resolved.membership, credential, pin);
+  return response(request, env, { ok: true, verified: true, activated, available: Boolean(activated || credential?.pinCiphertext) });
 }
 async function revealPin(request, env, current) {
   const resolved = await resolveLoyaltyMembership(env, current);
@@ -494,6 +510,21 @@ async function revealPin(request, env, current) {
   if (!revealKey) return response(request, env, { ok: true, available: false, membershipNumber: resolved.membership });
   const pin = await security.decryptPin(credential.pinCiphertext, revealKey);
   return response(request, env, { ok: true, available: true, pin, membershipNumber: resolved.membership });
+}
+async function revealPinForAdmin(request, env, current) {
+  const actor = await staff(env, current, 'reveal-pin');
+  if (actor.role !== 'super_admin') throw Error('FORBIDDEN');
+  if (!current.authTime || Math.floor(Date.now() / 1000) - current.authTime > 300) throw Error('AUTH_RECENT_REQUIRED');
+  const payload = await body(request), membership = security.normalizeMembershipNumber(payload.membership);
+  if (!membership) throw Error('INVALID_MEMBERSHIP');
+  const credential = await firebaseAdminRequest(env, `loyalty_credentials/${membership}`);
+  if (!credential?.pinCiphertext) return response(request, env, { ok: true, available: false, membershipNumber: membership });
+  const revealKey = String(env.LOYALTY_PIN_REVEAL_KEY || '').trim();
+  if (!revealKey) return response(request, env, { ok: true, available: false, membershipNumber: membership });
+  const pin = await security.decryptPin(credential.pinCiphertext, revealKey);
+  const auditId = `pin_reveal_${crypto.randomUUID()}`;
+  await firebaseAdminRequest(env, `loyalty_logs/${auditId}`, { method: 'PUT', body: { type: 'PIN_REVEALED', membership, actorUid: current.uid, actorRole: actor.role, timestamp: Date.now() } });
+  return response(request, env, { ok: true, available: true, pin, membershipNumber: membership });
 }
 async function verifyMemberPin(env, membership, pin) {
   const pepper = String(env.LOYALTY_PIN_PEPPER || ''), normalizedPin = String(pin || '').trim();
@@ -840,6 +871,7 @@ async function route(request, env, url) {
     if (path === '/api/loyalty/profile' && ['GET', 'POST'].includes(request.method)) return await profile(request, env, current);
     if (path === '/api/loyalty/verify-pin-for-reveal' && request.method === 'POST') return await verifyPinForReveal(request, env, current);
     if (path === '/api/loyalty/reveal-pin' && request.method === 'POST') return await revealPin(request, env, current);
+    if (path === '/api/admin/loyalty/reveal-pin' && request.method === 'POST') return await revealPinForAdmin(request, env, current);
     if (path === '/api/loyalty/provision-google') return await provision(request, env, current);
     if (path === '/api/admin/provision-super-admin') { await staff(env, current, 'provision-super-admin'); return await provision(request, env, current, true); }
     if (path === '/api/subscription/claim') return await submitClaim(request, env, current);
@@ -867,8 +899,8 @@ async function route(request, env, url) {
     if (url.pathname === '/api/admin/club/search') console.error('[CLUB_SEARCH_FAIL]', { code: String(error?.message || 'UNKNOWN').slice(0, 80) });
     console.error('[LOYALTY_ROUTE_FAILED]', { path: url.pathname, code: String(error?.message || 'UNKNOWN').slice(0, 80) });
     const rawCode = String(error?.message || '');
-    const code = ['AUTH_REQUIRED', 'AUTH_INVALID', 'INVALID_CONTENT_TYPE', 'PAYLOAD_TOO_LARGE', 'FORBIDDEN', 'NOT_FOUND', 'ALREADY_EXISTS', 'GIFT_NOT_FOUND', 'GIFT_ALREADY_REDEEMED', 'GIFT_EXPIRED', 'GIFT_NOT_AVAILABLE', 'GIFT_ALREADY_DECIDED', 'GIFT_NOT_PENDING', 'CONCURRENT_MODIFICATION', 'INVALID_ARGUMENT', 'INVALID_INPUT', 'INVALID_MEMBERSHIP', 'INVALID_PENDING', 'INVALID_PIN', 'INSUFFICIENT_HEARTS', 'HEARTS_OUT_OF_RANGE', 'CLUB_UNAVAILABLE', 'CLUB_MEMBER_NOT_FOUND', 'CLUB_PHONE_AMBIGUOUS', 'CLAIM_INVALID', 'PIN_RESERVATION_FAILED', 'VERIFIED_EMAIL_REQUIRED', 'PROFILE_NOT_FOUND', 'PROFILE_LINK_CONFLICT', 'BACKEND_AUTH_ERROR', 'INTERNAL_ERROR', 'SUB_REQUEST_NOT_FOUND', 'SUB_REQUEST_NOT_PENDING', 'SUB_PLAN_NOT_FOUND', 'SUB_CUSTOMER_ALREADY_ACTIVE', 'SUB_CUSTOMER_DATA_INCOMPLETE'].includes(rawCode) ? rawCode : rawCode.startsWith('FIREBASE_') ? (rawCode.includes('401') || rawCode.includes('403') ? 'BACKEND_AUTH_ERROR' : 'INTERNAL_ERROR') : 'REQUEST_FAILED';
-    const status = ['AUTH_REQUIRED', 'AUTH_INVALID'].includes(code) ? 401 : code === 'FORBIDDEN' ? 403 : ['CLUB_MEMBER_NOT_FOUND', 'NOT_FOUND', 'PROFILE_NOT_FOUND', 'SUB_REQUEST_NOT_FOUND'].includes(code) ? 404 : ['BACKEND_AUTH_ERROR', 'INTERNAL_ERROR'].includes(code) ? 500 : ['GIFT_ALREADY_REDEEMED', 'SUB_REQUEST_NOT_PENDING', 'SUB_CUSTOMER_ALREADY_ACTIVE', 'CONCURRENT_MODIFICATION'].includes(code) ? 409 : code === 'INVALID_CONTENT_TYPE' ? 415 : code === 'PAYLOAD_TOO_LARGE' ? 413 : 400;
+    const code = ['AUTH_REQUIRED', 'AUTH_INVALID', 'AUTH_RECENT_REQUIRED', 'INVALID_CONTENT_TYPE', 'PAYLOAD_TOO_LARGE', 'FORBIDDEN', 'NOT_FOUND', 'ALREADY_EXISTS', 'GIFT_NOT_FOUND', 'GIFT_ALREADY_REDEEMED', 'GIFT_EXPIRED', 'GIFT_NOT_AVAILABLE', 'GIFT_ALREADY_DECIDED', 'GIFT_NOT_PENDING', 'CONCURRENT_MODIFICATION', 'INVALID_ARGUMENT', 'INVALID_INPUT', 'INVALID_MEMBERSHIP', 'INVALID_PENDING', 'INVALID_PIN', 'INSUFFICIENT_HEARTS', 'HEARTS_OUT_OF_RANGE', 'CLUB_UNAVAILABLE', 'CLUB_MEMBER_NOT_FOUND', 'CLUB_PHONE_AMBIGUOUS', 'CLAIM_INVALID', 'PIN_RESERVATION_FAILED', 'PIN_REVEAL_WRITE_UNVERIFIED', 'VERIFIED_EMAIL_REQUIRED', 'PROFILE_NOT_FOUND', 'PROFILE_LINK_CONFLICT', 'BACKEND_AUTH_ERROR', 'INTERNAL_ERROR', 'SUB_REQUEST_NOT_FOUND', 'SUB_REQUEST_NOT_PENDING', 'SUB_PLAN_NOT_FOUND', 'SUB_CUSTOMER_ALREADY_ACTIVE', 'SUB_CUSTOMER_DATA_INCOMPLETE'].includes(rawCode) ? rawCode : rawCode.startsWith('FIREBASE_') ? (rawCode.includes('401') || rawCode.includes('403') ? 'BACKEND_AUTH_ERROR' : 'INTERNAL_ERROR') : 'REQUEST_FAILED';
+    const status = ['AUTH_REQUIRED', 'AUTH_INVALID', 'AUTH_RECENT_REQUIRED'].includes(code) ? 401 : code === 'FORBIDDEN' ? 403 : ['CLUB_MEMBER_NOT_FOUND', 'NOT_FOUND', 'PROFILE_NOT_FOUND', 'SUB_REQUEST_NOT_FOUND'].includes(code) ? 404 : ['BACKEND_AUTH_ERROR', 'INTERNAL_ERROR', 'PIN_REVEAL_WRITE_UNVERIFIED'].includes(code) ? 500 : ['GIFT_ALREADY_REDEEMED', 'SUB_REQUEST_NOT_PENDING', 'SUB_CUSTOMER_ALREADY_ACTIVE', 'CONCURRENT_MODIFICATION'].includes(code) ? 409 : code === 'INVALID_CONTENT_TYPE' ? 415 : code === 'PAYLOAD_TOO_LARGE' ? 413 : 400;
     return fail(request, env, code, status);
   }
 }
