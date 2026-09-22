@@ -12,7 +12,7 @@ const root = { admins: { 'admin-1': { role: 'super_admin', status: 'active' }, '
 root.loyalty_credentials['101-1'].pinCiphertext = await encryptPin('5678', env.LOYALTY_PIN_REVEAL_KEY);
 const publicJwk = publicKey.export({ format: 'jwk' });
 let writes = 0;
-function token(uid, membership = '', expiresAt = Math.floor(Date.now() / 1000) + 3600, authTime = Math.floor(Date.now() / 1000)) { const now = Math.floor(Date.now() / 1000); const head = Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT', kid: 'fixture-key' })).toString('base64url'); const body = Buffer.from(JSON.stringify({ sub: uid, aud: 'coffee-30fa7', iss: 'https://securetoken.google.com/coffee-30fa7', iat: now - 5, exp: expiresAt, auth_time: authTime, email: `${uid}@example.test`, email_verified: uid === 'admin-1', loyaltyMembership: membership })).toString('base64url'); const signer = createSign('RSA-SHA256'); signer.update(`${head}.${body}`); return `${head}.${body}.${signer.sign(key).toString('base64url')}`; }
+function token(uid, membership = '', expiresAt = Math.floor(Date.now() / 1000) + 3600, authTime = Math.floor(Date.now() / 1000)) { const now = Math.floor(Date.now() / 1000); const head = Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT', kid: 'fixture-key' })).toString('base64url'); const body = Buffer.from(JSON.stringify({ sub: uid, aud: 'coffee-30fa7', iss: 'https://securetoken.google.com/coffee-30fa7', iat: now - 5, exp: expiresAt, auth_time: authTime, email: uid === 'admin-1' ? 'mohameadalhaear100@gmail.com' : `${uid}@example.test`, email_verified: uid === 'admin-1', loyaltyMembership: membership })).toString('base64url'); const signer = createSign('RSA-SHA256'); signer.update(`${head}.${body}`); return `${head}.${body}.${signer.sign(key).toString('base64url')}`; }
 globalThis.fetch = async (url, options = {}) => { const address = String(url); if (address.includes('googleapis.com/service_accounts')) return Response.json({ keys: [{ ...publicJwk, kid: 'fixture-key', alg: 'RS256', use: 'sig' }] }); if (address === 'https://oauth2.googleapis.com/token') return Response.json({ access_token: 'fixture-access', expires_in: 3600 }); if (!address.startsWith(env.FIREBASE_DATABASE_URL)) throw new Error(`unexpected fixture request: ${address}`); const path = decodeURIComponent(new URL(address).pathname).replace(/^\//, '').replace(/\.json$/, ''); if (options.method === 'DELETE') { writes += 1; let target = root, parts = path.split('/'); for (const part of parts.slice(0, -1)) target = target[part] ||= {}; delete target[parts.at(-1)]; return Response.json({}); } if (options.method === 'PUT' || options.method === 'PATCH') { writes += 1; const body = JSON.parse(options.body || 'null'); let target = root, parts = path.split('/'); for (const part of parts.slice(0, -1)) target = target[part] ||= {}; if (options.method === 'PUT') target[parts.at(-1)] = body; return Response.json(body); } let value = root; for (const part of path ? path.split('/') : []) value = value?.[part]; return new Response(JSON.stringify(value ?? null), { headers: { 'Content-Type': 'application/json', ETag: 'fixture-etag' } }); };
 async function verify(auth, pin) { const request = new Request('https://worker.test/api/loyalty/verify-pin-for-reveal', { method: 'POST', headers: { Origin: env.ALLOWED_ORIGINS, Authorization: `Bearer ${auth}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ pin }) }); const response = await handleLoyaltyRoutes(request, env, new URL(request.url)); return { status: response.status, body: await response.json() }; }
 async function reveal(auth) { const request = new Request('https://worker.test/api/loyalty/reveal-pin', { method: 'POST', headers: { Origin: env.ALLOWED_ORIGINS, Authorization: `Bearer ${auth}`, 'Content-Type': 'application/json' }, body: '{}' }); const response = await handleLoyaltyRoutes(request, env, new URL(request.url)); return { status: response.status, body: await response.json() }; }
@@ -70,7 +70,7 @@ async function adminReveal(auth, membership) { const request = new Request('http
 let adminResult = await adminReveal(token('admin-1'), '101-2');
 assert.equal(adminResult.status, 200);
 assert.equal(adminResult.body.pin, '2468');
-assert.equal(Object.values(root.loyalty_logs || {}).some(log => log.type === 'PIN_REVEALED' && log.actorUid === 'admin-1' && log.actorEmail === 'admin-1@example.test' && log.membership === '101-2' && !('pin' in log)), true);
+assert.equal(Object.values(root.loyalty_logs || {}).some(log => log.type === 'PIN_REVEALED' && log.actorUid === 'admin-1' && log.actorEmail === 'mohameadalhaear100@gmail.com' && log.membership === '101-2' && !('pin' in log)), true);
 adminResult = await adminReveal(token('member-1'), '101-2');
 assert.equal(adminResult.status, 403);
 adminResult = await adminReveal(token('admin-2'), '101-2');
@@ -78,6 +78,11 @@ assert.equal(adminResult.status, 403);
 adminResult = await adminReveal(token('admin-1', '', Math.floor(Date.now() / 1000) + 3600, Math.floor(Date.now() / 1000) - 301), '101-2');
 assert.equal(adminResult.status, 200);
 adminResult = await adminReveal(token('manager-1', '', Math.floor(Date.now() / 1000) + 3600, Math.floor(Date.now() / 1000) - 301), '101-2');
+assert.equal(adminResult.status, 200);
+assert.equal(adminResult.body.pin, '2468');
+root.admins['admin-1'].role = 'manager';
+root.admins['admin-1'].permissions = { canRevealMemberPin: false };
+adminResult = await adminReveal(token('admin-1'), '101-2');
 assert.equal(adminResult.status, 200);
 assert.equal(adminResult.body.pin, '2468');
 adminResult = await adminReveal(token('manager-2'), '101-2');

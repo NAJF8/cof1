@@ -102,7 +102,23 @@ export function redemptionDescription(value) {
 function operationPath(kind, request) { return request ? `loyalty_operation_requests/${kind}/${encodeURIComponent(request).replace(/%/g, '_')}` : ''; }
 function replayOrPlan(root, kind, request) { if (!request) return null; const saved = root.loyalty_operation_requests?.[kind]?.[encodeURIComponent(request).replace(/%/g, '_')]; return saved?.result ? { replay: true, result: saved.result } : null; }
 async function atomicPlan(env, plan, diagnostics = {}) { return firebaseAdminAtomicPatch(env, plan, { attempts: 12, ...diagnostics }); }
-async function staff(env, current, capability = 'staff') { let record = {}; try { record = await firebaseAdminRequest(env, `admins/${current.uid}`) || {}; } catch (error) { if (!(current.emailVerified && current.email === SUPER_ADMIN_EMAIL)) throw error; } const allowlisted = current.emailVerified && current.email === SUPER_ADMIN_EMAIL; const role = String(record.role || (allowlisted ? 'super_admin' : '')).trim().toLowerCase(); const bootstrap = capability === 'provision-super-admin' && allowlisted; if (record.status !== 'active' && !allowlisted && !bootstrap) throw Error('FORBIDDEN'); const permissions = record.permissions || {}; const full = ['super_admin', 'admin', 'manager'].includes(role); const cashier = role === 'cashier' && ['search', 'adjust', 'redeem', 'consume', 'redeem-gift', 'manage-gifts'].includes(capability); const permitted = full || cashier || permissions[capability] === true || bootstrap; if (!permitted || (capability === 'delete' || capability === 'provision-super-admin') && role !== 'super_admin' && !bootstrap) throw Error('FORBIDDEN'); if (bootstrap) await firebaseAdminRequest(env, `admins/${current.uid}`, { method: 'PATCH', body: { email: current.email, role: 'super_admin', status: 'active', displayName: current.name || 'Super Admin', addedBy: 'server', addedAt: Date.now() } }); return { record, role }; }
+function normalizeStaffRole(value) { const role = String(value || '').trim().toLowerCase().replace(/[\s-]+/g, '_'); return role === 'superadmin' ? 'super_admin' : role; }
+async function staff(env, current, capability = 'staff') {
+  let record = {};
+  try { record = await firebaseAdminRequest(env, `admins/${current.uid}`) || {}; } catch (error) { if (!(current.emailVerified && current.email === SUPER_ADMIN_EMAIL)) throw error; }
+  const allowlisted = current.emailVerified && current.email === SUPER_ADMIN_EMAIL;
+  // The verified server-side Super Admin allowlist is authoritative for this account.
+  const role = allowlisted ? 'super_admin' : normalizeStaffRole(record.role);
+  const bootstrap = capability === 'provision-super-admin' && allowlisted;
+  if (record.status !== 'active' && !allowlisted && !bootstrap) throw Error('FORBIDDEN');
+  const permissions = record.permissions || {};
+  const full = ['super_admin', 'admin', 'manager'].includes(role);
+  const cashier = role === 'cashier' && ['search', 'adjust', 'redeem', 'consume', 'redeem-gift', 'manage-gifts'].includes(capability);
+  const permitted = full || cashier || permissions[capability] === true || bootstrap;
+  if (!permitted || (capability === 'delete' || capability === 'provision-super-admin') && role !== 'super_admin' && !bootstrap) throw Error('FORBIDDEN');
+  if (bootstrap) await firebaseAdminRequest(env, `admins/${current.uid}`, { method: 'PATCH', body: { email: current.email, role: 'super_admin', status: 'active', displayName: current.name || 'Super Admin', addedBy: 'server', addedAt: Date.now() } });
+  return { record, role };
+}
 function productImageType(bytes) { if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg'; if (bytes.length >= 8 && bytes.slice(0, 8).every((value, index) => value === [137, 80, 78, 71, 13, 10, 26, 10][index])) return 'image/png'; if (bytes.length >= 12 && String.fromCharCode(...bytes.slice(0, 4)) === 'RIFF' && String.fromCharCode(...bytes.slice(8, 12)) === 'WEBP') return 'image/webp'; return ''; }
 function ascii(bytes, start, end) { return String.fromCharCode(...bytes.slice(start, end)); }
 function backgroundVideoType(bytes) {
