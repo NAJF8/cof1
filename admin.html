@@ -3271,6 +3271,7 @@ let adminPinRevealTimer = null;
 async function auditAndRepairPinReveals(){
   if(currentRole!=='super_admin'||!currentUser)return showNotif('الفحص متاح لـ Super Admin فقط.','error');
   try{
+    const provider=new firebase.auth.GoogleAuthProvider(); provider.addScope('email'); await currentUser.reauthenticateWithPopup(provider);
     const result=await callLoyaltySecurity('/api/admin/loyalty/pin-reveal-audit',{method:'POST',body:{repair:true}});
     const counts=result?.counts||{};
     showNotif(`تم الفحص: ${Number(counts.repaired||0)} حسابات أُصلحت، ${Number(counts.hashOnly||0)} تعتمد على Hash فقط، والباقي لديه نسخة مشفّرة أو غير متاح.`);
