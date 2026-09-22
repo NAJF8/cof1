@@ -724,8 +724,18 @@ async function provision(request, env, current, superAdmin = false) {
   return response(request, env, result);
 }
 async function createLoyaltyCustomer(request, env, current) {
-  const actor = await staff(env, current, 'manage_customers'), p = await body(request), name = String(p.name || '').trim(), phone = String(p.phone || '').trim(), memberType = p.memberType === 'عضو مميز' ? 'عضو مميز' : 'زبون', hearts = Number(p.hearts || 0), id = requestId(p);
-  if (!id || !name || name.length > 120 || phone.length > 40 || !Number.isInteger(hearts) || hearts < 0 || hearts > 5) throw Error('INVALID_ARGUMENT');
+  const actor = await staff(env, current, 'manage_customers'), p = await body(request);
+  const invalidField = field => Object.assign(Error('INVALID_FIELD'), { field });
+  const name = typeof p.name === 'string' ? p.name.trim() : '', phone = p.phone === undefined || p.phone === null ? '' : typeof p.phone === 'string' ? p.phone.trim() : null;
+  const hearts = p.hearts === undefined || p.hearts === null || p.hearts === '' ? 0 : Number(p.hearts);
+  let id;
+  try { id = requestId(p); } catch { throw invalidField('requestId'); }
+  if (!id) throw invalidField('requestId');
+  if (!name || name.length > 120) throw invalidField('name');
+  if (phone === null || phone.length > 40) throw invalidField('phone');
+  if (!Number.isInteger(hearts) || hearts < 0 || hearts > 5) throw invalidField('hearts');
+  if (p.memberType !== 'زبون' && p.memberType !== 'عضو مميز') throw invalidField('memberType');
+  const memberType = p.memberType;
   const pepper = String(env.LOYALTY_PIN_PEPPER || ''), revealKey = String(env.LOYALTY_PIN_REVEAL_KEY || '').trim(); if (!pepper || !revealKey) throw Error('INTERNAL_ERROR');
   const result = await atomicPlan(env, async root => {
     const replay = replayOrPlan(root, 'customer-create', id);
@@ -1069,9 +1079,10 @@ async function route(request, env, url) {
     if (url.pathname === '/api/admin/club/search') console.error('[CLUB_SEARCH_FAIL]', { code: String(error?.message || 'UNKNOWN').slice(0, 80) });
     console.error('[LOYALTY_ROUTE_FAILED]', { path: url.pathname, code: String(error?.message || 'UNKNOWN').slice(0, 80) });
     const rawCode = String(error?.message || '');
-    const code = ['AUTH_REQUIRED', 'AUTH_INVALID', 'INVALID_CONTENT_TYPE', 'PAYLOAD_TOO_LARGE', 'FORBIDDEN', 'NOT_FOUND', 'ALREADY_EXISTS', 'GIFT_NOT_FOUND', 'GIFT_ALREADY_REDEEMED', 'GIFT_EXPIRED', 'GIFT_NOT_AVAILABLE', 'GIFT_ALREADY_DECIDED', 'GIFT_NOT_PENDING', 'CONCURRENT_MODIFICATION', 'INVALID_ARGUMENT', 'INVALID_INPUT', 'INVALID_MEMBERSHIP', 'INVALID_PENDING', 'INVALID_PIN', 'INSUFFICIENT_HEARTS', 'HEARTS_OUT_OF_RANGE', 'CLUB_UNAVAILABLE', 'CLUB_MEMBER_NOT_FOUND', 'CLUB_PHONE_AMBIGUOUS', 'CLAIM_INVALID', 'PIN_RESERVATION_FAILED', 'PIN_REVEAL_WRITE_UNVERIFIED', 'PIN_BACKUP_UNVERIFIED', 'PIN_RECOVERY_CONFIGURATION_MISSING', 'CONFIRMATION_REQUIRED', 'VERIFIED_EMAIL_REQUIRED', 'PROFILE_NOT_FOUND', 'PROFILE_LINK_CONFLICT', 'BACKEND_AUTH_ERROR', 'INTERNAL_ERROR', 'SUB_REQUEST_NOT_FOUND', 'SUB_REQUEST_NOT_PENDING', 'SUB_PLAN_NOT_FOUND', 'SUB_CUSTOMER_ALREADY_ACTIVE', 'SUB_CUSTOMER_DATA_INCOMPLETE'].includes(rawCode) ? rawCode : rawCode.startsWith('FIREBASE_') ? (rawCode.includes('401') || rawCode.includes('403') ? 'BACKEND_AUTH_ERROR' : 'INTERNAL_ERROR') : 'REQUEST_FAILED';
+    const code = ['AUTH_REQUIRED', 'AUTH_INVALID', 'INVALID_CONTENT_TYPE', 'PAYLOAD_TOO_LARGE', 'FORBIDDEN', 'NOT_FOUND', 'ALREADY_EXISTS', 'GIFT_NOT_FOUND', 'GIFT_ALREADY_REDEEMED', 'GIFT_EXPIRED', 'GIFT_NOT_AVAILABLE', 'GIFT_ALREADY_DECIDED', 'GIFT_NOT_PENDING', 'CONCURRENT_MODIFICATION', 'INVALID_ARGUMENT', 'INVALID_FIELD', 'INVALID_INPUT', 'INVALID_MEMBERSHIP', 'INVALID_PENDING', 'INVALID_PIN', 'INSUFFICIENT_HEARTS', 'HEARTS_OUT_OF_RANGE', 'CLUB_UNAVAILABLE', 'CLUB_MEMBER_NOT_FOUND', 'CLUB_PHONE_AMBIGUOUS', 'CLAIM_INVALID', 'PIN_RESERVATION_FAILED', 'PIN_REVEAL_WRITE_UNVERIFIED', 'PIN_BACKUP_UNVERIFIED', 'PIN_RECOVERY_CONFIGURATION_MISSING', 'CONFIRMATION_REQUIRED', 'VERIFIED_EMAIL_REQUIRED', 'PROFILE_NOT_FOUND', 'PROFILE_LINK_CONFLICT', 'BACKEND_AUTH_ERROR', 'INTERNAL_ERROR', 'SUB_REQUEST_NOT_FOUND', 'SUB_REQUEST_NOT_PENDING', 'SUB_PLAN_NOT_FOUND', 'SUB_CUSTOMER_ALREADY_ACTIVE', 'SUB_CUSTOMER_DATA_INCOMPLETE'].includes(rawCode) ? rawCode : rawCode.startsWith('FIREBASE_') ? (rawCode.includes('401') || rawCode.includes('403') ? 'BACKEND_AUTH_ERROR' : 'INTERNAL_ERROR') : 'REQUEST_FAILED';
     const status = ['AUTH_REQUIRED', 'AUTH_INVALID'].includes(code) ? 401 : code === 'FORBIDDEN' ? 403 : ['CLUB_MEMBER_NOT_FOUND', 'NOT_FOUND', 'PROFILE_NOT_FOUND', 'SUB_REQUEST_NOT_FOUND'].includes(code) ? 404 : ['BACKEND_AUTH_ERROR', 'INTERNAL_ERROR', 'PIN_REVEAL_WRITE_UNVERIFIED'].includes(code) ? 500 : ['GIFT_ALREADY_REDEEMED', 'SUB_REQUEST_NOT_PENDING', 'SUB_CUSTOMER_ALREADY_ACTIVE', 'CONCURRENT_MODIFICATION'].includes(code) ? 409 : code === 'INVALID_CONTENT_TYPE' ? 415 : code === 'PAYLOAD_TOO_LARGE' ? 413 : 400;
     if (url.pathname === '/api/admin/loyalty/reveal-pin-authorization') return pinRevealAuthorizationFailure(request, env, code, status, ['AUTH_REQUIRED', 'AUTH_INVALID'].includes(code) ? 'WORKER_AUTHENTICATION' : code === 'FORBIDDEN' ? 'WORKER_AUTHORIZATION' : 'WORKER_FAILURE');
+    if (url.pathname === '/api/admin/loyalty/create' && code === 'INVALID_FIELD' && ['name', 'phone', 'hearts', 'memberType', 'requestId'].includes(error?.field)) return response(request, env, { ok: false, error: code, field: error.field }, status);
     return fail(request, env, code, status);
   }
 }

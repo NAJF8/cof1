@@ -480,7 +480,7 @@ async function callLoyaltySecurity(path, options = {}) {
   if (auth.currentUser) headers.Authorization = `Bearer ${await auth.currentUser.getIdToken(forceRefresh)}`;
   const response = await fetch(`${LOYALTY_SECURITY_ENDPOINT}${path}`, {...requestOptions, headers, body: requestOptions.body && typeof requestOptions.body !== 'string' ? JSON.stringify(requestOptions.body) : requestOptions.body});
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) { const error = new Error(data.error || 'LOYALTY_SECURITY_FAILED'); error.code = data.error || 'LOYALTY_SECURITY_FAILED'; error.requestId = data.requestId || null; error.status = response.status; throw error; }
+  if (!response.ok) { const error = new Error(data.error || 'LOYALTY_SECURITY_FAILED'); error.code = data.error || 'LOYALTY_SECURITY_FAILED'; error.field = typeof data.field === 'string' ? data.field : null; error.requestId = data.requestId || null; error.status = response.status; throw error; }
   return data;
 }
 
@@ -1574,6 +1574,7 @@ function createMembershipErrorMessage(error) {
   if (code === 'AUTH_REQUIRED' || code === 'AUTH_INVALID') return 'انتهت جلسة الدخول. سجّل الدخول مرة أخرى ثم أعد المحاولة.';
   if (code === 'FORBIDDEN') return 'ليس لديك صلاحية إنشاء عضوية.';
   if (code === 'PIN_REVEAL_WRITE_UNVERIFIED') return 'لم يكتمل تسليم اعتماد PIN بأمان؛ لم تُنشأ عضوية جديدة.';
+  if (code === 'INVALID_FIELD') { const labels = { name:'الاسم', phone:'الهاتف', hearts:'النقاط المبدئية', memberType:'نوع العميل', requestId:'معرّف الطلب' }; return `قيمة ${labels[error.field] || 'أحد الحقول'} غير صحيحة. لم تُنشأ عضوية.`; }
   return 'تعذر إنشاء العضوية حالياً. أعد المحاولة؛ سيستأنف الطلب نفسه دون تكرار.';
 }
 
@@ -1581,11 +1582,16 @@ async function submitNewCustomer() {
   if (!requirePermission('manage_customers')) return;
   const name = document.getElementById('newCustName').value.trim();
   const phone = document.getElementById('newCustPhone').value.trim();
-  const hearts = parseInt(document.getElementById('newCustHearts').value, 10) || 0;
+  const heartsRaw = document.getElementById('newCustHearts').value.trim();
+  const hearts = heartsRaw === '' ? 0 : Number(heartsRaw);
   const memberType = document.getElementById('newCustType').value === 'عضو مميز' ? 'عضو مميز' : 'زبون';
   
   if (!name) {
     alert('يرجى إدخال اسم الزبون.');
+    return;
+  }
+  if (!Number.isInteger(hearts) || hearts < 0 || hearts > 5) {
+    alert('قيمة النقاط المبدئية غير صحيحة. أدخل عدداً صحيحاً من 0 إلى 5.');
     return;
   }
   

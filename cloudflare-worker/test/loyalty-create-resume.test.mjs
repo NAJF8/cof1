@@ -29,7 +29,13 @@ try {
   assert.equal(replay.status, 200); assert.equal(replay.body.membershipNumber, first.body.membershipNumber); assert.equal(replay.body.pin, first.body.pin); assert.equal(replay.body.resumed, true); assert.equal(Object.keys(root.loyalty_customers).length, 1);
   const otherActor = await create(payload, token('admin-2', 'other@example.test'));
   assert.equal(otherActor.status, 403); assert.equal(Object.keys(root.loyalty_customers).length, 1);
+  const noPhoneZeroHearts = await create({ requestId: 'create-no-phone-zero-hearts', name: 'No phone customer', phone: '', hearts: 0, memberType: 'عضو مميز' });
+  assert.equal(noPhoneZeroHearts.status, 200); assert.equal(root.loyalty_customers['101-42'].phone, ''); assert.equal(root.loyalty_customers['101-42'].hearts, 0);
+  const invalidHearts = await create({ requestId: 'create-invalid-hearts', name: 'Invalid hearts customer', phone: '', hearts: '.', memberType: 'زبون' });
+  assert.equal(invalidHearts.status, 400); assert.equal(invalidHearts.body.error, 'INVALID_FIELD'); assert.equal(invalidHearts.body.field, 'hearts'); assert.equal(Object.keys(root.loyalty_customers).length, 2);
+  const invalidRequestId = await create({ requestId: 'bad request id!', name: 'Invalid request customer', phone: '', hearts: 0, memberType: 'زبون' });
+  assert.equal(invalidRequestId.status, 400); assert.equal(invalidRequestId.body.field, 'requestId'); assert.equal(Object.keys(root.loyalty_customers).length, 2);
   const missingId = await create({ ...payload, requestId: '' });
-  assert.equal(missingId.status, 400); assert.equal(Object.keys(root.loyalty_customers).length, 1);
+  assert.equal(missingId.status, 400); assert.equal(missingId.body.field, 'requestId'); assert.equal(Object.keys(root.loyalty_customers).length, 2);
   console.log('LOYALTY_CREATE_RESUME_TESTS=PASS');
 } finally { globalThis.fetch = originalFetch; }
