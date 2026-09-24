@@ -3325,6 +3325,8 @@
         let authStateProcessing = false;
         let loyaltyAuthInProgress = false;
         const isMobileLoyaltyAuth = () => window.matchMedia('(max-width: 767px)').matches;
+        const isEmbeddedAuthBrowser = () => /Instagram|FBAN|FBAV|FB_IAB|;\s*wv\)/i.test(navigator.userAgent || '');
+        const authBrowserKind = () => isEmbeddedAuthBrowser() ? 'embedded' : 'top-level';
         const maskAuthId = value => { const text = String(value || ''); return text ? `${text.slice(0, 4)}…${text.slice(-2)}` : null; };
         const mobileAuthTrace = (stage, details = {}) => { if (isMobileLoyaltyAuth()) console.info(`[MOBILE_${stage}]`, details); };
         const mobileAuthError = (stage, error) => { if (isMobileLoyaltyAuth()) console.warn('[MOBILE_AUTH_ERROR]', { stage, code: String(error?.code || error?.message || 'unknown').slice(0, 80) }); };
@@ -3364,7 +3366,7 @@
                 throw error;
             }
             if (isPinLogin) console.info('[LOYALTY_PIN_HTTP_RESULT]', { ok: response.ok, status: response.status, error: String(data?.error || '').slice(0, 80), hasToken: Boolean(data?.token) });
-            if (path === '/api/loyalty/profile') console.info('[NEW_LOYALTY_PROFILE_STATUS]', { ok: response.ok, status: response.status, profileStatus: data?.status || null, hasProfile: Boolean(data?.profile?.membershipNumber), error: data?.error || null });
+            if (path === '/api/loyalty/profile') console.info('[NEW_LOYALTY_PROFILE_STATUS]', { ok: response.ok, status: response.status, profileStatus: data?.status || null, hasProfile: Boolean(data?.profile?.membershipNumber), resolutionSource: data?.diagnostics?.resolutionSource || null, uidLinked: data?.diagnostics?.uidLinked === true, error: data?.error || null });
             if (path === '/api/loyalty/provision-google') console.info('[NEW_LOYALTY_PROVISION_STATUS]', { ok: response.ok, status: response.status, provisionStatus: data?.status || null, profileStatus: data?.profileStatus || null, hasProfile: Boolean(data?.profile?.membershipNumber), error: data?.error || null });
             if (path === '/api/loyalty/provision-google') mobileAuthTrace('PROVISION_RESULT', { ok: response.ok, status: response.status, profileStatus: data?.profileStatus || null });
             if (path === '/api/loyalty/profile') mobileAuthTrace('PROFILE_RESULT', { ok: response.ok, status: response.status, profileStatus: data?.status || null });
@@ -4648,8 +4650,8 @@
 
         window.signInForLoyalty = async function() {
             const mobileAuth = isMobileLoyaltyAuth();
-            mobileAuthTrace('AUTH_CLICK', { mobile: mobileAuth });
-            mobileAuthTrace('AUTH_START', { redirect: false });
+            mobileAuthTrace('AUTH_CLICK', { mobile: mobileAuth, browser: authBrowserKind() });
+            mobileAuthTrace('AUTH_START', { redirect: isEmbeddedAuthBrowser() });
             if (!auth || !firebase.auth.GoogleAuthProvider) {
                 showLoyaltyLoginError(new Error('Firebase Auth is unavailable.'));
                 return;
@@ -4670,16 +4672,29 @@
                 mobileAuthTrace('PERSISTENCE_OK');
                 const provider = new firebase.auth.GoogleAuthProvider();
                 provider.addScope('email');
-                console.info('[LOYALTY_AUTH_POPUP_START]');
+                const startRedirect = async reason => {
+                    console.info('[LOYALTY_AUTH_REDIRECT_FALLBACK]', { reason, browser: authBrowserKind() });
+                    mobileAuthTrace('REDIRECT_START', { reason });
+                    await auth.signInWithRedirect(provider);
+                };
+                if (isEmbeddedAuthBrowser()) {
+                    await startRedirect('embedded-browser');
+                    return;
+                }
+                console.info('[LOYALTY_AUTH_POPUP_START]', { browser: authBrowserKind() });
                 let result;
                 try {
-                    result = await auth.signInWithPopup(provider);
+                    const popupPromise = auth.signInWithPopup(provider);
+                    popupPromise.catch(() => {});
+                    result = await Promise.race([
+                        popupPromise,
+                        new Promise((_, reject) => setTimeout(() => { const timeout = new Error('Google popup timed out'); timeout.code = 'auth/popup-timeout'; reject(timeout); }, 12000))
+                    ]);
                     console.info('[LOYALTY_AUTH_POPUP_OK]');
                 } catch (error) {
                     console.warn('[LOYALTY_AUTH_POPUP_FAIL]', { code: String(error?.code || 'unknown').slice(0, 80) });
-                    if (['auth/popup-blocked', 'auth/operation-not-supported-in-this-environment'].includes(error?.code)) {
-                        console.info('[LOYALTY_AUTH_REDIRECT_FALLBACK]');
-                        await auth.signInWithRedirect(provider);
+                    if (['auth/popup-blocked', 'auth/operation-not-supported-in-this-environment', 'auth/popup-timeout'].includes(error?.code)) {
+                        await startRedirect(error.code);
                         return;
                     }
                     throw error;
@@ -4969,9 +4984,13 @@
                     mobileAuthTrace('UI_RENDER', { memberVisible: member?.style.display === 'block' });
                 }
             };
-            if (suppliedProfile) { renderProfile(suppliedProfile); return; }
+            if (suppliedProfile) {
+                if (!suppliedProfile.membershipNumber) { showLoyaltyErrorState(currentFirebaseUser); return; }
+                renderProfile(suppliedProfile);
+                return;
+            }
             callLoyaltySecurity('/api/loyalty/profile', { method: 'GET' }).then(result => renderProfile(result.data?.profile)).catch(error => {
-                console.warn('LOYALTY_PROFILE_LOAD_FAILED', error?.code || error?.message);
+                console.warn('[LOYALTY_PROFILE_LOAD_FAILED]', { stage: 'profile-render-fetch', code: error?.code || 'unknown' });
                 showLoyaltyErrorState(currentFirebaseUser);
             });
         }

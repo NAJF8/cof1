@@ -540,7 +540,7 @@ async function resolvePinLoginUid(env, membership, customer) {
   if (directUid) return directUid;
   return matches[0] || `loyalty-member:${membership}`;
 }
-async function profile(request, env, current) { const resolved = await resolveLoyaltyMembership(env, current); if (!resolved?.membership || !resolved.customer) return fail(request, env, 'PROFILE_NOT_FOUND', 404); return response(request, env, { ok: true, status: 'active', profile: safeCustomer(resolved.membership, resolved.customer) }); }
+async function profile(request, env, current) { const resolved = await resolveLoyaltyMembership(env, current); if (!resolved?.membership || !resolved.customer) return fail(request, env, 'PROFILE_NOT_FOUND', 404); return response(request, env, { ok: true, status: 'active', diagnostics: { resolutionSource: resolved.source, uidLinked: resolved.source === 'link' }, profile: safeCustomer(resolved.membership, resolved.customer) }); }
 async function verifyPinForReveal(request, env, current) {
   const payload = await body(request), pin = String(payload.pin || '').trim(), pepper = String(env.LOYALTY_PIN_PEPPER || '');
   if (!security.validPin(pin) || !pepper) throw Error('INVALID_ARGUMENT');
