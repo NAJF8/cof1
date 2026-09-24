@@ -4311,7 +4311,7 @@
         }
 
         window.openCandleDayBooking = function() {
-            const ev = eventsDB.find(x => x.id === 'candle_day') || {
+            const ev = eventsDB.find(x => x.id === 'candle_day' || x.isCandleDay === true) || {
                 id: 'candle_day',
                 name: '🕯️ يوم الشموع', nameAr: '🕯️ يوم الشموع', nameEn: '🕯️ Candle Day',
                 date: calcNextCandleDate(),
