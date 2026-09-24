@@ -24,6 +24,7 @@ const document = {
 const context = vm.createContext({
   document,
   window: {},
+  callLoyaltySecurity: async () => ({ data: { pin: '5678', membershipNumber: '101-1' } }),
   auth: { currentUser: { uid: 'uid-101-1' } },
   currentFirebaseUser: { uid: 'uid-101-1' },
   loyaltyCustomer: { membershipNumber: '101-1' },
@@ -41,7 +42,7 @@ vm.runInContext("syncPinMemoryForAccount('101-1')", context);
 assert.equal(elements.get('.btn-pin-toggle').hidden, false, 'profile redraw keeps the detail-card monkey visible');
 assert.equal(elements.get('#summaryPinToggle').hidden, false, 'profile redraw keeps the summary monkey visible');
 
-vm.runInContext('window.togglePinVisibility()', context);
+await vm.runInContext('window.togglePinVisibility()', context);
 assert.equal(elements.get('#cardDisplayPin').textContent, '5678');
 assert.equal(elements.get('#summaryDisplayPin').textContent, '5678');
 assert.equal(context.timerDelay, 15000, 'revealed PIN is scheduled to hide after 15 seconds');
@@ -49,8 +50,8 @@ context.timer();
 assert.equal(elements.get('#cardDisplayPin').textContent, '••••');
 assert.equal(elements.get('#summaryDisplayPin').textContent, '••••');
 
-vm.runInContext('window.togglePinVisibility()', context);
-vm.runInContext('window.togglePinVisibility()', context);
+await vm.runInContext('window.togglePinVisibility()', context);
+await vm.runInContext('window.togglePinVisibility()', context);
 assert.equal(elements.get('#cardDisplayPin').textContent, '••••');
 assert.equal(elements.get('#summaryDisplayPin').textContent, '••••');
 

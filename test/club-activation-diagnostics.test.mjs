@@ -28,7 +28,7 @@ const diagnostics = { status: 500, error: 'INTERNAL_SERVER_ERROR', stage: 'ATOMI
 const superAdmin = makeRenderer('super_admin');
 superAdmin.render(diagnostics);
 assert.equal(superAdmin.debugEl.hidden, false);
-assert.equal(superAdmin.debugEl.textContent, 'CLUB Activation Debug\nHTTP: 500\nERROR: INTERNAL_SERVER_ERROR\nSTAGE: ATOMIC_PUT_START\nSAFE CODE: ATOMIC_PUT_FAILED\nFIREBASE OP: PUT\nFIREBASE STATUS: 500');
+assert.equal(superAdmin.debugEl.textContent, 'CLUB Activation Debug\nHTTP: 500\nERROR: INTERNAL_SERVER_ERROR\nSTAGE: ATOMIC_PUT_START\nSAFE CODE: ATOMIC_PUT_FAILED\nCRYPTO ERROR NAME: N/A\nFIREBASE OP: PUT\nFIREBASE STATUS: 500');
 const manager = makeRenderer('manager');
 manager.render(diagnostics);
 assert.equal(manager.debugEl.hidden, true);

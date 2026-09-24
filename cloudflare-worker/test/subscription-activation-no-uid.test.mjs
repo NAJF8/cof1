@@ -33,6 +33,7 @@ test('activation succeeds when request has no uid', async () => {
     subscription_customers: {}, subscriptions: {}, subscription_credentials: {}, subscription_counter: 0
   };
   let rootPut = null;
+  let rootWriteMethod = null;
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (url, options = {}) => {
     const address = String(url);
@@ -40,7 +41,7 @@ test('activation succeeds when request has no uid', async () => {
     if (address === 'https://oauth2.googleapis.com/token') return new Response(JSON.stringify({ access_token: 'local-fixture-token', expires_in: 3600 }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     if (address === 'https://fixture.firebaseio.test/admins/admin-test-uid.json') return new Response(JSON.stringify({ role: 'admin', status: 'active' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     if (address === 'https://fixture.firebaseio.test/.json' && (options.method || 'GET') === 'GET') return new Response(JSON.stringify(root), { status: 200, headers: { 'Content-Type': 'application/json', ETag: '"fixture-etag"' } });
-    if (address === 'https://fixture.firebaseio.test/.json' && options.method === 'PUT') { rootPut = JSON.parse(options.body); return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } }); }
+    if (address === 'https://fixture.firebaseio.test/.json' && options.method === 'PATCH') { rootWriteMethod = options.method; for (const [path, value] of Object.entries(JSON.parse(options.body))) { const parts = path.split('/'); let target = root; for (const part of parts.slice(0, -1)) target = target[part] ||= {}; if (value === null) delete target[parts.at(-1)]; else target[parts.at(-1)] = value; } rootPut = root; return new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } }); }
     throw new Error(`Unexpected local fixture request: ${address}`);
   };
   try {
@@ -52,6 +53,7 @@ test('activation succeeds when request has no uid', async () => {
     assert.equal(payload.ok, true);
     assert.equal(payload.clubNumber, 'CLUB-101-1');
     assert.ok(rootPut);
+    assert.equal(rootWriteMethod, 'PATCH');
     assert.equal(rootPut.subscription_counter, 1);
     assert.equal(rootPut.subscription_requests['request-zero-state'].status, 'activated');
     assert.equal(rootPut.subscription_requests['request-zero-state'].paymentStatus, 'paid');

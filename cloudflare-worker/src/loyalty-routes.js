@@ -21,7 +21,8 @@ let customTokenKey = { fingerprint: '', value: null };
 
 function origins(env) { return String(env.ALLOWED_ORIGINS || 'https://najf8.github.io').split(',').map(x => x.trim()).filter(Boolean); }
 function cors(request, env) { const origin = request.headers.get('Origin'); return origin && origins(env).includes(origin) ? { 'Access-Control-Allow-Origin': origin, 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, Authorization', 'Cache-Control': 'no-store', Vary: 'Origin' } : null; }
-function response(request, env, body, status = 200) { return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', ...(cors(request, env) || {}) } }); }
+function workerBuildHeader(env) { const build = String(env.WORKER_BUILD || '').trim(); return build ? { 'X-Worker-Build': build } : {}; }
+function response(request, env, body, status = 200) { return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', ...workerBuildHeader(env), ...(cors(request, env) || {}) } }); }
 function fail(request, env, error, status) { return response(request, env, { ok: false, error }, status); }
 function pinRevealAuthorizationFailure(request, env, error, status, stage) { return response(request, env, { ok: false, error, stage }, status); }
 function loginRequestId() { return crypto.randomUUID(); }

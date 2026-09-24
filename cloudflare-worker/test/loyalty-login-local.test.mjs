@@ -18,7 +18,7 @@ globalThis.fetch = async (url, options = {}) => {
   if ((options.method || 'GET') === 'PUT' && path.startsWith('loyalty_credentials/') && failCredentialPut) return new Response('{}', { status: 500 });
   if ((options.method || 'GET') === 'PUT' || (options.method || 'GET') === 'PATCH') { if (path) setPath(path, JSON.parse(options.body)); else for (const [key, value] of Object.entries(JSON.parse(options.body))) setPath(key, value); return Response.json({}); }
   if ((options.method || 'GET') === 'DELETE') { setPath(path, null); return Response.json(null); }
-  let value = root; for (const part of path ? path.split('/') : []) value = value?.[part]; return Response.json(value ?? null);
+   let value = root; for (const part of path ? path.split('/') : []) value = value?.[part]; return new Response(JSON.stringify(value ?? null), { status: 200, headers: path ? { 'Content-Type': 'application/json' } : { 'Content-Type': 'application/json', ETag: '"fixture-etag"' } });
 };
 
 async function login(membershipNumber, pin) {

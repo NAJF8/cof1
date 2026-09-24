@@ -5243,7 +5243,7 @@
                 if (login) login.textContent = currentLang === 'en' ? 'Back to sign in' : 'العودة لتسجيل الدخول';
             }
             const balance = document.querySelector('#loyaltyGuestContent .loyalty-summary-hearts');
-            if (balance) balance.innerHTML = `<strong>${currentLang === 'en' ? 'Rewards balance' : 'رصيد المكافآت'}</strong><p class="pin-unavailable-note" style="margin:0">${currentLang === 'en' ? 'Unavailable until the account loads.' : 'سيظهر بعد تحميل حسابك بنجاح.'}</p>`;
+            if (balance) balance.innerHTML = `<strong>${currentLang === 'en' ? 'Rewards balance' : 'رصيد المكافآت'}</strong><p class="pin-unavailable-note" style="margin:0">${currentLang === 'en' ? 'Your rewards balance is temporarily unavailable until the account loads.' : 'سيظهر بعد تحميل حسابك بنجاح.'}</p>`;
             mobileAuthTrace('RENDER_OK', { state: 'error' });
         }
 

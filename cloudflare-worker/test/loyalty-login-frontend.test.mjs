@@ -21,7 +21,7 @@ assert.match(index, /id=["']loyaltyErrorLogin["']/);
 assert.match(index, /window\.returnToLoyaltyLogin/);
 assert.match(index, /loyaltyProfileRetryInFlight/);
 assert.match(index, /await auth\.signOut\(\)/);
-assert.match(index, /Unavailable until the account loads\./);
+assert.match(index, /Your rewards balance is temporarily unavailable until the account loads\./);
 
 const inlineScripts = [...index.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/gi)]
   .map(match => match[1])
