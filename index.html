@@ -3324,6 +3324,9 @@
         let pendingAuthStateUser;
         let authStateProcessing = false;
         let loyaltyAuthInProgress = false;
+        let loyaltyProvisionAttemptedUid = '';
+        let loyaltyProvisionInFlight = null;
+        let loyaltyGoogleLoginRequested = false;
         const isMobileLoyaltyAuth = () => window.matchMedia('(max-width: 767px)').matches;
         const isEmbeddedAuthBrowser = () => /Instagram|FBAN|FBAV|FB_IAB|;\s*wv\)/i.test(navigator.userAgent || '');
         const authBrowserKind = () => isEmbeddedAuthBrowser() ? 'embedded' : 'top-level';
@@ -3349,6 +3352,8 @@
                     headers.Authorization = `Bearer ${await auth.currentUser.getIdToken(true)}`;
                     mobileAuthTrace('TOKEN_OK', { path });
                 } catch (error) {
+                    loyaltyAuthInProgress = false;
+                    window.lastLoyaltyProvisionError = error;
                     mobileAuthError('ID_TOKEN', error);
                     throw error;
                 }
@@ -3370,7 +3375,7 @@
             if (path === '/api/loyalty/provision-google') console.info('[NEW_LOYALTY_PROVISION_STATUS]', { ok: response.ok, status: response.status, provisionStatus: data?.status || null, profileStatus: data?.profileStatus || null, hasProfile: Boolean(data?.profile?.membershipNumber), error: data?.error || null });
             if (path === '/api/loyalty/provision-google') mobileAuthTrace('PROVISION_RESULT', { ok: response.ok, status: response.status, profileStatus: data?.profileStatus || null });
             if (path === '/api/loyalty/profile') mobileAuthTrace('PROFILE_RESULT', { ok: response.ok, status: response.status, profileStatus: data?.status || null });
-            if (!response.ok) { const error = new Error(data.error || 'LOYALTY_SECURITY_FAILED'); error.code = `functions/${data.error || 'internal'}`; error.httpStatus = response.status; error.requestId = typeof data?.requestId === 'string' ? data.requestId : ''; error.loyaltyStage = 'WORKER_RESPONSE'; throw error; }
+            if (!response.ok) { const error = new Error(data.error || 'LOYALTY_SECURITY_FAILED'); error.code = `functions/${data.error || 'internal'}`; error.httpStatus = response.status; error.requestId = typeof data?.requestId === 'string' ? data.requestId : ''; error.stage = typeof data?.stage === 'string' ? data.stage : null; error.upstreamStatus = data?.upstreamStatus ?? null; error.loyaltyStage = 'WORKER_RESPONSE'; throw error; }
             return { data };
         }
         try {
@@ -4658,6 +4663,7 @@
             }
             loyaltyAuthInProgress = true;
             loyaltyLoginRequested = true;
+            loyaltyGoogleLoginRequested = true;
             loyaltyPinAuthSession = false;
             const btn = document.getElementById('loyaltyGoogleBtn');
             const label = btn?.querySelector('.google-login-label');
@@ -4731,6 +4737,11 @@
             loyaltyCustomerRef = null;
             if (window.loyaltyPendingRef) { window.loyaltyPendingRef.off(); window.loyaltyPendingRef = null; }
             loyaltyCustomer = null;
+            if (!preserveAuth) {
+                loyaltyProvisionAttemptedUid = '';
+                loyaltyProvisionInFlight = null;
+                loyaltyGoogleLoginRequested = false;
+            }
             if (!preserveAuth) currentFirebaseUser = null;
             if (!preserveAuth) { if (clubCustomerRef) clubCustomerRef.off(); clubCustomerRef = null; clubCustomer = null; }
             loyaltyAuthStatusKey = '';
@@ -4775,6 +4786,7 @@
             isLoyaltyLoginInProgress = true;
             console.log('[LOYALTY_PIN_CLICK]');
             loyaltyLoginRequested = true;
+            loyaltyGoogleLoginRequested = false;
             loyaltyPinAuthSession = true;
             const membership = document.getElementById('membershipLoginId')?.value.trim();
             const pin = document.getElementById('membershipLoginPin')?.value.trim();
@@ -4832,10 +4844,11 @@
             try { if (auth?.currentUser) await auth.signOut(); } finally { loyaltyAuthInProgress = false; loyaltyLoginRequested = false; loyaltyPinAuthSession = false; resetLoyaltyGuestUI(); }
         };
 
-        async function onAuthChanged(user) {
+        async function onAuthChanged(user, { retryProvision = false } = {}) {
             const previousUid = String(currentFirebaseUser?.uid || '');
             const nextUid = String(user?.uid || '');
             if (previousUid && previousUid !== nextUid) clearPinMemory();
+            if (previousUid !== nextUid) loyaltyProvisionAttemptedUid = '';
             if (!user) clearPinMemory();
             currentFirebaseUser = user;
             mobileAuthTrace('AUTH_STATE', { hasUser: Boolean(user) });
@@ -4844,6 +4857,7 @@
                 mobileAuthTrace('CURRENT_USER', { present: true, uid: maskAuthId(user.uid) });
                 loadClubCustomer(user);
                 console.info('[LOYALTY_AUTH_OK]', { hasUser: true, emailVerified: user.emailVerified === true });
+                const isGoogleUser = loyaltyGoogleLoginRequested || user.providerData?.some(provider => provider.providerId === 'google.com');
                 let provisionAttempted = false;
                 try {
                     let profileResult;
@@ -4851,10 +4865,10 @@
                         profileResult = await callLoyaltySecurity('/api/loyalty/profile', { method: 'GET' });
                     } catch (profileError) {
                         if (profileError?.code === 'functions/PROFILE_LINK_CONFLICT') throw profileError;
-                        if (profileError?.code !== 'functions/PROFILE_NOT_FOUND' || loyaltyPinAuthSession || !loyaltyLoginRequested) throw profileError;
+                        if (profileError?.code !== 'functions/PROFILE_NOT_FOUND' || loyaltyPinAuthSession || !isGoogleUser) throw profileError;
                         provisionAttempted = true;
-                        profileResult = { data: await requestGoogleLoyaltyProvisioning() };
-                        if (profileResult.data?.profileStatus !== 'pending') profileResult = await callLoyaltySecurity('/api/loyalty/profile', { method: 'GET' });
+                        profileResult = { data: await requestGoogleLoyaltyProvisioning(user, { retry: retryProvision }) };
+                        profileResult = await callLoyaltySecurity('/api/loyalty/profile', { method: 'GET' });
                     }
                     const provisionStatus = profileResult?.data?.profileStatus || profileResult?.data?.status || '';
                     const membership = String(profileResult?.data?.profile?.membershipNumber || '');
@@ -4868,22 +4882,8 @@
                         loyaltyAuthStatusKey = 'auth_success';
                         watchLoyaltyLink(user.uid);
                         console.info('[LOYALTY_AUTH_PROFILE_READY]', { state: 'active' });
-                    } else if (loyaltyLoginRequested && !loyaltyPinAuthSession) {
-                        const provisioned = await requestGoogleLoyaltyProvisioning();
-                        if (provisioned.profileStatus === 'pending') {
-                            loyaltyAuthStatusKey = 'provision_pending';
-                            showPendingLoyaltyState(user);
-                            console.info('[LOYALTY_AUTH_PROFILE_READY]', { state: 'pending' });
-                        } else if (provisioned.profileStatus === 'active') {
-                            const refreshedProfile = await callLoyaltySecurity('/api/loyalty/profile', { method: 'GET' });
-                            const refreshedMembership = String(refreshedProfile.data?.profile?.membershipNumber || '');
-                            if (refreshedProfile.data?.status !== 'active' || !refreshedMembership) throw new Error('LOYALTY_PROFILE_INVALID');
-                            loyaltyAuthStatusKey = 'auth_success';
-                            loadCustomerData(refreshedMembership, refreshedProfile.data.profile);
-                            watchLoyaltyLink(user.uid);
-                            console.info('[LOYALTY_AUTH_PROFILE_READY]', { state: 'active' });
-                        } else throw new Error('LOYALTY_PROFILE_INVALID');
                     } else throw new Error('LOYALTY_PROFILE_INVALID');
+                    loyaltyAuthInProgress = false;
                     document.getElementById('loyaltyLoginModal')?.classList.remove('open');
                 } catch (error) {
                     mobileAuthError(provisionAttempted ? 'provision-google' : 'profile', error);
@@ -4903,10 +4903,10 @@
             }
         }
 
-        async function processAuthState(user) {
+        async function processAuthState(user, options = {}) {
             if (!authInitComplete || authRedirectPending || authStateProcessing) return;
             authStateProcessing = true;
-            try { await onAuthChanged(user); } finally { authStateProcessing = false; }
+            try { await onAuthChanged(user, options); } finally { authStateProcessing = false; }
         }
 
         function showPendingLoyaltyState(user, failed = false) {
@@ -5165,11 +5165,19 @@
             try{const result=await callLoyaltySecurity('/api/subscription/request',{method:'POST',body:{requestId,registrationMethod:clubRegistration.registrationMethod||'manual',name:clubRegistration.name,phone:clubRegistration.phone,planId}}),payload=result?.data||result,request=payload.request||{};const shopPhone=(settings.whatsapp||'').replace(/\D/g,'').replace(/^0/,'964'),payment=document.getElementById('clubRequestPayment');const text=`مرحباً 101 COFFEE ❤️\nأرغب بتأكيد طلب اشتراك 101 CLUB.\nرقم الطلب: ${request.requestId||payload.requestId}\nالاسم: ${request.name||clubRegistration.name}\nالخطة: ${request.planName||clubPlanName(plan)}\nالسعر: ${money(request.price??plan.price)}`;if(payment){payment.style.display='block';payment.dataset.requestText=text;renderClubTransferInfo();}const url=shopPhone?`https://wa.me/${shopPhone}?text=${encodeURIComponent(text)}`:'';if(url)window.open(url,'_blank','noopener');showToast('تم إرسال طلب الاشتراك بنجاح.','success');}catch(error){console.error('CLUB_REQUEST_FAILED',{code:error?.code||error?.message||'unknown'});showToast('تعذر إرسال طلب الاشتراك.','error');}finally{clubRequestInFlight=false;buttons.forEach(button=>{button.disabled=false;});}
         };
 
-        async function requestGoogleLoyaltyProvisioning() {
-            const result = await callLoyaltySecurity('/api/loyalty/provision-google', { method: 'POST', body: {} });
-            if (!['existing_member','pending','already_provisioned','created'].includes(result.data?.status)) throw new Error('Missing provisioned loyalty status');
-            if (!['active','pending'].includes(result.data?.profileStatus)) throw new Error('Missing loyalty profile status');
-            return result.data;
+        async function requestGoogleLoyaltyProvisioning(user, { retry = false } = {}) {
+            const uid = String(user?.uid || '');
+            if (!uid || auth?.currentUser?.uid !== uid) { const error = new Error('AUTH_REQUIRED'); error.code = 'functions/AUTH_REQUIRED'; throw error; }
+            if (loyaltyProvisionInFlight) return loyaltyProvisionInFlight;
+            if (loyaltyProvisionAttemptedUid === uid && !retry) { const error = new Error('PROVISION_ALREADY_ATTEMPTED'); error.code = 'functions/PROVISION_ALREADY_ATTEMPTED'; throw error; }
+            loyaltyProvisionAttemptedUid = uid;
+            loyaltyProvisionInFlight = (async () => {
+                const result = await callLoyaltySecurity('/api/loyalty/provision-google', { method: 'POST', body: {} });
+                if (!['existing_member','pending','already_provisioned','created'].includes(result.data?.status)) throw new Error('Missing provisioned loyalty status');
+                if (!['active','pending'].includes(result.data?.profileStatus)) throw new Error('Missing loyalty profile status');
+                return result.data;
+            })();
+            try { return await loyaltyProvisionInFlight; } finally { loyaltyProvisionInFlight = null; }
         }
 
         async function retryLoyaltyProfile() {
@@ -5178,7 +5186,7 @@
             const buttons = [...document.querySelectorAll('#loyaltyAuthAction, #loyaltyErrorActions button')];
             buttons.forEach(button => { button.disabled = true; });
             loyaltyAuthStatusKey = '';
-            try { await onAuthChanged(currentFirebaseUser); }
+            try { await onAuthChanged(currentFirebaseUser, { retryProvision: true }); }
             finally { loyaltyProfileRetryInFlight = false; buttons.forEach(button => { button.disabled = false; }); }
         }
 
@@ -5194,6 +5202,16 @@
                 document.getElementById('loyaltyLoginModal')?.classList.add('open');
             }
         };
+
+        function safeLoyaltyProvisionDiagnostic(error) {
+            return {
+                code: String(error?.code || 'UNKNOWN').replace(/^functions\//, '').replace(/[^A-Za-z0-9_/-]/g, '').slice(0, 80) || 'UNKNOWN',
+                stage: String(error?.stage || error?.loyaltyStage || '').replace(/[^A-Za-z0-9_/-]/g, '').slice(0, 80) || null,
+                requestId: String(error?.requestId || '').replace(/[^A-Za-z0-9-]/g, '').slice(0, 64) || null,
+                status: Number.isFinite(error?.httpStatus) ? error.httpStatus : null,
+                upstreamStatus: Number.isFinite(error?.upstreamStatus) ? error.upstreamStatus : null
+            };
+        }
 
         function showLoyaltyErrorState(user) {
             console.error('[NEW_LOYALTY_RENDER_ERROR]', { hasUser: Boolean(user) });
@@ -5211,7 +5229,9 @@
             if (guest) guest.style.display = 'block';
             if (member) member.style.display = 'none';
             const status = document.getElementById('loyaltyAuthStatus');
-            if (status) status.textContent = currentLang === 'en' ? 'Your rewards balance is temporarily unavailable. No account was changed.' : 'رصيد المكافآت غير متاح مؤقتًا. لم يتم تغيير حسابك.';
+            const diagnostic = safeLoyaltyProvisionDiagnostic(window.lastLoyaltyProvisionError);
+            const detail = [diagnostic.code, diagnostic.stage, diagnostic.requestId ? `requestId: ${diagnostic.requestId}` : ''].filter(Boolean).join(' — ');
+            if (status) status.textContent = currentLang === 'en' ? `Signed in, but rewards setup failed. ${detail}` : `تم تسجيل الدخول، لكن تعذر إعداد المكافآت. ${detail}`;
             const action = document.getElementById('loyaltyAuthAction');
             if (action) { action.textContent = currentLang === 'en' ? 'Retry' : 'إعادة المحاولة'; action.onclick = retryLoyaltyProfile; }
             const errorActions = document.getElementById('loyaltyErrorActions');
