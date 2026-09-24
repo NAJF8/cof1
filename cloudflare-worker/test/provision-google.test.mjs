@@ -77,6 +77,14 @@ assert.equal(body.membershipNumber, '101-11');
 assert.equal(Object.keys(root.loyalty_customers).length, 1);
 
 root = structuredClone(baseRoot);
+root.loyalty_links['partial-user'] = '101-42';
+response = await provision(request('provision-stale-link-resume'), env, { ...current, uid: 'partial-user', email: 'partial@example.test' });
+body = await response.json();
+assert.equal(response.status, 200);
+assert.equal(body.membershipNumber, '101-42');
+assert.equal(root.loyalty_counter, 10);
+
+root = structuredClone(baseRoot);
 failPatch = true;
 await assert.rejects(() => provision(request('provision-write-failure'), env, { ...current, uid: 'write-user', email: 'write@example.test' }));
 failPatch = false;

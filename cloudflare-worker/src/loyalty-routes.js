@@ -734,18 +734,21 @@ async function provision(request, env, current, superAdmin = false) {
     const pending = await firebaseAdminRequest(env, `loyalty_pending/${current.uid}`) || {};
     setStage('UID_LINK_CHECK');
     const linked = security.normalizeMembershipNumber(await firebaseAdminRequest(env, `loyalty_links/${current.uid}`));
+    let linkedCustomer = null;
     if (linked) {
-      const linkedCustomer = await firebaseAdminRequest(env, `loyalty_customers/${linked}`);
-      if (!linkedCustomer || !customerBelongsTo(current, linkedCustomer)) throw Error('PROFILE_LINK_CONFLICT');
-      setStage('PROFILE_READBACK');
-      setStage('COMPLETE');
-      return response(request, env, { ok: true, status: 'already_provisioned', profileStatus: 'active', provisioned: false, membershipNumber: linked, profile: safeCustomer(linked, linkedCustomer) });
+      linkedCustomer = await firebaseAdminRequest(env, `loyalty_customers/${linked}`);
+      if (linkedCustomer && !customerBelongsTo(current, linkedCustomer)) throw Error('PROFILE_LINK_CONFLICT');
+      if (linkedCustomer) {
+        setStage('PROFILE_READBACK');
+        setStage('COMPLETE');
+        return response(request, env, { ok: true, status: 'already_provisioned', profileStatus: 'active', provisioned: false, membershipNumber: linked, profile: safeCustomer(linked, linkedCustomer) });
+      }
     }
     const pepper = String(env.LOYALTY_PIN_PEPPER || '');
     if (!pepper) throw Error('INTERNAL_ERROR');
     const reservationPath = `loyalty_provision_reservations/${current.uid}`;
     const reservation = await firebaseAdminRequest(env, reservationPath) || {};
-    let membership = security.normalizeMembershipNumber(reservation.membership);
+    let membership = security.normalizeMembershipNumber(reservation.membership) || linked;
     let previousPinIndexKey = String(reservation.pinIndexKey || '').trim();
     setStage('COUNTER_READ');
     if (!membership) {
@@ -767,7 +770,7 @@ async function provision(request, env, current, superAdmin = false) {
       if (!membership || !counterEtag) throw Error('COUNTER_CONFLICT');
     } else {
       setStage('COUNTER_RESERVE');
-      if (await firebaseAdminRequest(env, `loyalty_customers/${membership}`)) throw Error('PROFILE_READBACK_FAILED');
+      if (await firebaseAdminRequest(env, `loyalty_customers/${membership}`) && !linkedCustomer) throw Error('PROFILE_READBACK_FAILED');
     }
     const now = Date.now();
     if (!reservation.membership) await firebaseAdminRequest(env, '', { method: 'PATCH', body: { [reservationPath]: { membership, pinIndexKey: '', createdAt: now } } });
@@ -788,7 +791,7 @@ async function provision(request, env, current, superAdmin = false) {
     try { await firebaseAdminConditionalPut(env, pinReservation, membership, pinSnapshot.etag); }
     catch (error) { if (error.message === 'FIREBASE_ETAG_CONFLICT') throw Error('PIN_GENERATION_FAILED'); throw error; }
     setStage('FIREBASE_WRITE');
-    const customer = { uid: current.uid, email: current.email, name: String(pending.displayName || current.name || 'عضو 101').slice(0, 120), memberType: superAdmin ? 'Super Admin' : 'زبون', hearts: 0, currentHearts: 0, createdAt: now, updatedAt: now };
+    const customer = { ...linkedCustomer, uid: current.uid, email: current.email, name: String(linkedCustomer?.name || pending.displayName || current.name || 'عضو 101').slice(0, 120), memberType: superAdmin ? 'Super Admin' : linkedCustomer?.memberType || 'زبون', hearts: Number(linkedCustomer?.hearts || 0), currentHearts: Number(linkedCustomer?.currentHearts ?? linkedCustomer?.hearts ?? 0), createdAt: Number(linkedCustomer?.createdAt) || now, updatedAt: now };
     const updates = { [`loyalty_customers/${membership}`]: customer, [`loyalty_credentials/${membership}`]: credential, [`loyalty_links/${current.uid}`]: membership, ...(previousPinIndexKey && previousPinIndexKey !== pinIndexKey ? { [`loyalty_pin_index/${previousPinIndexKey}`]: null } : {}) };
     if (pending.status === 'pending') updates[`loyalty_pending/${current.uid}`] = null;
     try {
