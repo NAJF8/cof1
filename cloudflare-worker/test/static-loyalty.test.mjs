@@ -82,8 +82,10 @@ assert.match(loyalty, /const hearts = heartsRaw === '' \? 0 : Number\(heartsRaw\
 assert.match(loyalty, /INVALID_FIELD/);
 assert.match(loyalty, /const newCardId = result\.membershipNumber/);
 assert.match(loyalty, /تعذر الاتصال بخدمة العضويات/);
-assert.match(worker, /replayOrPlan\(root, 'customer-create', id\)/);
-assert.match(worker, /operationPath\('customer-create', id\)/);
+assert.match(worker, /const replay = replayOrPlan\(root, 'customer-create', id\)/);
+assert.match(worker, /replay\.result\.actorUid !== current\.uid/);
+assert.match(worker, /PIN_REVEAL_WRITE_UNVERIFIED/);
+assert.match(worker, /\[operationPath\('customer-create', id\)\]/);
 assert.match(worker, /invalidField\('hearts'\)/);
 const giftRedeem = worker.match(/async function redeemGift[\s\S]*?async function listGiftOrders/)[0];
 assert.match(giftRedeem, /firebaseAdminReadWithEtag\(env, `gift_orders\/\$\{id\}`\)/);

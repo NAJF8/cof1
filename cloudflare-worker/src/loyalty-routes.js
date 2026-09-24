@@ -4,7 +4,8 @@ import { planGiftDecision, planGiftRedemption } from './gift-delivery.js';
 
 const PROJECT_ID = 'coffee-30fa7';
 const SUPER_ADMIN_EMAIL = 'mohameadalhaear100@gmail.com';
-const PROVISION_BUILD = 'provision-google-stages-v3';
+const PROVISION_BUILD_LABEL = 'provision-google-stages-v3';
+const FULL_GIT_SHA = /^[0-9a-f]{40}$/i;
 const requestContext = new WeakMap();
 function provisionRequestId(request) {
   if (!requestContext.has(request)) {
@@ -36,11 +37,15 @@ let customTokenKey = { fingerprint: '', value: null };
 
 function origins(env) { return String(env.ALLOWED_ORIGINS || 'https://najf8.github.io').split(',').map(x => x.trim()).filter(Boolean); }
 function cors(request, env) { const origin = request.headers.get('Origin'); return origin && origins(env).includes(origin) ? { 'Access-Control-Allow-Origin': origin, 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, Authorization', 'Cache-Control': 'no-store', Vary: 'Origin' } : null; }
+function workerBuildHeaders(env) {
+  const build = String(env.WORKER_BUILD || '').trim();
+  return FULL_GIT_SHA.test(build) ? { 'X-Worker-Build': build, 'X-Worker-Build-Label': PROVISION_BUILD_LABEL } : {};
+}
 function response(request, env, body, status = 200) {
   const provisionPath = new URL(request.url).pathname === '/api/loyalty/provision-google';
   const context = provisionPath ? provisionRequestId(request) : null;
   const payload = provisionPath && body && typeof body === 'object' && !Array.isArray(body) ? { ...body, requestId: body.requestId || context.requestId, ...(body.stage ? {} : { stage: context.stage }) } : body;
-  return new Response(JSON.stringify(payload), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', ...(provisionPath ? { 'X-Request-ID': context.requestId, 'X-Worker-Build': String(env.WORKER_BUILD || PROVISION_BUILD) } : {}), ...(cors(request, env) || {}) } });
+  return new Response(JSON.stringify(payload), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', ...workerBuildHeaders(env), ...(provisionPath ? { 'X-Request-ID': context.requestId } : {}), ...(cors(request, env) || {}) } });
 }
 function fail(request, env, error, status) { return response(request, env, { ok: false, error }, status); }
 function pinRevealAuthorizationFailure(request, env, error, status, stage) { return response(request, env, { ok: false, error, stage }, status); }
@@ -1135,7 +1140,7 @@ async function deleteSubscription(request, env, current) {
 async function route(request, env, url) {
   if (!url.pathname.startsWith('/api/loyalty/') && !url.pathname.startsWith('/api/subscription/') && !url.pathname.startsWith('/api/admin/')) return null;
   if (url.pathname === '/api/loyalty/provision-google') setProvisionRequestStage(request, request.method === 'OPTIONS' ? 'PREFLIGHT' : 'ROUTE_ENTRY');
-  if (request.method === 'OPTIONS') { const preflight = cors(request, env); return preflight ? new Response(null, { status: 204, headers: { ...preflight, ...(url.pathname === '/api/loyalty/provision-google' ? { 'X-Request-ID': provisionRequestId(request).requestId, 'X-Worker-Build': String(env.WORKER_BUILD || PROVISION_BUILD) } : {}) } }) : fail(request, env, 'ORIGIN_NOT_ALLOWED', 403); }
+  if (request.method === 'OPTIONS') { const preflight = cors(request, env); return preflight ? new Response(null, { status: 204, headers: { ...preflight, ...workerBuildHeaders(env), ...(url.pathname === '/api/loyalty/provision-google' ? { 'X-Request-ID': provisionRequestId(request).requestId } : {}) } }) : fail(request, env, 'ORIGIN_NOT_ALLOWED', 403); }
   if (!cors(request, env)) return fail(request, env, 'ORIGIN_NOT_ALLOWED', 403);
   try {
     if (url.pathname === '/api/loyalty/login' && request.method === 'POST') return await login(request, env);
