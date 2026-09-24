@@ -5,7 +5,7 @@ import { handleLoyaltyRoutes } from '../src/loyalty-routes.js';
 
 const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
 const privateKeyPem = privateKey.export({ type: 'pkcs8', format: 'pem' });
-const env = { ALLOWED_ORIGINS: 'https://101coffees.com', FIREBASE_DATABASE_URL: 'https://fixture.firebaseio.test', FIREBASE_SERVICE_ACCOUNT_EMAIL: 'fixture@example.test', FIREBASE_SERVICE_ACCOUNT_PRIVATE_KEY: privateKeyPem, LOYALTY_PIN_PEPPER: 'fixture-pepper' };
+const env = { ALLOWED_ORIGINS: 'https://101coffees.com', FIREBASE_DATABASE_URL: 'https://fixture.firebaseio.test', FIREBASE_SERVICE_ACCOUNT_EMAIL: 'fixture@example.test', FIREBASE_SERVICE_ACCOUNT_PRIVATE_KEY: privateKeyPem, LOYALTY_PIN_PEPPER: 'fixture-pepper', LOYALTY_PIN_REVEAL_KEY: 'fixture-reveal-key' };
 const root = { loyalty_customers: { '101-100': { name: 'Legacy Fixture', hearts: 2, pin: '1234' }, '101-101': { name: 'Hashed Fixture', uid: 'existing-google-uid', hearts: 5, currentHearts: 5 }, '101-102': { name: 'Broken Credential Fixture', uid: 'existing-google-uid-2', hearts: 4, pin: '2468' }, '101-103': { name: 'Malformed Credential Fixture', uid: 'existing-google-uid-3', hearts: 5, pin: '1357' }, '101-104': { name: 'Unlinked Fixture', hearts: 1, pin: '9876' } }, loyalty_links: { 'linked-google-uid': '101-100' }, loyalty_credentials: { '101-101': await createCredential('5678', env.LOYALTY_PIN_PEPPER), '101-102': { pinHash: 'old-but-incomplete' }, '101-103': { pinHash: '%%%not-base64%%%', salt: '%%%not-base64%%%', algorithm: 'PBKDF2-SHA512', iterations: 100000 } }, loyalty_login_attempts: {} };
 let failCredentialPut = false;
 

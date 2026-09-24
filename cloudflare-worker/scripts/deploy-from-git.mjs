@@ -10,9 +10,14 @@ function git(...args) {
 }
 const status = git('status', '--porcelain');
 if (status) throw new Error('Refusing Worker deploy: worktree is not clean. Commit the reviewed changes first.');
+const branch = git('symbolic-ref', '--short', 'HEAD');
+const approvedBranches = String(process.env.WORKER_RELEASE_BRANCHES || 'main').split(',').map(value => value.trim()).filter(Boolean);
+if (!approvedBranches.includes(branch)) throw new Error(`Refusing Worker deploy: branch ${branch} is not approved (${approvedBranches.join(', ')}).`);
 const head = git('rev-parse', 'HEAD');
+if (!/^[0-9a-f]{40}$/i.test(head)) throw new Error(`Refusing Worker deploy: build hash is not a full commit SHA (${head}).`);
 const originMain = git('rev-parse', 'origin/main');
-if (head !== originMain) throw new Error(`Refusing Worker deploy: HEAD ${head} is not origin/main ${originMain}.`);
+const containsOriginMain = spawnSync('git', ['merge-base', '--is-ancestor', originMain, head], { cwd: root, encoding: 'utf8' });
+if (containsOriginMain.status !== 0) throw new Error(`Refusing Worker deploy: origin/main ${originMain} is newer than HEAD ${head}.`);
 const wrangler = process.platform === 'win32' ? 'npx.cmd' : 'npx';
 const result = spawnSync(wrangler, ['--yes', 'wrangler', 'deploy', '--var', `WORKER_BUILD:${head}`], { cwd: root, encoding: 'utf8', shell: process.platform === 'win32' });
 process.stdout.write(result.stdout || '');

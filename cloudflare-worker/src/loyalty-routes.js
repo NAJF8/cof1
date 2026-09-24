@@ -4,7 +4,8 @@ import { planGiftDecision, planGiftRedemption } from './gift-delivery.js';
 
 const PROJECT_ID = 'coffee-30fa7';
 const SUPER_ADMIN_EMAIL = 'mohameadalhaear100@gmail.com';
-const PROVISION_BUILD = 'provision-google-stages-v3';
+const PROVISION_BUILD_LABEL = 'provision-google-stages-v3';
+const FULL_GIT_SHA = /^[0-9a-f]{40}$/i;
 const requestContext = new WeakMap();
 function provisionRequestId(request) {
   if (!requestContext.has(request)) {
@@ -36,11 +37,15 @@ let customTokenKey = { fingerprint: '', value: null };
 
 function origins(env) { return String(env.ALLOWED_ORIGINS || 'https://najf8.github.io').split(',').map(x => x.trim()).filter(Boolean); }
 function cors(request, env) { const origin = request.headers.get('Origin'); return origin && origins(env).includes(origin) ? { 'Access-Control-Allow-Origin': origin, 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, Authorization', 'Cache-Control': 'no-store', Vary: 'Origin' } : null; }
+function workerBuildHeaders(env) {
+  const build = String(env.WORKER_BUILD || '').trim();
+  return FULL_GIT_SHA.test(build) ? { 'X-Worker-Build': build, 'X-Worker-Build-Label': PROVISION_BUILD_LABEL } : {};
+}
 function response(request, env, body, status = 200) {
   const provisionPath = new URL(request.url).pathname === '/api/loyalty/provision-google';
   const context = provisionPath ? provisionRequestId(request) : null;
   const payload = provisionPath && body && typeof body === 'object' && !Array.isArray(body) ? { ...body, requestId: body.requestId || context.requestId, ...(body.stage ? {} : { stage: context.stage }) } : body;
-  return new Response(JSON.stringify(payload), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', ...(provisionPath ? { 'X-Request-ID': context.requestId, 'X-Worker-Build': String(env.WORKER_BUILD || PROVISION_BUILD) } : {}), ...(cors(request, env) || {}) } });
+  return new Response(JSON.stringify(payload), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', ...workerBuildHeaders(env), ...(provisionPath ? { 'X-Request-ID': context.requestId } : {}), ...(cors(request, env) || {}) } });
 }
 function fail(request, env, error, status) { return response(request, env, { ok: false, error }, status); }
 function pinRevealAuthorizationFailure(request, env, error, status, stage) { return response(request, env, { ok: false, error, stage }, status); }
@@ -97,18 +102,15 @@ async function createLoyaltyCredential(pin, env, now = Date.now(), onStage) {
   return credential;
 }
 async function chooseUniqueLoyaltyPin(root, pepper) {
-  const customers = root.loyalty_customers || {}, credentials = root.loyalty_credentials || {}, indexes = root.loyalty_pin_index || {};
+  const customers = root.loyalty_customers || {}, indexes = root.loyalty_pin_index || {};
   for (let attempt = 0; attempt < 100; attempt += 1) {
     const pin = security.generatePin(), indexKey = await security.pinIndexKey(pin, pepper);
     if (indexes[indexKey]) continue;
     const legacyCollision = Object.values(customers).some(customer => customer && customer.status !== 'inactive' && customer.deleted !== true && String(customer.pin || '') === pin);
     if (legacyCollision) continue;
-    let hashedCollision = false;
-    for (const [membership, credential] of Object.entries(credentials)) {
-      if (hashedCollision || !customers[membership] || customers[membership].status === 'inactive' || customers[membership].deleted === true || !credentialShapeIsUsable(credential)) continue;
-      hashedCollision = await security.timingSafePinMatch(pin, credential, pepper);
-    }
-    if (!hashedCollision) return { pin, indexKey };
+    // The HMAC index is the authoritative collision guard for migrated/revealable credentials.
+    // Do not PBKDF2 every existing credential here: that makes member creation exceed Worker CPU limits.
+    return { pin, indexKey };
   }
   throw Error('PIN_GENERATION_FAILED');
 }
@@ -824,60 +826,36 @@ async function createLoyaltyCustomer(request, env, current) {
   const pepper = String(env.LOYALTY_PIN_PEPPER || ''), revealKey = String(env.LOYALTY_PIN_REVEAL_KEY || '').trim();
   if (!pepper || !revealKey) throw Error('INTERNAL_ERROR');
 
-  const opPath = operationPath('customer-create', id);
-  if (opPath) {
-    const snap = await firebaseAdminReadWithEtag(env, opPath).catch(() => ({ data: null, etag: 'null' }));
-    const existingOp = snap.data;
-    if (existingOp?.result) return response(request, env, existingOp.result);
-    if (existingOp?.pending && Date.now() - (existingOp.createdAt || 0) < 60000) throw Error('CONCURRENT_MODIFICATION');
-    try {
-      await firebaseAdminConditionalPut(env, opPath, { pending: true, createdAt: Date.now() }, snap.etag);
-    } catch (err) {
-      if (err.message === 'FIREBASE_ETAG_CONFLICT') throw Error('CONCURRENT_MODIFICATION');
-      throw err;
+  const result = await atomicPlan(env, async root => {
+    const replay = replayOrPlan(root, 'customer-create', id);
+    if (replay) {
+      if (replay.result.actorUid !== current.uid) throw Error('FORBIDDEN');
+      const membership = security.normalizeMembershipNumber(replay.result.membershipNumber);
+      const credential = membership ? root.loyalty_credentials?.[membership] : null;
+      if (!membership || !credential?.pinCiphertext) throw Error('PIN_REVEAL_WRITE_UNVERIFIED');
+      const pin = await security.decryptPin(credential.pinCiphertext, revealKey);
+      if (!security.validPin(pin) || !await security.timingSafePinMatch(pin, credential, pepper)) throw Error('PIN_REVEAL_WRITE_UNVERIFIED');
+      return { replay: true, result: { ok: true, membershipNumber: membership, pin, requestId: id, resumed: true } };
     }
-  }
-
-  let membership = '';
-  for (let attempt = 0; attempt < 12; attempt++) {
-    const snap = await firebaseAdminReadWithEtag(env, 'loyalty_counter').catch(() => ({ data: 0, etag: '*' }));
-    const counter = Number(snap.data) || 0;
-    const nextCounter = counter + 1;
-    membership = '101-' + nextCounter;
-    try {
-      if (snap.etag === '*') {
-        const rootCounter = await firebaseAdminReadWithEtag(env, 'loyalty_counter');
-        await firebaseAdminConditionalPut(env, 'loyalty_counter', Number(rootCounter.data || 0) + 1, rootCounter.etag);
-      } else {
-        await firebaseAdminConditionalPut(env, 'loyalty_counter', nextCounter, snap.etag);
-      }
-      break;
-    } catch (err) {
-      if (err.message !== 'FIREBASE_ETAG_CONFLICT' || attempt === 11) throw err;
-    }
-  }
-
-  let pin = security.generatePin();
-  while (pin === '0224') pin = security.generatePin();
-
-  const credential = await security.createCredential(pin, pepper);
-  const encrypted = await security.encryptPin(pin, revealKey);
-  const now = Date.now();
-  
-  const customer = { name, phone, hearts, currentHearts: hearts, totalEarned: hearts, totalHeartsEarned: hearts, totalSpent: 0, memberType, createdAt: now, createdBy: actor.record.displayName || current.name || 'كاشير', updatedAt: now };
-  
-  const outcome = { ok: true, membershipNumber: membership, pinAvailable: true, requestId: id, profile: security.publicProfile(membership, customer) };
-  const storedResult = { membershipNumber: membership, actorUid: current.uid, requestId: id, pinAvailable: true };
-  
-  const updates = {
-    [`loyalty_customers/${membership}`]: customer,
-    [`loyalty_credentials/${membership}`]: credential,
-    [`loyalty_pin_reveals/${membership}`]: { ...encrypted, enabled: true, enabledAt: now, migration: false }
-  };
-  if (opPath) updates[opPath] = { result: storedResult, createdAt: now };
-  
-  await firebaseAdminRequest(env, '', { method: 'PATCH', body: updates });
-  return response(request, env, outcome);
+    let counter = Number(root.loyalty_counter) || 0, membership;
+    do { counter += 1; membership = `101-${counter}`; } while (root.loyalty_customers?.[membership]);
+    const now = Date.now(), pinData = await chooseUniqueLoyaltyPin(root, pepper), credential = await createLoyaltyCredential(pinData.pin, env, now);
+    const customer = { name, phone, hearts, currentHearts: hearts, totalEarned: hearts, totalHeartsEarned: hearts, totalSpent: 0, memberType, createdAt: now, createdBy: actor.record.displayName || current.name || 'كاشير', updatedAt: now };
+    if (!credential.pinCiphertext || !await security.timingSafePinMatch(pinData.pin, credential, pepper) || await security.decryptPin(credential.pinCiphertext, revealKey) !== pinData.pin) throw Error('PIN_REVEAL_WRITE_UNVERIFIED');
+    const logId = `register_${crypto.randomUUID()}`;
+    const outcome = { ok: true, membershipNumber: membership, pin: pinData.pin, pinAvailable: true, requestId: id, profile: security.publicProfile(membership, customer) };
+    const storedResult = { membershipNumber: membership, actorUid: current.uid, requestId: id, pinAvailable: true };
+    const updates = {
+      [`loyalty_customers/${membership}`]: customer,
+      [`loyalty_credentials/${membership}`]: credential,
+      [`loyalty_pin_index/${pinData.indexKey}`]: membership,
+      loyalty_counter: counter,
+      [`loyalty_logs/${logId}`]: { type: 'register', cardId: membership, customerName: name, cashierName: actor.record.displayName || current.name || 'كاشير', timestamp: now, requestId: id },
+      [operationPath('customer-create', id)]: { result: storedResult, createdAt: now }
+    };
+    return { updates, result: outcome };
+  }, { stage: 'LOYALTY_CUSTOMER_CREATE' });
+  return response(request, env, result);
 }
 
 async function activatePending(request, env, current) {
@@ -1162,7 +1140,7 @@ async function deleteSubscription(request, env, current) {
 async function route(request, env, url) {
   if (!url.pathname.startsWith('/api/loyalty/') && !url.pathname.startsWith('/api/subscription/') && !url.pathname.startsWith('/api/admin/')) return null;
   if (url.pathname === '/api/loyalty/provision-google') setProvisionRequestStage(request, request.method === 'OPTIONS' ? 'PREFLIGHT' : 'ROUTE_ENTRY');
-  if (request.method === 'OPTIONS') { const preflight = cors(request, env); return preflight ? new Response(null, { status: 204, headers: { ...preflight, ...(url.pathname === '/api/loyalty/provision-google' ? { 'X-Request-ID': provisionRequestId(request).requestId, 'X-Worker-Build': String(env.WORKER_BUILD || PROVISION_BUILD) } : {}) } }) : fail(request, env, 'ORIGIN_NOT_ALLOWED', 403); }
+  if (request.method === 'OPTIONS') { const preflight = cors(request, env); return preflight ? new Response(null, { status: 204, headers: { ...preflight, ...workerBuildHeaders(env), ...(url.pathname === '/api/loyalty/provision-google' ? { 'X-Request-ID': provisionRequestId(request).requestId } : {}) } }) : fail(request, env, 'ORIGIN_NOT_ALLOWED', 403); }
   if (!cors(request, env)) return fail(request, env, 'ORIGIN_NOT_ALLOWED', 403);
   try {
     if (url.pathname === '/api/loyalty/login' && request.method === 'POST') return await login(request, env);
