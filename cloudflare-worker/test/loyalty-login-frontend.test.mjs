@@ -45,6 +45,8 @@ function harness(callLoyaltySecurity, signInWithCustomToken = async () => {}) {
     window: {},
     isLoyaltyLoginInProgress: false,
     loyaltyLoginRequested: false,
+    claritySafeEvent() {},
+    claritySafeFailure() {},
     auth: { signInWithCustomToken },
     callLoyaltySecurity,
     setTimeout,

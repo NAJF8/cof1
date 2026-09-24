@@ -824,60 +824,36 @@ async function createLoyaltyCustomer(request, env, current) {
   const pepper = String(env.LOYALTY_PIN_PEPPER || ''), revealKey = String(env.LOYALTY_PIN_REVEAL_KEY || '').trim();
   if (!pepper || !revealKey) throw Error('INTERNAL_ERROR');
 
-  const opPath = operationPath('customer-create', id);
-  if (opPath) {
-    const snap = await firebaseAdminReadWithEtag(env, opPath).catch(() => ({ data: null, etag: 'null' }));
-    const existingOp = snap.data;
-    if (existingOp?.result) return response(request, env, existingOp.result);
-    if (existingOp?.pending && Date.now() - (existingOp.createdAt || 0) < 60000) throw Error('CONCURRENT_MODIFICATION');
-    try {
-      await firebaseAdminConditionalPut(env, opPath, { pending: true, createdAt: Date.now() }, snap.etag);
-    } catch (err) {
-      if (err.message === 'FIREBASE_ETAG_CONFLICT') throw Error('CONCURRENT_MODIFICATION');
-      throw err;
+  const result = await atomicPlan(env, async root => {
+    const replay = replayOrPlan(root, 'customer-create', id);
+    if (replay) {
+      if (replay.result.actorUid !== current.uid) throw Error('FORBIDDEN');
+      const membership = security.normalizeMembershipNumber(replay.result.membershipNumber);
+      const credential = membership ? root.loyalty_credentials?.[membership] : null;
+      if (!membership || !credential?.pinCiphertext) throw Error('PIN_REVEAL_WRITE_UNVERIFIED');
+      const pin = await security.decryptPin(credential.pinCiphertext, revealKey);
+      if (!security.validPin(pin) || !await security.timingSafePinMatch(pin, credential, pepper)) throw Error('PIN_REVEAL_WRITE_UNVERIFIED');
+      return { replay: true, result: { ok: true, membershipNumber: membership, pin, requestId: id, resumed: true } };
     }
-  }
-
-  let membership = '';
-  for (let attempt = 0; attempt < 12; attempt++) {
-    const snap = await firebaseAdminReadWithEtag(env, 'loyalty_counter').catch(() => ({ data: 0, etag: '*' }));
-    const counter = Number(snap.data) || 0;
-    const nextCounter = counter + 1;
-    membership = '101-' + nextCounter;
-    try {
-      if (snap.etag === '*') {
-        const rootCounter = await firebaseAdminReadWithEtag(env, 'loyalty_counter');
-        await firebaseAdminConditionalPut(env, 'loyalty_counter', Number(rootCounter.data || 0) + 1, rootCounter.etag);
-      } else {
-        await firebaseAdminConditionalPut(env, 'loyalty_counter', nextCounter, snap.etag);
-      }
-      break;
-    } catch (err) {
-      if (err.message !== 'FIREBASE_ETAG_CONFLICT' || attempt === 11) throw err;
-    }
-  }
-
-  let pin = security.generatePin();
-  while (pin === '0224') pin = security.generatePin();
-
-  const credential = await security.createCredential(pin, pepper);
-  const encrypted = await security.encryptPin(pin, revealKey);
-  const now = Date.now();
-  
-  const customer = { name, phone, hearts, currentHearts: hearts, totalEarned: hearts, totalHeartsEarned: hearts, totalSpent: 0, memberType, createdAt: now, createdBy: actor.record.displayName || current.name || 'كاشير', updatedAt: now };
-  
-  const outcome = { ok: true, membershipNumber: membership, pinAvailable: true, requestId: id, profile: security.publicProfile(membership, customer) };
-  const storedResult = { membershipNumber: membership, actorUid: current.uid, requestId: id, pinAvailable: true };
-  
-  const updates = {
-    [`loyalty_customers/${membership}`]: customer,
-    [`loyalty_credentials/${membership}`]: credential,
-    [`loyalty_pin_reveals/${membership}`]: { ...encrypted, enabled: true, enabledAt: now, migration: false }
-  };
-  if (opPath) updates[opPath] = { result: storedResult, createdAt: now };
-  
-  await firebaseAdminRequest(env, '', { method: 'PATCH', body: updates });
-  return response(request, env, outcome);
+    let counter = Number(root.loyalty_counter) || 0, membership;
+    do { counter += 1; membership = `101-${counter}`; } while (root.loyalty_customers?.[membership]);
+    const now = Date.now(), pinData = await chooseUniqueLoyaltyPin(root, pepper), credential = await createLoyaltyCredential(pinData.pin, env, now);
+    const customer = { name, phone, hearts, currentHearts: hearts, totalEarned: hearts, totalHeartsEarned: hearts, totalSpent: 0, memberType, createdAt: now, createdBy: actor.record.displayName || current.name || 'كاشير', updatedAt: now };
+    if (!credential.pinCiphertext || !await security.timingSafePinMatch(pinData.pin, credential, pepper) || await security.decryptPin(credential.pinCiphertext, revealKey) !== pinData.pin) throw Error('PIN_REVEAL_WRITE_UNVERIFIED');
+    const logId = `register_${crypto.randomUUID()}`;
+    const outcome = { ok: true, membershipNumber: membership, pin: pinData.pin, pinAvailable: true, requestId: id, profile: security.publicProfile(membership, customer) };
+    const storedResult = { membershipNumber: membership, actorUid: current.uid, requestId: id, pinAvailable: true };
+    const updates = {
+      [`loyalty_customers/${membership}`]: customer,
+      [`loyalty_credentials/${membership}`]: credential,
+      [`loyalty_pin_index/${pinData.indexKey}`]: membership,
+      loyalty_counter: counter,
+      [`loyalty_logs/${logId}`]: { type: 'register', cardId: membership, customerName: name, cashierName: actor.record.displayName || current.name || 'كاشير', timestamp: now, requestId: id },
+      [operationPath('customer-create', id)]: { result: storedResult, createdAt: now }
+    };
+    return { updates, result: outcome };
+  }, { stage: 'LOYALTY_CUSTOMER_CREATE' });
+  return response(request, env, result);
 }
 
 async function activatePending(request, env, current) {
