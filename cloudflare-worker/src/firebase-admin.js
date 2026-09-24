@@ -194,18 +194,18 @@ async function firebaseAdminAtomicPatch(env, plan, options = {}) {
     const base = String(currentEnv.FIREBASE_DATABASE_URL || 'https://coffee-30fa7-default-rtdb.firebaseio.com').replace(/\/$/, '');
     const response = await firebaseFetch(`${base}/.json`, { method: 'PATCH', headers: { Authorization: `Bearer ${await serviceAccountToken(currentEnv)}`, 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify(updates) });
     const text = await response.text();
-    console.info({ tag: 'FIREBASE_ROOT_PUT', status: response.status, retry });
+    console.info({ tag: 'FIREBASE_MULTI_LOCATION_PATCH', status: response.status, retry });
       if (response.status === 412) {
-      console.error({ tag: 'FIREBASE_ROOT_PUT_CONFLICT', status: response.status, retry, stage: writeOptions.stage || 'ATOMIC_PATCH', requestId: writeOptions.requestId || null });
+      console.error({ tag: 'FIREBASE_MULTI_LOCATION_PATCH_CONFLICT', status: response.status, retry, stage: writeOptions.stage || 'ATOMIC_PATCH', requestId: writeOptions.requestId || null });
         const error = new Error('FIREBASE_ETAG_CONFLICT');
-        error.firebaseOp = 'PUT';
+        error.firebaseOp = 'PATCH';
         error.firebaseStatus = response.status;
         throw error;
     }
     if (!response.ok) {
-      console.error({ tag: 'FIREBASE_ROOT_PUT_FAILED', status: response.status, ...firebaseErrorDetails(text, `FIREBASE_${response.status}`), stage: writeOptions.stage || 'ATOMIC_PATCH', requestId: writeOptions.requestId || null });
+      console.error({ tag: 'FIREBASE_MULTI_LOCATION_PATCH_FAILED', status: response.status, ...firebaseErrorDetails(text, `FIREBASE_${response.status}`), stage: writeOptions.stage || 'ATOMIC_PATCH', requestId: writeOptions.requestId || null });
         const error = new Error(`FIREBASE_${response.status}`);
-        error.firebaseOp = 'PUT';
+        error.firebaseOp = 'PATCH';
         error.firebaseStatus = response.status;
         error.firebaseBodySummary = firebaseErrorDetails(text, `FIREBASE_${response.status}`);
         throw error;

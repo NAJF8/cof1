@@ -6,7 +6,7 @@ const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
 const privateKeyPem = privateKey.export({ type: 'pkcs8', format: 'pem' });
 const publicJwk = { ...createPublicKey(privateKey).export({ format: 'jwk' }), kid: 'fixture-kid', alg: 'RS256', use: 'sig' };
 const env = { ALLOWED_ORIGINS: 'https://101coffees.com', FIREBASE_DATABASE_URL: 'https://fixture.firebaseio.test', FIREBASE_SERVICE_ACCOUNT_EMAIL: 'fixture@example.test', FIREBASE_SERVICE_ACCOUNT_PRIVATE_KEY: privateKeyPem, LOYALTY_PIN_PEPPER: 'fixture-pepper', LOYALTY_PIN_REVEAL_KEY: '0000000000000000000000000000000000000000000000000000000000000000' };
-const baseRoot = { loyalty_counter: 10, loyalty_customers: {}, loyalty_credentials: {}, loyalty_pin_index: {}, loyalty_links: {}, loyalty_pending: {} };
+const baseRoot = { loyalty_counter: 10, loyalty_customers: {}, loyalty_credentials: {}, loyalty_pin_index: {}, loyalty_links: {}, loyalty_pending: {}, loyalty_provision_reservations: {} };
 let root = structuredClone(baseRoot), failPatch = false, counterConflict = false;
 
 function pathValue(path) { let value = root; for (const part of path ? path.split('/') : []) value = value?.[part]; return value ?? null; }
@@ -67,8 +67,14 @@ root = structuredClone(baseRoot);
 env.LOYALTY_PIN_REVEAL_KEY = '';
 await assert.rejects(() => provision(request('provision-encryption-failure'), env, { ...current, uid: 'encryption-user', email: 'encryption@example.test' }));
 assert.equal(Object.keys(root.loyalty_customers).length, 0);
-assert.equal(root.loyalty_counter, 10);
+assert.equal(root.loyalty_counter, 11);
+assert.equal(root.loyalty_provision_reservations['encryption-user'].membership, '101-11');
 env.LOYALTY_PIN_REVEAL_KEY = '0000000000000000000000000000000000000000000000000000000000000000';
+response = await provision(request('provision-encryption-retry'), env, { ...current, uid: 'encryption-user', email: 'encryption@example.test' });
+body = await response.json();
+assert.equal(response.status, 200);
+assert.equal(body.membershipNumber, '101-11');
+assert.equal(Object.keys(root.loyalty_customers).length, 1);
 
 root = structuredClone(baseRoot);
 failPatch = true;

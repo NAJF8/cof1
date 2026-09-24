@@ -4,7 +4,7 @@ import { planGiftDecision, planGiftRedemption } from './gift-delivery.js';
 
 const PROJECT_ID = 'coffee-30fa7';
 const SUPER_ADMIN_EMAIL = 'mohameadalhaear100@gmail.com';
-const PROVISION_BUILD = 'provision-cors-correlation-v2';
+const PROVISION_BUILD = 'provision-google-stages-v3';
 const requestContext = new WeakMap();
 function provisionRequestId(request) {
   if (!requestContext.has(request)) {
@@ -40,7 +40,7 @@ function response(request, env, body, status = 200) {
   const provisionPath = new URL(request.url).pathname === '/api/loyalty/provision-google';
   const context = provisionPath ? provisionRequestId(request) : null;
   const payload = provisionPath && body && typeof body === 'object' && !Array.isArray(body) ? { ...body, requestId: body.requestId || context.requestId, ...(body.stage ? {} : { stage: context.stage }) } : body;
-  return new Response(JSON.stringify(payload), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', ...(provisionPath ? { 'X-Request-ID': context.requestId, 'X-Worker-Build': PROVISION_BUILD } : {}), ...(cors(request, env) || {}) } });
+  return new Response(JSON.stringify(payload), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', ...(provisionPath ? { 'X-Request-ID': context.requestId, 'X-Worker-Build': String(env.WORKER_BUILD || PROVISION_BUILD) } : {}), ...(cors(request, env) || {}) } });
 }
 function fail(request, env, error, status) { return response(request, env, { ok: false, error }, status); }
 function pinRevealAuthorizationFailure(request, env, error, status, stage) { return response(request, env, { ok: false, error, stage }, status); }
@@ -726,10 +726,11 @@ async function provision(request, env, current, superAdmin = false) {
   let stage = 'START';
   const setStage = value => { stage = value; setProvisionRequestStage(request, value); console.info('[LOYALTY_PROVISION_STAGE]', { requestId: provisionRequestId(request).requestId, uid: current?.uid || null, stage: value }); };
   try {
-    setStage('AUTH_OK');
+    setStage('AUTH_START');
     if (!current.emailVerified || !current.email) return fail(request, env, 'VERIFIED_EMAIL_REQUIRED', 403);
     if (superAdmin && current.email !== SUPER_ADMIN_EMAIL) throw Error('FORBIDDEN');
-    setStage('EXISTING_PROFILE_CHECK');
+    setStage('AUTH_OK');
+    setStage('PROFILE_LOOKUP');
     const pending = await firebaseAdminRequest(env, `loyalty_pending/${current.uid}`) || {};
     setStage('UID_LINK_CHECK');
     const linked = security.normalizeMembershipNumber(await firebaseAdminRequest(env, `loyalty_links/${current.uid}`));
@@ -742,49 +743,63 @@ async function provision(request, env, current, superAdmin = false) {
     }
     const pepper = String(env.LOYALTY_PIN_PEPPER || '');
     if (!pepper) throw Error('INTERNAL_ERROR');
+    const reservationPath = `loyalty_provision_reservations/${current.uid}`;
+    const reservation = await firebaseAdminRequest(env, reservationPath) || {};
+    let membership = security.normalizeMembershipNumber(reservation.membership);
+    let previousPinIndexKey = String(reservation.pinIndexKey || '').trim();
+    setStage('COUNTER_READ');
+    if (!membership) {
+      let counterEtag = '';
+      for (let attempt = 0; attempt < 12; attempt += 1) {
+        const counter = await firebaseAdminReadWithEtag(env, 'loyalty_counter');
+        const next = (Number(counter.data) || 0) + 1;
+        membership = `101-${next}`;
+        setStage('COUNTER_RESERVE');
+        try {
+          await firebaseAdminConditionalPut(env, 'loyalty_counter', next, counter.etag);
+          counterEtag = counter.etag;
+          if (await firebaseAdminRequest(env, `loyalty_customers/${membership}`)) { counterEtag = ''; continue; }
+          break;
+        } catch (error) {
+          if (error.message !== 'FIREBASE_ETAG_CONFLICT' || attempt === 11) throw error;
+        }
+      }
+      if (!membership || !counterEtag) throw Error('COUNTER_CONFLICT');
+    } else {
+      setStage('COUNTER_RESERVE');
+      if (await firebaseAdminRequest(env, `loyalty_customers/${membership}`)) throw Error('PROFILE_READBACK_FAILED');
+    }
+    const now = Date.now();
+    if (!reservation.membership) await firebaseAdminRequest(env, '', { method: 'PATCH', body: { [reservationPath]: { membership, pinIndexKey: '', createdAt: now } } });
     setStage('PIN_GENERATE');
     let pin = '', pinIndexKey = '';
     for (let attempt = 0; attempt < 20; attempt += 1) {
       pin = security.generatePin();
       pinIndexKey = await security.pinIndexKey(pin, pepper);
-      if (!await firebaseAdminRequest(env, `loyalty_pin_index/${pinIndexKey}`)) break;
+      if (pinIndexKey === previousPinIndexKey || !await firebaseAdminRequest(env, `loyalty_pin_index/${pinIndexKey}`)) break;
       if (attempt === 19) throw Error('PIN_GENERATION_FAILED');
     }
-    const now = Date.now();
     setStage('CREDENTIAL_CREATE');
     const credential = await createLoyaltyCredential(pin, env, now);
     setStage('PIN_ENCRYPT');
     if (!credential?.pinHash || !credential?.salt) throw Error('CREDENTIAL_CREATE_FAILED');
-    let membership = '', counterEtag = '';
-    for (let attempt = 0; attempt < 12; attempt += 1) {
-      setStage('COUNTER_READ');
-      const counter = await firebaseAdminReadWithEtag(env, 'loyalty_counter');
-      const next = (Number(counter.data) || 0) + 1;
-      membership = `101-${next}`;
-      setStage('COUNTER_RESERVE');
-      try {
-        await firebaseAdminConditionalPut(env, 'loyalty_counter', next, counter.etag);
-        counterEtag = counter.etag;
-        if (await firebaseAdminRequest(env, `loyalty_customers/${membership}`)) { counterEtag = ''; continue; }
-        break;
-      } catch (error) {
-        if (error.message !== 'FIREBASE_ETAG_CONFLICT' || attempt === 11) throw error;
-      }
-    }
-    if (!membership || !counterEtag) throw Error('COUNTER_CONFLICT');
     const pinReservation = `loyalty_pin_index/${pinIndexKey}`;
     const pinSnapshot = await firebaseAdminReadWithEtag(env, pinReservation);
     try { await firebaseAdminConditionalPut(env, pinReservation, membership, pinSnapshot.etag); }
     catch (error) { if (error.message === 'FIREBASE_ETAG_CONFLICT') throw Error('PIN_GENERATION_FAILED'); throw error; }
-    const customer = { uid: current.uid, email: current.email, name: String(pending.displayName || current.name || 'عضو 101').slice(0, 120), memberType: superAdmin ? 'Super Admin' : 'زبون', hearts: 0, currentHearts: 0, createdAt: now, updatedAt: now };
-    const updates = { [`loyalty_customers/${membership}`]: customer, [`loyalty_credentials/${membership}`]: credential, [`loyalty_links/${current.uid}`]: membership };
-    if (pending.status === 'pending') updates[`loyalty_pending/${current.uid}`] = null;
     setStage('FIREBASE_WRITE');
-    try { await firebaseAdminRequest(env, '', { method: 'PATCH', body: updates }); }
+    const customer = { uid: current.uid, email: current.email, name: String(pending.displayName || current.name || 'عضو 101').slice(0, 120), memberType: superAdmin ? 'Super Admin' : 'زبون', hearts: 0, currentHearts: 0, createdAt: now, updatedAt: now };
+    const updates = { [`loyalty_customers/${membership}`]: customer, [`loyalty_credentials/${membership}`]: credential, [`loyalty_links/${current.uid}`]: membership, ...(previousPinIndexKey && previousPinIndexKey !== pinIndexKey ? { [`loyalty_pin_index/${previousPinIndexKey}`]: null } : {}) };
+    if (pending.status === 'pending') updates[`loyalty_pending/${current.uid}`] = null;
+    try {
+      await firebaseAdminRequest(env, '', { method: 'PATCH', body: { [reservationPath]: { membership, pinIndexKey, createdAt: Number(reservation.createdAt) || now } } });
+      await firebaseAdminRequest(env, '', { method: 'PATCH', body: updates });
+    }
     catch (error) { error.provisionStage = 'FIREBASE_WRITE'; await firebaseAdminRequest(env, pinReservation, { method: 'DELETE' }).catch(() => {}); throw error; }
     setStage('PROFILE_READBACK');
     const [savedLink, savedCustomer, savedCredential] = await Promise.all([firebaseAdminRequest(env, `loyalty_links/${current.uid}`), firebaseAdminRequest(env, `loyalty_customers/${membership}`), firebaseAdminRequest(env, `loyalty_credentials/${membership}`)]);
     if (security.normalizeMembershipNumber(savedLink) !== membership || !savedCustomer || !savedCredential) throw Error('PROFILE_READBACK_FAILED');
+    await firebaseAdminRequest(env, '', { method: 'PATCH', body: { [reservationPath]: null } }).catch(() => {});
     setStage('COMPLETE');
     return response(request, env, { ok: true, status: 'created', profileStatus: 'active', provisioned: true, membershipNumber: membership, profile: safeCustomer(membership, savedCustomer) });
   } catch (error) { error.provisionStage = error.provisionStage || stage; throw error; }
@@ -1144,7 +1159,7 @@ async function deleteSubscription(request, env, current) {
 async function route(request, env, url) {
   if (!url.pathname.startsWith('/api/loyalty/') && !url.pathname.startsWith('/api/subscription/') && !url.pathname.startsWith('/api/admin/')) return null;
   if (url.pathname === '/api/loyalty/provision-google') setProvisionRequestStage(request, request.method === 'OPTIONS' ? 'PREFLIGHT' : 'ROUTE_ENTRY');
-  if (request.method === 'OPTIONS') { const preflight = cors(request, env); return preflight ? new Response(null, { status: 204, headers: { ...preflight, ...(url.pathname === '/api/loyalty/provision-google' ? { 'X-Request-ID': provisionRequestId(request).requestId, 'X-Worker-Build': PROVISION_BUILD } : {}) } }) : fail(request, env, 'ORIGIN_NOT_ALLOWED', 403); }
+  if (request.method === 'OPTIONS') { const preflight = cors(request, env); return preflight ? new Response(null, { status: 204, headers: { ...preflight, ...(url.pathname === '/api/loyalty/provision-google' ? { 'X-Request-ID': provisionRequestId(request).requestId, 'X-Worker-Build': String(env.WORKER_BUILD || PROVISION_BUILD) } : {}) } }) : fail(request, env, 'ORIGIN_NOT_ALLOWED', 403); }
   if (!cors(request, env)) return fail(request, env, 'ORIGIN_NOT_ALLOWED', 403);
   try {
     if (url.pathname === '/api/loyalty/login' && request.method === 'POST') return await login(request, env);
