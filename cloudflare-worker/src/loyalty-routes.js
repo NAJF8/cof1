@@ -4,6 +4,21 @@ import { planGiftDecision, planGiftRedemption } from './gift-delivery.js';
 
 const PROJECT_ID = 'coffee-30fa7';
 const SUPER_ADMIN_EMAIL = 'mohameadalhaear100@gmail.com';
+const PROVISION_BUILD = 'provision-cors-correlation-v2';
+const requestContext = new WeakMap();
+function provisionRequestId(request) {
+  if (!requestContext.has(request)) {
+    const supplied = String(request.headers.get('X-Request-Id') || '').trim();
+    const requestId = /^[A-Za-z0-9._:-]{1,120}$/.test(supplied) ? supplied : crypto.randomUUID();
+    requestContext.set(request, { requestId, stage: 'REQUEST_RECEIVED' });
+  }
+  return requestContext.get(request);
+}
+function setProvisionRequestStage(request, stage) {
+  const context = provisionRequestId(request);
+  context.stage = stage;
+  return context;
+}
 const MAX_BODY = 16 * 1024;
 const MAX_REDEMPTION_DESCRIPTION_LENGTH = 120;
 const MAX_PRODUCT_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -21,8 +36,12 @@ let customTokenKey = { fingerprint: '', value: null };
 
 function origins(env) { return String(env.ALLOWED_ORIGINS || 'https://najf8.github.io').split(',').map(x => x.trim()).filter(Boolean); }
 function cors(request, env) { const origin = request.headers.get('Origin'); return origin && origins(env).includes(origin) ? { 'Access-Control-Allow-Origin': origin, 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, Authorization', 'Cache-Control': 'no-store', Vary: 'Origin' } : null; }
-function workerBuildHeader(env) { const build = String(env.WORKER_BUILD || '').trim(); return build ? { 'X-Worker-Build': build } : {}; }
-function response(request, env, body, status = 200) { return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', ...workerBuildHeader(env), ...(cors(request, env) || {}) } }); }
+function response(request, env, body, status = 200) {
+  const provisionPath = new URL(request.url).pathname === '/api/loyalty/provision-google';
+  const context = provisionPath ? provisionRequestId(request) : null;
+  const payload = provisionPath && body && typeof body === 'object' && !Array.isArray(body) ? { ...body, requestId: body.requestId || context.requestId, ...(body.stage ? {} : { stage: context.stage }) } : body;
+  return new Response(JSON.stringify(payload), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', ...(provisionPath ? { 'X-Request-ID': context.requestId, 'X-Worker-Build': PROVISION_BUILD } : {}), ...(cors(request, env) || {}) } });
+}
 function fail(request, env, error, status) { return response(request, env, { ok: false, error }, status); }
 function pinRevealAuthorizationFailure(request, env, error, status, stage) { return response(request, env, { ok: false, error, stage }, status); }
 function loginRequestId() { return crypto.randomUUID(); }
@@ -73,7 +92,8 @@ function credentialShapeIsUsable(credential) { return Boolean(credential && type
 async function createLoyaltyCredential(pin, env, now = Date.now(), onStage) {
   const credential = await security.createCredential(pin, String(env.LOYALTY_PIN_PEPPER || ''), now, onStage);
   const revealKey = String(env.LOYALTY_PIN_REVEAL_KEY || '').trim();
-  if (revealKey) credential.pinCiphertext = await security.encryptPin(pin, revealKey);
+  if (!revealKey) throw Error('PIN_REVEAL_KEY_NOT_CONFIGURED');
+  credential.pinCiphertext = await security.encryptPin(pin, revealKey);
   return credential;
 }
 async function chooseUniqueLoyaltyPin(root, pepper) {
@@ -206,7 +226,8 @@ async function login(request, env) {
     if (stage === 'INPUT_VALIDATION' && ['INVALID_CONTENT_TYPE', 'PAYLOAD_TOO_LARGE'].includes(error?.message)) return loginFailure(request, env, requestId, stage, error.message, error.message === 'PAYLOAD_TOO_LARGE' ? 413 : 415);
     if (stage === 'INPUT_VALIDATION' && error?.name === 'SyntaxError') return loginFailure(request, env, requestId, stage, 'REQUEST_FAILED', 400);
     const code = String(error?.message || '').startsWith('FIREBASE_') ? 'FIREBASE_BACKEND_ERROR' : stage === 'UID_LINK_RESOLVE' ? 'UID_LINK_RESOLUTION_FAILED' : stage === 'FIREBASE_AUTH' ? 'FIREBASE_AUTH_FAILED' : stage === 'LEGACY_MIGRATION' ? 'PIN_MIGRATION_FAILED' : stage === 'HASH_VERIFY' || stage === 'LEGACY_VERIFY' ? 'PIN_VERIFICATION_FAILED' : 'LOGIN_BACKEND_ERROR';
-    return loginFailure(request, env, requestId, stage, code, 500);
+    const status = code === 'RATE_LIMITED' ? 429 : code === 'FIREBASE_AUTH_FAILED' || code === 'LOGIN_BACKEND_ERROR' || code === 'FIREBASE_BACKEND_ERROR' || code === 'PIN_MIGRATION_FAILED' ? 500 : 401;
+    return loginFailure(request, env, requestId, stage, code, status);
   }
 }
 async function saveCredentialAndRemoveLegacyPin(env, membership, credential) {
@@ -541,7 +562,7 @@ async function resolvePinLoginUid(env, membership, customer) {
   if (directUid) return directUid;
   return matches[0] || `loyalty-member:${membership}`;
 }
-async function profile(request, env, current) { const resolved = await resolveLoyaltyMembership(env, current); if (!resolved?.membership || !resolved.customer) return fail(request, env, 'PROFILE_NOT_FOUND', 404); return response(request, env, { ok: true, status: 'active', diagnostics: { resolutionSource: resolved.source, uidLinked: resolved.source === 'link' }, profile: safeCustomer(resolved.membership, resolved.customer) }); }
+async function profile(request, env, current) { const resolved = await resolveLoyaltyMembership(env, current); if (!resolved?.membership || !resolved.customer) return fail(request, env, 'PROFILE_NOT_FOUND', 404); return response(request, env, { ok: true, status: 'active', profile: safeCustomer(resolved.membership, resolved.customer) }); }
 async function verifyPinForReveal(request, env, current) {
   const payload = await body(request), pin = String(payload.pin || '').trim(), pepper = String(env.LOYALTY_PIN_PEPPER || '');
   if (!security.validPin(pin) || !pepper) throw Error('INVALID_ARGUMENT');
@@ -702,28 +723,73 @@ async function verifyMemberPin(env, membership, pin) {
   return customer;
 }
 async function provision(request, env, current, superAdmin = false) {
-  if (!current.emailVerified || !current.email) return fail(request, env, 'VERIFIED_EMAIL_REQUIRED', 403);
-  if (superAdmin && current.email !== SUPER_ADMIN_EMAIL) throw Error('FORBIDDEN');
-  const pending = await firebaseAdminRequest(env, `loyalty_pending/${current.uid}`) || {};
-  const pepper = String(env.LOYALTY_PIN_PEPPER || '');
-  if (!pepper) throw Error('INTERNAL_ERROR');
-  const result = await atomicPlan(env, async root => {
-    const linked = security.normalizeMembershipNumber(root.loyalty_links?.[current.uid]);
-    const linkedCustomer = linked ? root.loyalty_customers?.[linked] : null;
-    const ownsLinkedProfile = Boolean(linkedCustomer && customerBelongsTo(current, linkedCustomer));
-    let number = Number(root.loyalty_counter) || 0, membership = ownsLinkedProfile ? linked : (superAdmin ? '101-1' : '');
-    while (!membership || root.loyalty_customers?.[membership] && !ownsLinkedProfile) { number += 1; membership = `101-${number}`; }
-    const existing = ownsLinkedProfile ? linkedCustomer : {};
+  let stage = 'START';
+  const setStage = value => { stage = value; setProvisionRequestStage(request, value); console.info('[LOYALTY_PROVISION_STAGE]', { requestId: provisionRequestId(request).requestId, uid: current?.uid || null, stage: value }); };
+  try {
+    setStage('AUTH_OK');
+    if (!current.emailVerified || !current.email) return fail(request, env, 'VERIFIED_EMAIL_REQUIRED', 403);
+    if (superAdmin && current.email !== SUPER_ADMIN_EMAIL) throw Error('FORBIDDEN');
+    setStage('EXISTING_PROFILE_CHECK');
+    const pending = await firebaseAdminRequest(env, `loyalty_pending/${current.uid}`) || {};
+    setStage('UID_LINK_CHECK');
+    const linked = security.normalizeMembershipNumber(await firebaseAdminRequest(env, `loyalty_links/${current.uid}`));
+    if (linked) {
+      const linkedCustomer = await firebaseAdminRequest(env, `loyalty_customers/${linked}`);
+      if (!linkedCustomer || !customerBelongsTo(current, linkedCustomer)) throw Error('PROFILE_LINK_CONFLICT');
+      setStage('PROFILE_READBACK');
+      setStage('COMPLETE');
+      return response(request, env, { ok: true, status: 'already_provisioned', profileStatus: 'active', provisioned: false, membershipNumber: linked, profile: safeCustomer(linked, linkedCustomer) });
+    }
+    const pepper = String(env.LOYALTY_PIN_PEPPER || '');
+    if (!pepper) throw Error('INTERNAL_ERROR');
+    setStage('PIN_GENERATE');
+    let pin = '', pinIndexKey = '';
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      pin = security.generatePin();
+      pinIndexKey = await security.pinIndexKey(pin, pepper);
+      if (!await firebaseAdminRequest(env, `loyalty_pin_index/${pinIndexKey}`)) break;
+      if (attempt === 19) throw Error('PIN_GENERATION_FAILED');
+    }
     const now = Date.now();
-    const pinData = ownsLinkedProfile ? null : await chooseUniqueLoyaltyPin(root, pepper);
-    const customer = { ...existing, uid: current.uid, email: current.email, name: String(existing.name || pending.displayName || current.name || 'عضو 101').slice(0, 120), memberType: superAdmin ? 'Super Admin' : existing.memberType || 'زبون', hearts: Number(existing.hearts || 0), currentHearts: Number(existing.currentHearts ?? existing.hearts ?? 0), updatedAt: now };
-    const updates = { [`loyalty_customers/${membership}`]: customer, [`loyalty_links/${current.uid}`]: membership, loyalty_counter: Math.max(Number(membership.split('-')[1]), number) };
-    if (pinData) { const credential = await createLoyaltyCredential(pinData.pin, env, now); updates[`loyalty_credentials/${membership}`] = credential; updates[`loyalty_pin_index/${pinData.indexKey}`] = membership; }
+    setStage('CREDENTIAL_CREATE');
+    const credential = await createLoyaltyCredential(pin, env, now);
+    setStage('PIN_ENCRYPT');
+    if (!credential?.pinHash || !credential?.salt) throw Error('CREDENTIAL_CREATE_FAILED');
+    let membership = '', counterEtag = '';
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      setStage('COUNTER_READ');
+      const counter = await firebaseAdminReadWithEtag(env, 'loyalty_counter');
+      const next = (Number(counter.data) || 0) + 1;
+      membership = `101-${next}`;
+      setStage('COUNTER_RESERVE');
+      try {
+        await firebaseAdminConditionalPut(env, 'loyalty_counter', next, counter.etag);
+        counterEtag = counter.etag;
+        if (await firebaseAdminRequest(env, `loyalty_customers/${membership}`)) { counterEtag = ''; continue; }
+        break;
+      } catch (error) {
+        if (error.message !== 'FIREBASE_ETAG_CONFLICT' || attempt === 11) throw error;
+      }
+    }
+    if (!membership || !counterEtag) throw Error('COUNTER_CONFLICT');
+    const pinReservation = `loyalty_pin_index/${pinIndexKey}`;
+    const pinSnapshot = await firebaseAdminReadWithEtag(env, pinReservation);
+    try { await firebaseAdminConditionalPut(env, pinReservation, membership, pinSnapshot.etag); }
+    catch (error) { if (error.message === 'FIREBASE_ETAG_CONFLICT') throw Error('PIN_GENERATION_FAILED'); throw error; }
+    const customer = { uid: current.uid, email: current.email, name: String(pending.displayName || current.name || 'عضو 101').slice(0, 120), memberType: superAdmin ? 'Super Admin' : 'زبون', hearts: 0, currentHearts: 0, createdAt: now, updatedAt: now };
+    const updates = { [`loyalty_customers/${membership}`]: customer, [`loyalty_credentials/${membership}`]: credential, [`loyalty_links/${current.uid}`]: membership };
     if (pending.status === 'pending') updates[`loyalty_pending/${current.uid}`] = null;
-    return { updates, result: { ok: true, status: ownsLinkedProfile ? 'already_provisioned' : 'created', profileStatus: 'active', provisioned: !ownsLinkedProfile, membershipNumber: membership, profile: safeCustomer(membership, customer) } };
-  });
-  return response(request, env, result);
+    setStage('FIREBASE_WRITE');
+    try { await firebaseAdminRequest(env, '', { method: 'PATCH', body: updates }); }
+    catch (error) { error.provisionStage = 'FIREBASE_WRITE'; await firebaseAdminRequest(env, pinReservation, { method: 'DELETE' }).catch(() => {}); throw error; }
+    setStage('PROFILE_READBACK');
+    const [savedLink, savedCustomer, savedCredential] = await Promise.all([firebaseAdminRequest(env, `loyalty_links/${current.uid}`), firebaseAdminRequest(env, `loyalty_customers/${membership}`), firebaseAdminRequest(env, `loyalty_credentials/${membership}`)]);
+    if (security.normalizeMembershipNumber(savedLink) !== membership || !savedCustomer || !savedCredential) throw Error('PROFILE_READBACK_FAILED');
+    setStage('COMPLETE');
+    return response(request, env, { ok: true, status: 'created', profileStatus: 'active', provisioned: true, membershipNumber: membership, profile: safeCustomer(membership, savedCustomer) });
+  } catch (error) { error.provisionStage = error.provisionStage || stage; throw error; }
 }
+
 async function createLoyaltyCustomer(request, env, current) {
   const actor = await staff(env, current, 'manage_customers'), p = await body(request);
   const invalidField = field => Object.assign(Error('INVALID_FIELD'), { field });
@@ -735,27 +801,65 @@ async function createLoyaltyCustomer(request, env, current) {
   if (!name || name.length > 120) throw invalidField('name');
   if (phone === null || phone.length > 40) throw invalidField('phone');
   if (!Number.isInteger(hearts) || hearts < 0 || hearts > 5) throw invalidField('hearts');
-  if (p.memberType !== 'زبون' && p.memberType !== 'عضو مميز') throw invalidField('memberType');
-  const memberType = p.memberType;
-  const pepper = String(env.LOYALTY_PIN_PEPPER || ''), revealKey = String(env.LOYALTY_PIN_REVEAL_KEY || '').trim(); if (!pepper || !revealKey) throw Error('INTERNAL_ERROR');
-  const result = await atomicPlan(env, async root => {
-    const replay = replayOrPlan(root, 'customer-create', id);
-    if (replay) {
-      if (replay.result.actorUid !== current.uid) throw Error('FORBIDDEN');
-      const membership = security.normalizeMembershipNumber(replay.result.membershipNumber), credential = membership ? root.loyalty_credentials?.[membership] : null;
-      if (!membership || !credential?.pinCiphertext) throw Error('PIN_REVEAL_WRITE_UNVERIFIED');
-      const pin = await security.decryptPin(credential.pinCiphertext, revealKey);
-      if (!security.validPin(pin) || !await security.timingSafePinMatch(pin, credential, pepper)) throw Error('PIN_REVEAL_WRITE_UNVERIFIED');
-      return { replay: true, result: { ok: true, membershipNumber: membership, pin, requestId: id, resumed: true } };
+  const defaultMemberType = decodeURIComponent('%D8%B2%D8%A8%D9%88%D9%86');
+  const memberType = String(p.memberType || defaultMemberType).slice(0, 80);
+  const pepper = String(env.LOYALTY_PIN_PEPPER || ''), revealKey = String(env.PIN_REVEAL_ENCRYPTION_KEY || '').trim();
+  if (!pepper || !security.revealKeyBytes(revealKey)) throw Error('INTERNAL_ERROR');
+
+  const opPath = operationPath('customer-create', id);
+  if (opPath) {
+    const snap = await firebaseAdminReadWithEtag(env, opPath).catch(() => ({ data: null, etag: 'null' }));
+    const existingOp = snap.data;
+    if (existingOp?.result) return response(request, env, existingOp.result);
+    if (existingOp?.pending && Date.now() - (existingOp.createdAt || 0) < 60000) throw Error('CONCURRENT_MODIFICATION');
+    try {
+      await firebaseAdminConditionalPut(env, opPath, { pending: true, createdAt: Date.now() }, snap.etag);
+    } catch (err) {
+      if (err.message === 'FIREBASE_ETAG_CONFLICT') throw Error('CONCURRENT_MODIFICATION');
+      throw err;
     }
-    let counter = Number(root.loyalty_counter) || 0, membership;
-    do { counter += 1; membership = `101-${counter}`; } while (root.loyalty_customers?.[membership]);
-    const now = Date.now(), pinData = await chooseUniqueLoyaltyPin(root, pepper), credential = await createLoyaltyCredential(pinData.pin, env, now), customer = { name, phone, hearts, currentHearts: hearts, totalEarned: hearts, totalHeartsEarned: hearts, totalSpent: 0, memberType, createdAt: now, createdBy: actor.record.displayName || current.name || 'كاشير', updatedAt: now };
-    if (!credential.pinCiphertext || !await security.timingSafePinMatch(pinData.pin, credential, pepper) || await security.decryptPin(credential.pinCiphertext, revealKey) !== pinData.pin) throw Error('PIN_REVEAL_WRITE_UNVERIFIED');
-    const logId = `register_${crypto.randomUUID()}`, outcome = { ok: true, membershipNumber: membership, pin: pinData.pin, requestId: id, profile: safeCustomer(membership, customer) }, storedResult = { membershipNumber: membership, actorUid: current.uid, requestId: id }, updates = { [`loyalty_customers/${membership}`]: customer, [`loyalty_credentials/${membership}`]: credential, [`loyalty_pin_index/${pinData.indexKey}`]: membership, [`loyalty_counter`]: counter, [`loyalty_logs/${logId}`]: { type: 'register', cardId: membership, customerName: name, cashierName: actor.record.displayName || current.name || 'كاشير', timestamp: now, requestId: id }, [operationPath('customer-create', id)]: { result: storedResult, createdAt: now } };
-    return { updates, result: outcome };
-  }, { stage: 'LOYALTY_CUSTOMER_CREATE' });
-  return response(request, env, result);
+  }
+
+  let membership = '';
+  for (let attempt = 0; attempt < 12; attempt++) {
+    const snap = await firebaseAdminReadWithEtag(env, 'loyalty_counter').catch(() => ({ data: 0, etag: '*' }));
+    const counter = Number(snap.data) || 0;
+    const nextCounter = counter + 1;
+    membership = '101-' + nextCounter;
+    try {
+      if (snap.etag === '*') {
+        const rootCounter = await firebaseAdminReadWithEtag(env, 'loyalty_counter');
+        await firebaseAdminConditionalPut(env, 'loyalty_counter', Number(rootCounter.data || 0) + 1, rootCounter.etag);
+      } else {
+        await firebaseAdminConditionalPut(env, 'loyalty_counter', nextCounter, snap.etag);
+      }
+      break;
+    } catch (err) {
+      if (err.message !== 'FIREBASE_ETAG_CONFLICT' || attempt === 11) throw err;
+    }
+  }
+
+  let pin = security.generatePin();
+  while (pin === '0224') pin = security.generatePin();
+
+  const credential = await security.createCredential(pin, pepper);
+  const encrypted = await security.encryptPin(pin, revealKey);
+  const now = Date.now();
+  
+  const customer = { name, phone, hearts, currentHearts: hearts, totalEarned: hearts, totalHeartsEarned: hearts, totalSpent: 0, memberType, createdAt: now, createdBy: actor.record.displayName || current.name || 'كاشير', updatedAt: now };
+  
+  const outcome = { ok: true, membershipNumber: membership, pinAvailable: true, requestId: id, profile: security.publicProfile(membership, customer) };
+  const storedResult = { membershipNumber: membership, actorUid: current.uid, requestId: id, pinAvailable: true };
+  
+  const updates = {
+    [`loyalty_customers/${membership}`]: customer,
+    [`loyalty_credentials/${membership}`]: credential,
+    [`loyalty_pin_reveals/${membership}`]: { ...encrypted, enabled: true, enabledAt: now, migration: false }
+  };
+  if (opPath) updates[opPath] = { result: storedResult, createdAt: now };
+  
+  await firebaseAdminRequest(env, '', { method: 'PATCH', body: updates });
+  return response(request, env, outcome);
 }
 
 async function activatePending(request, env, current) {
@@ -766,7 +870,7 @@ async function activatePending(request, env, current) {
   const result = await atomicPlan(env, async root => {
     const existing = root.loyalty_links?.[uid]; if (existing) return { updates: { [`loyalty_pending/${uid}`]: null }, result: { ok: true, membershipNumber: existing, existing: true } };
     const counter = (Number(root.loyalty_counter) || 0) + 1, membership = `101-${counter}`, now = Date.now(), pinData = await chooseUniqueLoyaltyPin(root, pepper), credential = await createLoyaltyCredential(pinData.pin, env, now);
-    const customer = { uid, name: String(pending.displayName || pending.email || 'عضو 101').slice(0, 120), email: String(pending.email || '').slice(0, 180), memberType: 'زبون', membershipStatus: 'عضو مميز', hearts: 0, currentHearts: 0, createdAt: now, updatedAt: now };
+    const customer = { uid, name: String(pending.displayName || pending.email || '╪╣╪╢┘ê 101').slice(0, 120), email: String(pending.email || '').slice(0, 180), memberType: '╪▓╪¿┘ê┘å', membershipStatus: '╪╣╪╢┘ê ┘à┘à┘è╪▓', hearts: 0, currentHearts: 0, createdAt: now, updatedAt: now };
     return { updates: { [`loyalty_customers/${membership}`]: customer, [`loyalty_credentials/${membership}`]: credential, [`loyalty_pin_index/${pinData.indexKey}`]: membership, [`loyalty_links/${uid}`]: membership, [`loyalty_pending/${uid}`]: null, loyalty_counter: counter }, result: { ok: true, membershipNumber: membership, existing: false, pin: pinData.pin } };
   }, { stage: 'LOYALTY_PENDING_ACTIVATION' });
   return response(request, env, result);
@@ -840,7 +944,7 @@ async function activateSubscription(request, env, current) {
     const now = Date.now(), subscriptionId = `sub_${requestIdValue}`, totalUses = Number(plan.totalUses), durationDays = Number(plan.durationDays);
     if (!Number.isInteger(totalUses) || totalUses < 1 || !Number.isInteger(durationDays) || durationDays < 1) throw Error('SUB_PLAN_NOT_FOUND');
     const { pin: _legacyCustomerPin, ...customerWithoutPin } = existingCustomer || {};
-    const customer = { ...customerWithoutPin, customerId, name: String(clubRequest.name || clubRequest.customerName || existingCustomer?.name || 'عضو 101').slice(0, 120), phone: normalizedPhone, email: String(clubRequest.email || existingCustomer?.email || '').slice(0, 180), ...(requestUid ? { uid: requestUid } : {}), clubNumber, status: 'active', activeSubscriptionId: subscriptionId, createdAt: Number(existingCustomer?.createdAt) || now, updatedAt: now };
+    const customer = { ...customerWithoutPin, customerId, name: String(clubRequest.name || clubRequest.customerName || existingCustomer?.name || '╪╣╪╢┘ê 101').slice(0, 120), phone: normalizedPhone, email: String(clubRequest.email || existingCustomer?.email || '').slice(0, 180), ...(requestUid ? { uid: requestUid } : {}), clubNumber, status: 'active', activeSubscriptionId: subscriptionId, createdAt: Number(existingCustomer?.createdAt) || now, updatedAt: now };
     stage('CUSTOMER_BUILD_OK');
     const subscription = { subscriptionId, requestId: requestIdValue, customerId, uid: customer.uid || '', name: customer.name, phone: normalizedPhone, clubNumber, planId: String(clubRequest.planId), planName: String(clubRequest.planName || plan.nameAr || plan.nameEn || clubRequest.planId), price: Number(clubRequest.price || plan.price || 0), status: 'active', paymentStatus: 'paid', totalUses, remainingUses: totalUses, startedAt: now, activatedAt: now, expiresAt: now + durationDays * 86400000, createdAt: Number(clubRequest.createdAt) || now };
     stage('SUBSCRIPTION_BUILD_OK');
@@ -893,7 +997,7 @@ export function planStaffRedemption(root, membership, id, actor = {}, rewardDesc
   const totalRedemptions = Math.max(Number(customer.totalRedemptions || 0), previousCount) + 1;
   const nextCustomer = { ...customer, hearts: 0, currentHearts: 0, totalRedemptions, totalHeartsSpent: Number(customer.totalHeartsSpent || 0) + 5, totalHeartsRedeemed: Number(customer.totalHeartsRedeemed || 0) + 5, updatedAt: now };
   const outcome = { ok: true, profile: safeCustomer(membership, nextCustomer), redemption: { membershipNumber: membership, totalRedemptions } };
-  const redemptionLog = { type: 'REWARD_REDEEMED', membership, customerId: membership, cardId: membership, requiredHearts: 5, heartsSpent: 5, createdAt: now, timestamp: now, requestId: id, cashierId: actor.uid || '', cashierName: actor.name || 'كاشير', cashierRole: actor.role || 'cashier' };
+  const redemptionLog = { type: 'REWARD_REDEEMED', membership, customerId: membership, cardId: membership, requiredHearts: 5, heartsSpent: 5, createdAt: now, timestamp: now, requestId: id, cashierId: actor.uid || '', cashierName: actor.name || '┘â╪º╪┤┘è╪▒', cashierRole: actor.role || 'cashier' };
   if (rewardDescription !== undefined) redemptionLog.rewardDescription = rewardDescription;
   return { updates: {
     [`loyalty_customers/${membership}/hearts`]: 0,
@@ -1039,12 +1143,15 @@ async function deleteSubscription(request, env, current) {
 }
 async function route(request, env, url) {
   if (!url.pathname.startsWith('/api/loyalty/') && !url.pathname.startsWith('/api/subscription/') && !url.pathname.startsWith('/api/admin/')) return null;
-  if (request.method === 'OPTIONS') return cors(request, env) ? new Response(null, { status: 204, headers: cors(request, env) }) : fail(request, env, 'ORIGIN_NOT_ALLOWED', 403);
+  if (url.pathname === '/api/loyalty/provision-google') setProvisionRequestStage(request, request.method === 'OPTIONS' ? 'PREFLIGHT' : 'ROUTE_ENTRY');
+  if (request.method === 'OPTIONS') { const preflight = cors(request, env); return preflight ? new Response(null, { status: 204, headers: { ...preflight, ...(url.pathname === '/api/loyalty/provision-google' ? { 'X-Request-ID': provisionRequestId(request).requestId, 'X-Worker-Build': PROVISION_BUILD } : {}) } }) : fail(request, env, 'ORIGIN_NOT_ALLOWED', 403); }
   if (!cors(request, env)) return fail(request, env, 'ORIGIN_NOT_ALLOWED', 403);
   try {
     if (url.pathname === '/api/loyalty/login' && request.method === 'POST') return await login(request, env);
     if (url.pathname === '/api/subscription/request' && request.method === 'POST') return await requestSubscription(request, env, await optionalAuth(request));
-    const current = await auth(request), path = url.pathname;
+    if (url.pathname === '/api/loyalty/provision-google') setProvisionRequestStage(request, 'AUTH_START');
+    const current = await auth(request, env), path = url.pathname;
+    if (url.pathname === '/api/loyalty/provision-google') setProvisionRequestStage(request, 'AUTH_OK');
     if (path === '/api/subscription/me' && request.method === 'GET') return await subscriptionMe(request, env, current);
     if (path === '/api/admin/club/search' && request.method === 'POST') return await searchClub(request, env, current);
     if (path === '/api/loyalty/profile' && ['GET', 'POST'].includes(request.method)) return await profile(request, env, current);
@@ -1053,7 +1160,7 @@ async function route(request, env, url) {
     if (path === '/api/admin/loyalty/reveal-pin' && request.method === 'POST') return await revealPinForAdmin(request, env, current);
     if (path === '/api/admin/loyalty/reveal-pin-authorization' && request.method === 'POST') return await revealPinAuthorization(request, env, current);
     if (path === '/api/admin/loyalty/pin-migration' && request.method === 'POST') return await recoverOriginalPins(request, env, current);
-    if (path === '/api/loyalty/provision-google') return await provision(request, env, current);
+    if (path === '/api/loyalty/provision-google' && request.method === 'POST') return await provision(request, env, current);
     if (path === '/api/admin/provision-super-admin') { await staff(env, current, 'provision-super-admin'); return await provision(request, env, current, true); }
     if (path === '/api/subscription/claim') return await submitClaim(request, env, current);
     if (path === '/api/admin/subscription/activate' && request.method === 'POST') return await activateSubscription(request, env, current);
@@ -1078,13 +1185,15 @@ async function route(request, env, url) {
   } catch (error) {
     if (url.pathname === '/api/loyalty/reveal-pin') console.error('[PIN_BACKEND_FAIL]', { code: String(error?.message || 'UNKNOWN').slice(0, 80) });
     if (url.pathname === '/api/admin/club/search') console.error('[CLUB_SEARCH_FAIL]', { code: String(error?.message || 'UNKNOWN').slice(0, 80) });
-    console.error('[LOYALTY_ROUTE_FAILED]', { path: url.pathname, code: String(error?.message || 'UNKNOWN').slice(0, 80) });
+    const requestContextValue = url.pathname === '/api/loyalty/provision-google' ? provisionRequestId(request) : null;
+    console.error('[LOYALTY_ROUTE_FAILED]', { path: url.pathname, requestId: requestContextValue?.requestId || null, code: String(error?.message || 'UNKNOWN').slice(0, 80), stage: error?.provisionStage || requestContextValue?.stage || null, firebaseStatus: Number.isInteger(error?.firebaseStatus) ? error.firebaseStatus : null, firebaseOp: error?.firebaseOp || null });
     const rawCode = String(error?.message || '');
-    const code = ['AUTH_REQUIRED', 'AUTH_INVALID', 'INVALID_CONTENT_TYPE', 'PAYLOAD_TOO_LARGE', 'FORBIDDEN', 'NOT_FOUND', 'ALREADY_EXISTS', 'GIFT_NOT_FOUND', 'GIFT_ALREADY_REDEEMED', 'GIFT_EXPIRED', 'GIFT_NOT_AVAILABLE', 'GIFT_ALREADY_DECIDED', 'GIFT_NOT_PENDING', 'CONCURRENT_MODIFICATION', 'INVALID_ARGUMENT', 'INVALID_FIELD', 'INVALID_INPUT', 'INVALID_MEMBERSHIP', 'INVALID_PENDING', 'INVALID_PIN', 'INSUFFICIENT_HEARTS', 'HEARTS_OUT_OF_RANGE', 'CLUB_UNAVAILABLE', 'CLUB_MEMBER_NOT_FOUND', 'CLUB_PHONE_AMBIGUOUS', 'CLAIM_INVALID', 'PIN_RESERVATION_FAILED', 'PIN_REVEAL_WRITE_UNVERIFIED', 'PIN_BACKUP_UNVERIFIED', 'PIN_RECOVERY_CONFIGURATION_MISSING', 'CONFIRMATION_REQUIRED', 'VERIFIED_EMAIL_REQUIRED', 'PROFILE_NOT_FOUND', 'PROFILE_LINK_CONFLICT', 'BACKEND_AUTH_ERROR', 'INTERNAL_ERROR', 'SUB_REQUEST_NOT_FOUND', 'SUB_REQUEST_NOT_PENDING', 'SUB_PLAN_NOT_FOUND', 'SUB_CUSTOMER_ALREADY_ACTIVE', 'SUB_CUSTOMER_DATA_INCOMPLETE'].includes(rawCode) ? rawCode : rawCode.startsWith('FIREBASE_') ? (rawCode.includes('401') || rawCode.includes('403') ? 'BACKEND_AUTH_ERROR' : 'INTERNAL_ERROR') : 'REQUEST_FAILED';
-    const status = ['AUTH_REQUIRED', 'AUTH_INVALID'].includes(code) ? 401 : code === 'FORBIDDEN' ? 403 : ['CLUB_MEMBER_NOT_FOUND', 'NOT_FOUND', 'PROFILE_NOT_FOUND', 'SUB_REQUEST_NOT_FOUND'].includes(code) ? 404 : ['BACKEND_AUTH_ERROR', 'INTERNAL_ERROR', 'PIN_REVEAL_WRITE_UNVERIFIED'].includes(code) ? 500 : ['GIFT_ALREADY_REDEEMED', 'SUB_REQUEST_NOT_PENDING', 'SUB_CUSTOMER_ALREADY_ACTIVE', 'CONCURRENT_MODIFICATION'].includes(code) ? 409 : code === 'INVALID_CONTENT_TYPE' ? 415 : code === 'PAYLOAD_TOO_LARGE' ? 413 : 400;
+    const code = ['AUTH_REQUIRED', 'AUTH_INVALID', 'INVALID_CONTENT_TYPE', 'PAYLOAD_TOO_LARGE', 'FORBIDDEN', 'NOT_FOUND', 'ALREADY_EXISTS', 'GIFT_NOT_FOUND', 'GIFT_ALREADY_REDEEMED', 'GIFT_EXPIRED', 'GIFT_NOT_AVAILABLE', 'GIFT_ALREADY_DECIDED', 'GIFT_NOT_PENDING', 'CONCURRENT_MODIFICATION', 'COUNTER_CONFLICT', 'INVALID_ARGUMENT', 'INVALID_FIELD', 'INVALID_INPUT', 'INVALID_MEMBERSHIP', 'INVALID_PENDING', 'INVALID_PIN', 'PIN_GENERATION_FAILED', 'CREDENTIAL_CREATE_FAILED', 'PIN_REVEAL_KEY_NOT_CONFIGURED', 'PROFILE_READBACK_FAILED', 'INSUFFICIENT_HEARTS', 'HEARTS_OUT_OF_RANGE', 'CLUB_UNAVAILABLE', 'CLUB_MEMBER_NOT_FOUND', 'CLUB_PHONE_AMBIGUOUS', 'CLAIM_INVALID', 'PIN_RESERVATION_FAILED', 'PIN_REVEAL_WRITE_UNVERIFIED', 'PIN_BACKUP_UNVERIFIED', 'PIN_RECOVERY_CONFIGURATION_MISSING', 'CONFIRMATION_REQUIRED', 'VERIFIED_EMAIL_REQUIRED', 'PROFILE_NOT_FOUND', 'PROFILE_LINK_CONFLICT', 'BACKEND_AUTH_ERROR', 'INTERNAL_ERROR', 'SUB_REQUEST_NOT_FOUND', 'SUB_REQUEST_NOT_PENDING', 'SUB_PLAN_NOT_FOUND', 'SUB_CUSTOMER_ALREADY_ACTIVE', 'SUB_CUSTOMER_DATA_INCOMPLETE'].includes(rawCode) ? rawCode : rawCode.startsWith('FIREBASE_') ? (rawCode.includes('401') || rawCode.includes('403') ? 'BACKEND_AUTH_ERROR' : 'INTERNAL_ERROR') : 'REQUEST_FAILED';
+    const firebaseStatus = Number.isInteger(error?.firebaseStatus) ? error.firebaseStatus : null;
+    const status = ['AUTH_REQUIRED', 'AUTH_INVALID'].includes(code) ? 401 : code === 'FORBIDDEN' ? 403 : ['CLUB_MEMBER_NOT_FOUND', 'NOT_FOUND', 'PROFILE_NOT_FOUND', 'SUB_REQUEST_NOT_FOUND'].includes(code) ? 404 : firebaseStatus === 401 || firebaseStatus === 403 ? 502 : firebaseStatus >= 500 ? 503 : ['BACKEND_AUTH_ERROR', 'INTERNAL_ERROR', 'PIN_REVEAL_WRITE_UNVERIFIED', 'CREDENTIAL_CREATE_FAILED', 'PIN_REVEAL_KEY_NOT_CONFIGURED', 'PROFILE_READBACK_FAILED'].includes(code) ? 500 : ['GIFT_ALREADY_REDEEMED', 'SUB_REQUEST_NOT_PENDING', 'SUB_CUSTOMER_ALREADY_ACTIVE', 'CONCURRENT_MODIFICATION', 'COUNTER_CONFLICT'].includes(code) ? 409 : code === 'INVALID_CONTENT_TYPE' ? 415 : code === 'PAYLOAD_TOO_LARGE' ? 413 : 400;
     if (url.pathname === '/api/admin/loyalty/reveal-pin-authorization') return pinRevealAuthorizationFailure(request, env, code, status, ['AUTH_REQUIRED', 'AUTH_INVALID'].includes(code) ? 'WORKER_AUTHENTICATION' : code === 'FORBIDDEN' ? 'WORKER_AUTHORIZATION' : 'WORKER_FAILURE');
     if (url.pathname === '/api/admin/loyalty/create' && code === 'INVALID_FIELD' && ['name', 'phone', 'hearts', 'memberType', 'requestId'].includes(error?.field)) return response(request, env, { ok: false, error: code, field: error.field }, status);
-    return fail(request, env, code, status);
+    return response(request, env, { ok: false, error: code, ...(error?.provisionStage ? { stage: error.provisionStage } : {}), ...(firebaseStatus ? { upstreamStatus: firebaseStatus } : {}) }, status);
   }
 }
 async function handleProductImageRoute(request, env, url) {
@@ -1135,5 +1244,15 @@ async function handleBackgroundPosterRoute(request, env, url) {
     return fail(request, env, code, status);
   }
 }
-async function handleLoyaltyRoutes(request, env, url) { return await handleBackgroundVideoRoute(request, env, url) || await handleBackgroundPosterRoute(request, env, url) || await handleProductImageRoute(request, env, url) || await handleWorkshopImageRoute(request, env, url) || route(request, env, url); }
-export { handleLoyaltyRoutes, clubSearchQuery, normalizeIraqiPhone, normalizeClubMembership, safeCustomer, safeClubCustomer, safeSubscriptionMe, backgroundVideoType, backgroundPosterType, videoExtension, subscriptionActivationFailure };
+async function handleLoyaltyRoutes(request, env, url) {
+  try {
+    return await handleBackgroundVideoRoute(request, env, url) || await handleBackgroundPosterRoute(request, env, url) || await handleProductImageRoute(request, env, url) || await handleWorkshopImageRoute(request, env, url) || route(request, env, url);
+  } catch (error) {
+    const path = url?.pathname || '';
+    if (!path.startsWith('/api/loyalty/') && !path.startsWith('/api/subscription/') && !path.startsWith('/api/admin/')) throw error;
+    console.error('[LOYALTY_UNHANDLED_EXCEPTION]', { path, code: String(error?.message || 'UNKNOWN').slice(0, 80), stage: error?.provisionStage || null, firebaseStatus: Number.isInteger(error?.firebaseStatus) ? error.firebaseStatus : null });
+    const firebaseStatus = Number.isInteger(error?.firebaseStatus) ? error.firebaseStatus : null;
+    return response(request, env, { ok: false, error: 'INTERNAL_ERROR', ...(error?.provisionStage ? { stage: error.provisionStage } : {}), ...(firebaseStatus ? { upstreamStatus: firebaseStatus } : {}) }, firebaseStatus >= 500 ? 503 : 500);
+  }
+}
+export { handleLoyaltyRoutes, provision, clubSearchQuery, normalizeIraqiPhone, normalizeClubMembership, safeCustomer, safeClubCustomer, safeSubscriptionMe, backgroundVideoType, backgroundPosterType, videoExtension, subscriptionActivationFailure };

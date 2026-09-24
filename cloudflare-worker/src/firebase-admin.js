@@ -118,9 +118,9 @@ async function firebaseAdminReadWithEtag(env, path = '') {
   const response = await firebaseFetch(`${base}/${String(path).replace(/^\//, '')}.json`, { headers: { Authorization: `Bearer ${await serviceAccountToken(env)}`, Accept: 'application/json', 'X-Firebase-ETag': 'true' } });
   const text = await response.text(); let data = null; try { data = text ? JSON.parse(text) : null; } catch { data = text; }
   const etag = response.headers.get('ETag');
-  console.info({ tag: 'FIREBASE_ROOT_READ', status: response.status, hasEtag: Boolean(etag) });
+  console.info({ tag: 'FIREBASE_ETAG_READ', path, status: response.status, hasEtag: Boolean(etag) });
   if (!response.ok) {
-    console.error({ tag: 'FIREBASE_ROOT_READ_FAILED', status: response.status, ...firebaseErrorDetails(text, `FIREBASE_${response.status}`) });
+    console.error({ tag: 'FIREBASE_ETAG_READ_FAILED', path, status: response.status, ...firebaseErrorDetails(text, `FIREBASE_${response.status}`) });
     const error = new Error(`FIREBASE_${response.status}`);
     error.firebaseOp = 'GET';
     error.firebaseStatus = response.status;
