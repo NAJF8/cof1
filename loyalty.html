@@ -405,7 +405,8 @@ body { font-family: 'Cairo', sans-serif; background: var(--bg-gradient); color: 
     <div style="display:flex; gap:10px; margin-bottom:16px;">
       <div style="flex:1;">
         <label style="display:block; font-size:12px; font-weight:700; margin-bottom:4px;">النقاط المبدئية:</label>
-        <input type="number" id="newCustHearts" value="0" min="0" max="5" style="width:100%; padding:10px; border-radius:10px; border:1px solid var(--border); background:var(--surface2); color:var(--text); font-family:Cairo; box-sizing:border-box; text-align:center;">
+        <input type="text" id="newCustHearts" value="0" inputmode="numeric" autocomplete="off" aria-describedby="newCustHeartsValidation" style="width:100%; padding:10px; border-radius:10px; border:1px solid var(--border); background:var(--surface2); color:var(--text); font-family:Cairo; box-sizing:border-box; text-align:center;">
+        <div id="newCustHeartsValidation" role="alert" style="display:none;color:#e53935;font-size:11px;margin-top:4px;"></div>
       </div>
       <div style="flex:1;">
         <label style="display:block; font-size:12px; font-weight:700; margin-bottom:4px;">رمز PIN:</label>
