@@ -6,3 +6,8 @@ cloudflare-worker/.dev.vars
 cloudflare-worker/.env
 cloudflare-worker/secrets/
 cloudflare-worker/.wrangler-config/
+**/.wrangler/
+*.log
+database-debug.log
+scratch*.diff
+temp_routes*.js
