@@ -26,6 +26,54 @@
     <meta name="twitter:title" content="101 COFFEE — منيو إلكتروني">
     <meta name="twitter:description" content="أشهى قهوة وأجود المشروبات والحلويات في النجف الأشرف.">
     <meta name="twitter:image" content="logo.jpg">
+    <script type="text/javascript">
+        (function (c, l, a, r, i, t, y) {
+            c[a] = c[a] || function () { (c[a].q = c[a].q || []).push(arguments); };
+            t = l.createElement(r); t.async = 1; t.src = "https://www.clarity.ms/tag/" + i;
+            y = l.getElementsByTagName(r)[0]; y.parentNode.insertBefore(t, y);
+        })(window, document, "clarity", "script", "ynexg0dex7");
+
+        window.claritySafeEvent = function (name, details) {
+            if (typeof window.clarity !== 'function' || !name) return;
+            try {
+                window.clarity('event', String(name).slice(0, 80));
+                const safeDetails = details && typeof details === 'object' ? details : {};
+                ['code', 'stage', 'status', 'requestId'].forEach(key => {
+                    if (safeDetails[key] === undefined || safeDetails[key] === null || safeDetails[key] === '') return;
+                    const value = String(safeDetails[key]).replace(/[^A-Za-z0-9_./:-]/g, '').slice(0, 120);
+                    if (value) window.clarity('set', `clarity_${key}`, value);
+                });
+            } catch (_) { /* telemetry must never affect the application */ }
+        };
+
+        window.claritySafeFailure = function (eventName, error, stage) {
+            const raw = String(error?.code || error?.message || '').toLowerCase();
+            const status = Number.isInteger(error?.httpStatus) ? error.httpStatus : null;
+            const code = /cors/.test(raw) ? 'CORS' : /failed to fetch|network|fetch/.test(raw) ? 'FAILED_TO_FETCH' :
+                status === 503 || /503/.test(raw) ? '503' : status === 500 || /500/.test(raw) ? '500' :
+                /profile_not_found/.test(raw) ? 'PROFILE_NOT_FOUND' : 'UNKNOWN';
+            const safe = { code, stage: stage || error?.loyaltyStage || 'UNKNOWN', status, requestId: error?.requestId };
+            window.claritySafeEvent(eventName, safe);
+            window.claritySafeEvent(`clarity_error_${code.toLowerCase()}`, safe);
+        };
+
+        window.clarityMaskSensitive = function (root) {
+            const scope = root && root.querySelectorAll ? root : document;
+            const sensitive = /pin|password|email|phone|gift.?code|membership.?secret|token|credential|secret/i;
+            scope.querySelectorAll('input, textarea, select, [id], [name], [data-sensitive]').forEach(element => {
+                if (element.tagName === 'BUTTON' || element.tagName === 'A') return;
+                const descriptor = [element.id, element.getAttribute('name'), element.getAttribute('type'), element.getAttribute('autocomplete'), element.getAttribute('placeholder'), element.getAttribute('aria-label'), element.getAttribute('data-sensitive')].filter(Boolean).join(' ');
+                if (sensitive.test(descriptor)) element.classList.add('clarity-mask');
+            });
+        };
+
+        document.addEventListener('DOMContentLoaded', () => {
+            window.clarityMaskSensitive(document);
+            new MutationObserver(mutations => mutations.forEach(mutation => mutation.addedNodes.forEach(node => {
+                if (node.nodeType === 1) window.clarityMaskSensitive(node);
+            }))).observe(document.body, { childList: true, subtree: true });
+        }, { once: true });
+    </script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800;900&display=swap');
         /* ══════════════════════════════════════════════════════
@@ -4060,6 +4108,7 @@
         }
 
         function openCart() {
+            claritySafeEvent('cart_open', { stage: 'open' });
             if (!document.body.classList.contains('modal-open')) { lockedScrollY = window.scrollY || 0; document.body.style.top = `-${lockedScrollY}px`; document.body.classList.add('modal-open'); }
             document.getElementById("cartDrawer")?.classList.add("open");
             document.getElementById("drawerBackdrop")?.classList.add("open");
@@ -4229,15 +4278,16 @@
             else if (type === "car") msg += `🚗 استلام من السيارة\n🚘 السيارة: ${f.get('carModel') || '-'}\n🎨 اللون: ${f.get('carColor') || '-'}\n🔢 اللوحة: ${f.get('carPlate') || '-'}\n`;
             else msg += `🚶‍♂️ نوع الطلب: استلام من المحل\n`;
             msg += `📝 ملاحظات: ${f.get("notes") || "-"}\n`;
-            if (!cart.length) return showToast(currentLang === 'en' ? 'Cart is empty.' : 'السلة فارغة.', 'error');
-            if (!f.get('name')?.trim() || !f.get('phone')?.trim()) return showToast(currentLang === 'en' ? 'Please enter your name and phone number.' : 'يرجى إدخال الاسم ورقم الهاتف.', 'error');
-            if (type === 'delivery' && (!f.get('area') || !f.get('address')?.trim())) return showToast(currentLang === 'en' ? 'Please select an area and enter the delivery address.' : 'يرجى اختيار المنطقة وإدخال عنوان التوصيل.', 'error');
-            if (type === 'car' && (!f.get('carModel')?.trim() || !f.get('carColor')?.trim() || !f.get('carPlate')?.trim())) return showToast(currentLang === 'en' ? 'Please enter the car model, color, and plate.' : 'يرجى إدخال موديل السيارة ولونها ورقم اللوحة.', 'error');
-            if (!db) return showToast(currentLang === 'en' ? 'Orders are temporarily unavailable.' : 'حفظ الطلبات غير متاح مؤقتًا.', 'error');
+            if (!cart.length) { claritySafeEvent('order_failed', { code: 'CART_EMPTY', stage: 'validate' }); return showToast(currentLang === 'en' ? 'Cart is empty.' : 'السلة فارغة.', 'error'); }
+            if (!f.get('name')?.trim() || !f.get('phone')?.trim()) { claritySafeEvent('order_failed', { code: 'INVALID_CUSTOMER_FIELDS', stage: 'validate' }); return showToast(currentLang === 'en' ? 'Please enter your name and phone number.' : 'يرجى إدخال الاسم ورقم الهاتف.', 'error'); }
+            if (type === 'delivery' && (!f.get('area') || !f.get('address')?.trim())) { claritySafeEvent('order_failed', { code: 'INVALID_DELIVERY_FIELDS', stage: 'validate' }); return showToast(currentLang === 'en' ? 'Please select an area and enter the delivery address.' : 'يرجى اختيار المنطقة وإدخال عنوان التوصيل.', 'error'); }
+            if (type === 'car' && (!f.get('carModel')?.trim() || !f.get('carColor')?.trim() || !f.get('carPlate')?.trim())) { claritySafeEvent('order_failed', { code: 'INVALID_CAR_FIELDS', stage: 'validate' }); return showToast(currentLang === 'en' ? 'Please enter the car model, color, and plate.' : 'يرجى إدخال موديل السيارة ولونها ورقم اللوحة.', 'error'); }
+            if (!db) { claritySafeEvent('order_failed', { code: 'DATABASE_UNAVAILABLE', stage: 'validate' }); return showToast(currentLang === 'en' ? 'Orders are temporarily unavailable.' : 'حفظ الطلبات غير متاح مؤقتًا.', 'error'); }
+            claritySafeEvent('order_start', { stage: 'submit' });
 
             // Reserve the window during the direct click event; navigate it only after Firebase confirms the write.
             const whatsappWindow = window.open('', '_blank');
-            if (!whatsappWindow) return showToast(currentLang === 'en' ? 'Please allow popups to open WhatsApp.' : 'يرجى السماح بالنوافذ المنبثقة لفتح واتساب.', 'error');
+            if (!whatsappWindow) { claritySafeEvent('order_failed', { code: 'POPUP_BLOCKED', stage: 'open_whatsapp' }); return showToast(currentLang === 'en' ? 'Please allow popups to open WhatsApp.' : 'يرجى السماح بالنوافذ المنبثقة لفتح واتساب.', 'error'); }
             const orderId = db.ref('orders').push().key;
             const orderCode = `101-${String(orderId).replace(/[^a-zA-Z0-9]/g,'').slice(-10).toUpperCase()}`;
             const cleanItems = cart.map(r => {
@@ -4265,12 +4315,14 @@
             } catch (error) {
                 whatsappWindow.close();
                 console.error('[ORDER_SAVE_FAILED]', { code:error?.code, message:error?.message, path:`orders/${orderId}`, operation:'set' });
+                claritySafeFailure('order_failed', error, 'save');
                 return showToast(currentLang === 'en' ? 'We could not save the order. Please try again.' : 'تعذر حفظ الطلب، يرجى المحاولة مرة أخرى.', 'error');
             }
             showToast(`${currentLang==='en'?'Your order number:':'رقم طلبك:'} ${orderCode}`);
             const cleanPhone = (settings.whatsapp || "9647800000000").replace(/\D/g, "").replace(/^0/, "964");
-            if (!cleanPhone) { whatsappWindow.close(); return showToast(currentLang === 'en' ? 'WhatsApp number is not configured.' : 'رقم واتساب غير مُعدّ.', 'error'); }
+            if (!cleanPhone) { whatsappWindow.close(); claritySafeEvent('order_failed', { code: 'WHATSAPP_NOT_CONFIGURED', stage: 'open_whatsapp' }); return showToast(currentLang === 'en' ? 'WhatsApp number is not configured.' : 'رقم واتساب غير مُعدّ.', 'error'); }
             whatsappWindow.location.replace(`https://wa.me/${cleanPhone}?text=${encodeURIComponent(msg)}`);
+            claritySafeEvent('order_ready_for_whatsapp', { stage: 'whatsapp_ready' });
             setModalOpen(document.getElementById("checkoutModal"), false);
         }
 
@@ -4346,10 +4398,11 @@
 
         function openEventBooking(eventId, customEvent = null) {
             const ev = customEvent || eventsDB.find(x => x.id === eventId);
-            if (!ev) return showToast(currentLang === 'en' ? 'Event details are not available yet.' : 'تفاصيل الفعالية غير متاحة حاليًا.', 'error');
-            if (ev.isActive === false || ev.status === 'cancelled' || ev.status === 'disabled') return showToast(currentLang === 'en' ? 'This event is currently unavailable.' : 'هذه الفعالية غير متاحة حاليًا.', 'error');
+            if (!ev) { claritySafeEvent('event_booking_failed', { code: 'EVENT_NOT_FOUND', stage: 'open' }); return showToast(currentLang === 'en' ? 'Event details are not available yet.' : 'تفاصيل الفعالية غير متاحة حاليًا.', 'error'); }
+            if (ev.isActive === false || ev.status === 'cancelled' || ev.status === 'disabled') { claritySafeEvent('event_booking_failed', { code: 'EVENT_UNAVAILABLE', stage: 'open' }); return showToast(currentLang === 'en' ? 'This event is currently unavailable.' : 'هذه الفعالية غير متاحة حاليًا.', 'error'); }
             const modal = document.getElementById("eventBookingModal");
-            if (!modal) return;
+            if (!modal) { claritySafeEvent('event_booking_failed', { code: 'MODAL_NOT_FOUND', stage: 'open' }); return; }
+            claritySafeEvent('event_booking_open', { stage: 'open' });
             
             document.getElementById("eventBookingId").value = ev.id;
             document.getElementById("eventBookingNameDisplay").value = eventTitle(ev);
@@ -4363,7 +4416,7 @@
             fetch(`${firebaseConfig.databaseURL}/tables.json?eventBooking=${Date.now()}`, { cache: 'no-store' })
                 .then(response => response.ok ? response.json() : Promise.reject(new Error(`HTTP_${response.status}`)))
                 .then(raw => renderEventBookingTableOptions(ev, raw ? Object.entries(raw).map(([id, table]) => ({ id, ...table })) : []))
-                .catch(error => console.warn('[EVENT_TABLES_REFRESH_FAILED]', error?.code || error?.message));
+                .catch(error => { claritySafeFailure('event_booking_failed', error, 'tables_refresh'); console.warn('[EVENT_TABLES_REFRESH_FAILED]', error?.code || error?.message); });
         }
 
         function bookingKey(...parts) {
@@ -4415,10 +4468,10 @@
             const phone = f.get("phone");
 
             const durationHours=Number(f.get('durationHours'))||1, endTime=f.get('endTime'), peopleCount=Number(f.get('peopleCount'))||0, notes=String(f.get('notes')||'').trim();
-            if (!name || !phone || ![1,2].includes(durationHours) || !Number.isInteger(peopleCount) || peopleCount<1) return alert("يرجى إكمال الاسم والهاتف وعدد الأشخاص.");
+            if (!name || !phone || ![1,2].includes(durationHours) || !Number.isInteger(peopleCount) || peopleCount<1) { claritySafeEvent('event_booking_failed', { code: 'INVALID_FIELDS', stage: 'validate' }); return alert("يرجى إكمال الاسم والهاتف وعدد الأشخاص."); }
             const ev = eventsDB.find(x => x.id === eventId), isCandle = eventId === 'candle_day' || ev?.isCandleDay === true;
             const requested=eventInterval(time,endTime), eventRange=eventInterval(ev?.startTime,ev?.endTime);
-            if (!ev || !requested || !eventRange || time==='' || requested.start<eventRange.start || requested.end>eventRange.end || isPastBaghdadDateTime(date,time)) return showToast('اختر تاريخاً ووقتاً داخل ساعات العمل ولم يمر بعد.','error');
+            if (!ev || !requested || !eventRange || time==='' || requested.start<eventRange.start || requested.end>eventRange.end || isPastBaghdadDateTime(date,time)) { claritySafeEvent('event_booking_failed', { code: 'INVALID_TIME_RANGE', stage: 'validate' }); return showToast('اختر تاريخاً ووقتاً داخل ساعات العمل ولم يمر بعد.','error'); }
             const bookingId = isCandle ? bookingKey(eventId, date, tableId) : 'WB-' + Date.now().toString(36).toUpperCase() + '-' + Math.random().toString(36).slice(2,7).toUpperCase();
             const tableCount = 1;
 
@@ -4440,6 +4493,7 @@
                 showToast('تم إرسال الطلب بانتظار موافقة الإدارة. لا يُعد فتح واتساب تأكيداً نهائياً.');
             }).catch(err => {
                 console.error('[CANDLE_BOOKING_FAILED]', {code:err?.code,message:err?.message,path:`eventBookings/${bookingId}`,operation:'set'});
+                claritySafeFailure('event_booking_failed', err, 'save');
                 const duplicate = err?.code === 'PERMISSION_DENIED' || err?.code === 'permission-denied';
                 showToast(duplicate ? 'هذا الموعد أو الطاولة محجوزة مسبقًا.' : 'تعذر حفظ الحجز، يرجى المحاولة مرة أخرى.', 'error');
             });
@@ -4522,7 +4576,7 @@
                 const time = f.get("bookingTime");
                 const notes = f.get("bookingNotes") || "-";
 
-                if (!name || !phone || !date || !time) return alert("يرجى ملء جميع معلومات الحجز.");
+                if (!name || !phone || !date || !time) { claritySafeEvent('event_booking_failed', { code: 'INVALID_FIELDS', stage: 'meeting_room_validate' }); return alert("يرجى ملء جميع معلومات الحجز."); }
 
                 const targetPhone = (settings.roomWhatsapp || settings.whatsapp || "9647800000000").replace(/\D/g, "").replace(/^0/, "964");
                 const msg = `حجز غرفة اجتماعات 📅\n\n👤 الاسم: ${name}\n📱 الهاتف: ${phone}\n📅 التاريخ: ${date}\n⏰ الوقت: ${time}\n💰 السعر: ${money(settings.roomPrice || 10000)} (للساعة الواحدة)\n📝 ملاحظات: ${notes}\n`;
@@ -4533,12 +4587,14 @@
                     closeMeetingRoomBooking();
                 }).catch(err => {
                     console.error('[WORKSHOP_BOOKING_FAILED]', {code:err?.code,message:err?.message,path:`bookings/${bookingId}`,operation:'set'});
+                    claritySafeFailure('event_booking_failed', err, 'meeting_room_save');
                     const duplicate = err?.code === 'PERMISSION_DENIED' || err?.code === 'permission-denied';
                     showToast(duplicate ? 'هذا الموعد محجوز مسبقًا.' : 'تعذر حفظ الحجز، يرجى المحاولة مرة أخرى.', 'error');
                 });
             };
         }
         window.openMeetingRoomBooking = function() {
+            claritySafeEvent('event_booking_open', { stage: 'meeting_room_open' });
             setModalOpen(document.getElementById('meetingRoomModal'), true);
             document.getElementById('bookingName')?.focus();
         };
@@ -4616,10 +4672,12 @@
                 const membership = String(result?.data?.membershipNumber || loyaltyCustomer.membershipNumber || '').trim();
                 if (revealedPin && /^\d{4,6}$/.test(revealedPin)) rememberPinAfterAuth(revealedPin, membership);
                 if (!hasPinMemory()) {
+                    claritySafeEvent('pin_reveal_failed', { code: 'PIN_REVEAL_UNAVAILABLE', stage: 'validate' });
                     showToast(currentLang === 'en' ? 'PIN reveal is unavailable for this account.' : 'لا توجد نسخة موثوقة قابلة للكشف لهذا الحساب.', 'error');
                     return;
                 }
             } catch (error) {
+                claritySafeFailure('pin_reveal_failed', error, 'reveal');
                 console.warn('[LOYALTY_PIN_REVEAL_FAILED]', { code: error?.code || 'PIN_REVEAL_FAILED', status: error?.httpStatus || null });
                 showToast(currentLang === 'en' ? 'Reveal activation failed. Your PIN was not changed.' : 'تعذر تفعيل الكشف. لم يتم تغيير رمز PIN.', 'error');
                 return;
@@ -4654,6 +4712,8 @@
         }
 
         window.signInForLoyalty = async function() {
+            claritySafeEvent('loyalty_login_start', { stage: 'google_click' });
+            claritySafeEvent('google_login_start', { stage: 'click' });
             const mobileAuth = isMobileLoyaltyAuth();
             mobileAuthTrace('AUTH_CLICK', { mobile: mobileAuth, browser: authBrowserKind() });
             mobileAuthTrace('AUTH_START', { redirect: isEmbeddedAuthBrowser() });
@@ -4714,6 +4774,8 @@
                 try { await onAuthChanged(user); } finally { authStateProcessing = false; }
             } catch (error) {
                 loyaltyAuthInProgress = false;
+                claritySafeFailure('google_login_failed', error, 'auth');
+                claritySafeFailure('loyalty_login_failed', error, 'auth');
                 showLoyaltyLoginError(error);
             } finally {
                 loyaltyAuthInProgress = false;
@@ -4783,6 +4845,7 @@
         window.handleMembershipLogin = async function(event) {
             if (event) event.preventDefault();
             if (isLoyaltyLoginInProgress) return;
+            claritySafeEvent('loyalty_login_start', { stage: 'pin_submit' });
             isLoyaltyLoginInProgress = true;
             console.log('[LOYALTY_PIN_CLICK]');
             loyaltyLoginRequested = true;
@@ -4797,6 +4860,8 @@
             if (message) message.textContent = '';
             if (!membership || !pin) {
                 if (message) message.textContent = 'تأكد من رقم العضوية والـPIN.';
+                claritySafeEvent('pin_login_failed', { code: 'INVALID_FIELDS', stage: 'validate' });
+                claritySafeEvent('loyalty_login_failed', { code: 'INVALID_FIELDS', stage: 'validate' });
                 console.log('[LOYALTY_PIN_FAILED]');
                 isLoyaltyLoginInProgress = false;
                 return;
@@ -4805,6 +4870,8 @@
             if (!auth) {
                 if (message) message.textContent = 'خدمة الدخول الآمن غير متاحة حاليًا.'; 
                 if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = originalBtnText; }
+                claritySafeEvent('pin_login_failed', { code: 'AUTH_UNAVAILABLE', stage: 'validate' });
+                claritySafeEvent('loyalty_login_failed', { code: 'AUTH_UNAVAILABLE', stage: 'validate' });
                 console.log('[LOYALTY_PIN_FAILED]');
                 isLoyaltyLoginInProgress = false;
                 return; 
@@ -4823,6 +4890,7 @@
                 rememberPinAfterAuth(pin, membership);
                 document.getElementById('loyaltyLoginModal')?.classList.remove('open');
                 if (event && event.target && event.target.reset) event.target.reset();
+                claritySafeEvent('loyalty_login_success', { stage: 'pin_auth' });
                 console.log('[LOYALTY_PIN_SUCCESS]');
             } catch (error) {
                 console.log('[LOYALTY_PIN_FAILED]');
@@ -4830,6 +4898,8 @@
                 const safeStage = error?.loyaltyStage || (String(error?.code || '').startsWith('functions/') ? 'WORKER_RESPONSE' : 'UNKNOWN');
                 console.warn('[LOYALTY_PIN_FAILURE]', { stage: String(safeStage).slice(0, 40), status: Number.isInteger(error?.httpStatus) ? error.httpStatus : null, code: safeCode });
                 const requestId = error?.requestId || '';
+                claritySafeFailure('pin_login_failed', error, safeStage);
+                claritySafeFailure('loyalty_login_failed', error, safeStage);
                 if (message) message.textContent = (error?.code === 'functions/unauthenticated' || error?.code === 'functions/invalid-argument') ? 'تأكد من رقم العضوية والـPIN.' : `تعذر تسجيل الدخول${requestId ? ` — رقم المتابعة: ${requestId}` : ''}، حاول مرة أخرى.`;
             } finally {
                 isLoyaltyLoginInProgress = false;
@@ -4879,6 +4949,8 @@
                         console.info('[LOYALTY_AUTH_PROFILE_READY]', { state: 'pending' });
                     } else if (provisionStatus === 'active' && membership) {
                         loadCustomerData(membership, profileResult.data.profile);
+                        claritySafeEvent('google_login_success', { stage: 'profile_active' });
+                        claritySafeEvent('loyalty_login_success', { stage: 'profile_active' });
                         loyaltyAuthStatusKey = 'auth_success';
                         watchLoyaltyLink(user.uid);
                         console.info('[LOYALTY_AUTH_PROFILE_READY]', { state: 'active' });
@@ -4890,6 +4962,8 @@
                     loyaltyAuthStatusKey = 'auth_error';
                     if (provisionAttempted) console.error('[LOYALTY_PROVISION_FAILED]', { code:error?.code, message:error?.message, operation:'worker-provision' });
                     else console.warn('[LOYALTY_PROFILE_FLOW_FAILED]', { code:error?.code, message:error?.message });
+                    claritySafeFailure(provisionAttempted ? 'provision_google_failed' : 'loyalty_login_failed', error, provisionAttempted ? 'provision' : 'profile');
+                    if (!provisionAttempted) { claritySafeFailure('google_login_failed', error, 'profile'); claritySafeFailure('profile_load_failed', error, 'profile'); }
                     showLoyaltyErrorState(user);
                     document.getElementById('loyaltyLoginModal')?.classList.remove('open');
                     console.info('[LOYALTY_AUTH_PROFILE_READY]', { state: 'error' });
@@ -4990,6 +5064,7 @@
                 return;
             }
             callLoyaltySecurity('/api/loyalty/profile', { method: 'GET' }).then(result => renderProfile(result.data?.profile)).catch(error => {
+                claritySafeFailure('profile_load_failed', error, 'profile_render_fetch');
                 console.warn('[LOYALTY_PROFILE_LOAD_FAILED]', { stage: 'profile-render-fetch', code: error?.code || 'unknown' });
                 showLoyaltyErrorState(currentFirebaseUser);
             });
@@ -5052,7 +5127,7 @@
                  if(!loaded){clubCustomer=null;}
                  renderClubAccount();renderClubAccountModal();
                  return Boolean(clubCustomer);
-             }catch(error){console.warn('CLUB_ACCOUNT_LOAD_FAILED',error?.code||error?.message);renderClubAccount();renderClubAccountModal();return false;}
+             }catch(error){claritySafeFailure('club101_failed',error,'load');console.warn('CLUB_ACCOUNT_LOAD_FAILED',error?.code||error?.message);renderClubAccount();renderClubAccountModal();return false;}
          }
          async function getClubSubscription(){
              if(clubSubscriptionData)return clubSubscriptionData;
@@ -5133,26 +5208,26 @@
             const sub=await getClubSubscription(),active=clubIsActive(sub, clubCustomer),plan=active?clubPlanName({id:sub.planId,...(clubPlans[sub.planId]||{})}):'لا توجد خطة فعّالة',totalUses=Number.isFinite(Number(sub?.totalUses))&&Number(sub.totalUses)>=0?Number(sub.totalUses):Number(clubPlans[sub?.planId]?.totalUses||0);
             content.innerHTML=`<div class="club-login-note">أهلاً ${esc(clubCustomer.name||user.displayName||'بك')}، هذا ملخص اشتراكك في 101 CLUB.</div><div class="club-account-summary"><div class="club-account-metric"><span>رقم CLUB</span><strong>${esc(clubCustomer.clubNumber||sub?.clubNumber||'—')}</strong></div><div class="club-account-metric"><span>الخطة</span><strong>${esc(plan)}</strong></div><div class="club-account-metric"><span>المشروبات المتبقية</span><strong>${active?`${Number(sub.remainingUses)||0} / ${totalUses}`:'—'}</strong></div><div class="club-account-metric"><span>تاريخ بداية الاشتراك</span><strong>${active?clubDate(sub.startedAt):'—'}</strong></div><div class="club-account-metric"><span>تاريخ الانتهاء</span><strong>${active?clubDate(sub.expiresAt):'—'}</strong></div><div class="club-account-metric"><span>الحالة</span><strong>${active?'فعال':'غير فعال'}</strong></div></div><div class="club-account-actions"><button class="primary-btn" type="button" onclick="openClubExperience()">تجديد / طلب خطة</button><button class="btn-card-action" type="button" onclick="signOutClubAccount()">تسجيل الخروج</button></div>`;
         }
-        window.openClubAccount=function(){renderClubAccountModal();setModalOpen(document.getElementById('clubAccountModal'),true);};
+        window.openClubAccount=function(){claritySafeEvent('club101_open',{stage:'open'});renderClubAccountModal();setModalOpen(document.getElementById('clubAccountModal'),true);};
         window.closeClubAccount=function(){setModalOpen(document.getElementById('clubAccountModal'),false);};
         window.signInForClubAccount=async function(){
             if(!auth)return showToast('خدمة الدخول غير متاحة حالياً.','error');
-            try{const provider=new firebase.auth.GoogleAuthProvider();provider.addScope('email');const result=await auth.signInWithPopup(provider).catch(async error=>{if(['auth/popup-blocked','auth/operation-not-supported-in-this-environment'].includes(error.code)){await auth.signInWithRedirect(provider);return null;}throw error;});if(result?.user){await loadClubCustomer(result.user);renderClubAccountModal();setModalOpen(document.getElementById('clubAccountModal'),false);}}catch(error){console.error('CLUB_ACCOUNT_SIGNIN_FAILED',error);showToast('تعذر تسجيل الدخول للحساب.','error');}
+            try{const provider=new firebase.auth.GoogleAuthProvider();provider.addScope('email');const result=await auth.signInWithPopup(provider).catch(async error=>{if(['auth/popup-blocked','auth/operation-not-supported-in-this-environment'].includes(error.code)){await auth.signInWithRedirect(provider);return null;}throw error;});if(result?.user){await loadClubCustomer(result.user);renderClubAccountModal();setModalOpen(document.getElementById('clubAccountModal'),false);}}catch(error){claritySafeFailure('club101_failed',error,'signin');console.error('CLUB_ACCOUNT_SIGNIN_FAILED',error);showToast('تعذر تسجيل الدخول للحساب.','error');}
         };
         window.signOutClubAccount=async function(){try{await auth?.signOut();}finally{renderClubAccountModal();}};
         window.submitClubAccountClaim=async function(){
             const user=auth?.currentUser,clubNumber=document.getElementById('clubClaimNumber')?.value.trim().toUpperCase(),pin=document.getElementById('clubClaimPin')?.value.trim();
             if(!user)return showToast('سجّل الدخول أولاً.','error');
             if(!/^CLUB-101-\d+$/.test(clubNumber)||!/^\d{4,8}$/.test(pin))return showToast('أدخل رقم CLUB ورمز PIN الصحيحين.','error');
-            try{const result=await callLoyaltySecurity('/api/subscription/claim',{method:'POST',body:{clubNumber,pin}}),payload=result?.data||result;if(payload.linked){await loadClubCustomer(user);showToast('تم ربط حساب 101 CLUB بنجاح.','success');closeModal('clubAccountModal');}else{showToast('تم إرسال طلب الربط. سيتم تفعيله قريباً.','success');}}catch(error){console.error('CLUB_ACCOUNT_CLAIM_FAILED',{code:error?.code||error?.message||'unknown'});showToast('تعذر ربط الحساب. يرجى التأكد من صحة رقم النادي ورمز PIN.','error');}
+            try{const result=await callLoyaltySecurity('/api/subscription/claim',{method:'POST',body:{clubNumber,pin}}),payload=result?.data||result;if(payload.linked){await loadClubCustomer(user);showToast('تم ربط حساب 101 CLUB بنجاح.','success');closeModal('clubAccountModal');}else{showToast('تم إرسال طلب الربط. سيتم تفعيله قريباً.','success');}}catch(error){claritySafeFailure('club101_failed',error,'claim');console.error('CLUB_ACCOUNT_CLAIM_FAILED',{code:error?.code||error?.message||'unknown'});showToast('تعذر ربط الحساب. يرجى التأكد من صحة رقم النادي ورمز PIN.','error');}
         };
-        window.openClubExperience=function(){document.getElementById('clubRegistrationPanel').hidden=false;document.getElementById('clubPlansGrid').hidden=true;const payment=document.getElementById('clubRequestPayment');payment.style.display='block';payment.dataset.requestText='';renderClubTransferInfo();renderClubPlansExperience();setModalOpen(document.getElementById('clubAccountModal'),false);setModalOpen(document.getElementById('clubExperienceModal'),true);};
+        window.openClubExperience=function(){claritySafeEvent('club101_open',{stage:'subscribe'});document.getElementById('clubRegistrationPanel').hidden=false;document.getElementById('clubPlansGrid').hidden=true;const payment=document.getElementById('clubRequestPayment');payment.style.display='block';payment.dataset.requestText='';renderClubTransferInfo();renderClubPlansExperience();setModalOpen(document.getElementById('clubAccountModal'),false);setModalOpen(document.getElementById('clubExperienceModal'),true);};
         window.closeClubExperience=function(){setModalOpen(document.getElementById('clubExperienceModal'),false);};
         window.signInForClub=async function(){
             if(!auth){return showToast('خدمة الدخول غير متاحة حالياً.','error');}
             const applyGoogleUser=user=>{clubRegistration={registrationMethod:'google',uid:user.uid,email:user.email||null,name:user.displayName||'',phone:document.getElementById('clubCustomerPhone')?.value.trim()||''};const name=document.getElementById('clubCustomerName');if(name)name.value=clubRegistration.name;showToast('سيُنشأ حسابك تلقائياً عند تفعيل الاشتراك. أكمل رقم WhatsApp للمتابعة.','success');};
             if(auth.currentUser){applyGoogleUser(auth.currentUser);return;}
-            try{const provider=new firebase.auth.GoogleAuthProvider();provider.addScope('email');const result=await auth.signInWithPopup(provider).catch(async error=>{if(['auth/popup-blocked','auth/operation-not-supported-in-this-environment'].includes(error.code)){await auth.signInWithRedirect(provider);return null;}throw error;});if(result?.user)applyGoogleUser(result.user);}catch(error){showToast('تعذر تسجيل الدخول للاشتراك.','error');}
+            try{const provider=new firebase.auth.GoogleAuthProvider();provider.addScope('email');const result=await auth.signInWithPopup(provider).catch(async error=>{if(['auth/popup-blocked','auth/operation-not-supported-in-this-environment'].includes(error.code)){await auth.signInWithRedirect(provider);return null;}throw error;});if(result?.user)applyGoogleUser(result.user);}catch(error){claritySafeFailure('club101_failed',error,'signin');showToast('تعذر تسجيل الدخول للاشتراك.','error');}
         };
         window.continueClubRegistration=function(){const name=document.getElementById('clubCustomerName')?.value.trim()||'',phone=document.getElementById('clubCustomerPhone')?.value.trim()||'';if(!name||!phone)return showToast('الاسم ورقم WhatsApp مطلوبان.','error');if(!/^\+?[0-9\s()-]{8,20}$/.test(phone))return showToast('رقم WhatsApp غير صالح.','error');clubRegistration={...clubRegistration,name,phone};document.getElementById('clubRegistrationPanel').hidden=true;document.getElementById('clubPlansGrid').hidden=false;renderClubPlansExperience();};
         window.requestClubSubscription=async function(planId){
@@ -5162,7 +5237,7 @@
             clubRequestInFlight=true;
             const requestId=crypto.randomUUID();
             const buttons=[...document.querySelectorAll('#clubPlansGrid button')];buttons.forEach(button=>{button.disabled=true;});
-            try{const result=await callLoyaltySecurity('/api/subscription/request',{method:'POST',body:{requestId,registrationMethod:clubRegistration.registrationMethod||'manual',name:clubRegistration.name,phone:clubRegistration.phone,planId}}),payload=result?.data||result,request=payload.request||{};const shopPhone=(settings.whatsapp||'').replace(/\D/g,'').replace(/^0/,'964'),payment=document.getElementById('clubRequestPayment');const text=`مرحباً 101 COFFEE ❤️\nأرغب بتأكيد طلب اشتراك 101 CLUB.\nرقم الطلب: ${request.requestId||payload.requestId}\nالاسم: ${request.name||clubRegistration.name}\nالخطة: ${request.planName||clubPlanName(plan)}\nالسعر: ${money(request.price??plan.price)}`;if(payment){payment.style.display='block';payment.dataset.requestText=text;renderClubTransferInfo();}const url=shopPhone?`https://wa.me/${shopPhone}?text=${encodeURIComponent(text)}`:'';if(url)window.open(url,'_blank','noopener');showToast('تم إرسال طلب الاشتراك بنجاح.','success');}catch(error){console.error('CLUB_REQUEST_FAILED',{code:error?.code||error?.message||'unknown'});showToast('تعذر إرسال طلب الاشتراك.','error');}finally{clubRequestInFlight=false;buttons.forEach(button=>{button.disabled=false;});}
+            try{const result=await callLoyaltySecurity('/api/subscription/request',{method:'POST',body:{requestId,registrationMethod:clubRegistration.registrationMethod||'manual',name:clubRegistration.name,phone:clubRegistration.phone,planId}}),payload=result?.data||result,request=payload.request||{};const shopPhone=(settings.whatsapp||'').replace(/\D/g,'').replace(/^0/,'964'),payment=document.getElementById('clubRequestPayment');const text=`مرحباً 101 COFFEE ❤️\nأرغب بتأكيد طلب اشتراك 101 CLUB.\nرقم الطلب: ${request.requestId||payload.requestId}\nالاسم: ${request.name||clubRegistration.name}\nالخطة: ${request.planName||clubPlanName(plan)}\nالسعر: ${money(request.price??plan.price)}`;if(payment){payment.style.display='block';payment.dataset.requestText=text;renderClubTransferInfo();}const url=shopPhone?`https://wa.me/${shopPhone}?text=${encodeURIComponent(text)}`:'';if(url)window.open(url,'_blank','noopener');showToast('تم إرسال طلب الاشتراك بنجاح.','success');}catch(error){claritySafeFailure('club101_failed',error,'request');console.error('CLUB_REQUEST_FAILED',{code:error?.code||error?.message||'unknown'});showToast('تعذر إرسال طلب الاشتراك.','error');}finally{clubRequestInFlight=false;buttons.forEach(button=>{button.disabled=false;});}
         };
 
         async function requestGoogleLoyaltyProvisioning(user, { retry = false } = {}) {
@@ -5171,17 +5246,20 @@
             if (loyaltyProvisionInFlight) return loyaltyProvisionInFlight;
             if (loyaltyProvisionAttemptedUid === uid && !retry) { const error = new Error('PROVISION_ALREADY_ATTEMPTED'); error.code = 'functions/PROVISION_ALREADY_ATTEMPTED'; throw error; }
             loyaltyProvisionAttemptedUid = uid;
+            claritySafeEvent('provision_google_start', { stage: retry ? 'retry' : 'start' });
             loyaltyProvisionInFlight = (async () => {
                 const result = await callLoyaltySecurity('/api/loyalty/provision-google', { method: 'POST', body: {} });
                 if (!['existing_member','pending','already_provisioned','created'].includes(result.data?.status)) throw new Error('Missing provisioned loyalty status');
                 if (!['active','pending'].includes(result.data?.profileStatus)) throw new Error('Missing loyalty profile status');
+                claritySafeEvent('provision_google_success', { stage: String(result.data?.status || 'completed') });
                 return result.data;
             })();
-            try { return await loyaltyProvisionInFlight; } finally { loyaltyProvisionInFlight = null; }
+            try { return await loyaltyProvisionInFlight; } catch (error) { claritySafeFailure('provision_google_failed', error, 'request'); throw error; } finally { loyaltyProvisionInFlight = null; }
         }
 
         async function retryLoyaltyProfile() {
             if (!currentFirebaseUser || authStateProcessing || loyaltyProfileRetryInFlight) return;
+            claritySafeEvent('loyalty_login_start', { stage: 'retry' });
             loyaltyProfileRetryInFlight = true;
             const buttons = [...document.querySelectorAll('#loyaltyAuthAction, #loyaltyErrorActions button')];
             buttons.forEach(button => { button.disabled = true; });
@@ -5248,6 +5326,7 @@
         }
 
         window.openLoyalty = function() {
+            claritySafeEvent('loyalty_login_start', { stage: 'open' });
             if (currentFirebaseUser && loyaltyCustomer) {
                 document.getElementById('loyaltySection')?.scrollIntoView({ behavior:'smooth', block:'center' });
                 return;
@@ -5257,6 +5336,7 @@
 
         window.openLoyaltyDetails = function() {
             if (!currentFirebaseUser || !loyaltyCustomer) return window.openLoyalty();
+            claritySafeEvent('loyalty_card_open', { stage: 'open' });
             document.getElementById('loyaltyCardRefBox')?.style.setProperty('display', 'block');
             document.getElementById('loyaltyDetailsBackdrop')?.classList.add('open');
         };
@@ -5918,7 +5998,7 @@ const giftEligibleProducts = () => (Array.isArray(products) ? products : []).fil
 const DEFAULT_GIFT_WHATSAPP_MESSAGE='مرحباً 101 COFFEE 🤍\nأرغب بتأكيد طلب الهدية وإرسال إثبات التحويل.';
 function normalizeIraqWhatsAppNumber(phone){let digits=String(phone||'').replace(/\D/g,'');if(digits.startsWith('00'))digits=digits.slice(2);if(/^07\d{9}$/.test(digits))return `964${digits.slice(1)}`;if(/^7\d{9}$/.test(digits))return `964${digits}`;return digits;}
 function giftWhatsAppText(template,values){const heading=String(template??DEFAULT_GIFT_WHATSAPP_MESSAGE).replace(/{{\s*(\w+)\s*}}|{\s*(\w+)\s*}/g,(_,a,b)=>values[a||b]??_);return `${heading}\n\nرقم الطلب: ${values.orderCode}\nاسم المُهدي: ${values.senderName}\nنوع الهدية: ${values.giftName}\nالقيمة: ${values.giftValue}\nاسم المستلم: ${values.recipientName}`;}
-function openGiftExperience(){ const modal=document.getElementById('giftBackdrop'); if(!modal)return; modal.hidden=false; document.body.style.overflow='hidden'; renderGiftChoices(); refreshGiftPayment(); }
+function openGiftExperience(){ const modal=document.getElementById('giftBackdrop'); if(!modal){claritySafeEvent('gift_failed',{code:'MODAL_NOT_FOUND',stage:'open'});return;} claritySafeEvent('gift_open',{stage:'open'}); modal.hidden=false; document.body.style.overflow='hidden'; renderGiftChoices(); refreshGiftPayment(); }
 function closeGiftExperience(){ const modal=document.getElementById('giftBackdrop'); if(modal) modal.hidden=true; document.body.style.overflow=''; }
 function giftValueForSelection(){ if(giftSelection.type==='value') return Number(giftSelection.value||0); return giftSelection.productIds.reduce((total,id)=>{const p=giftEligibleProducts().find(x=>String(x.id)===String(id));return total+Number(p?.price||0)},0); }
 function refreshGiftPreview(){ const recipient=document.getElementById('giftRecipientName')?.value.trim(); const sender=document.getElementById('giftSenderName')?.value.trim(); const anonymous=document.getElementById('giftAnonymous')?.checked; const chosen=giftSelection.productIds.map(id=>giftEligibleProducts().find(p=>String(p.id)===String(id))?.name).filter(Boolean); document.getElementById('giftPreviewRecipient').textContent=recipient?`إلى: ${recipient}`:'إلى شخص مميز'; document.getElementById('giftPreviewSender').textContent=anonymous?'من شخص يحبك ❤️':(sender?`من: ${sender}`:'من شخص يحبك ❤️'); document.getElementById('giftPreviewValue').textContent=giftSelection.type==='value'?(giftSelection.value?giftMoney(giftSelection.value):'اختر قيمة الهدية'):(chosen.join(' + ')||'اختر هديتك'); refreshGiftPayment(); }
@@ -5946,7 +6026,7 @@ document.getElementById('giftForm')?.addEventListener('submit',async event=>{
   let reservedWindow=null;
   if(!mobile){try{reservedWindow=window.open('','_blank');}catch(ignore){}}
   button.disabled=true;button.textContent='جارٍ إنشاء طلب الهدية…';
-  try{await ref.set(order);console.log('[GIFT_FIREBASE_SAVE_SUCCESS]');}catch(writeError){if(reservedWindow&&!reservedWindow.closed)reservedWindow.close();console.error('[GIFT_FIREBASE_SAVE_FAILED]',{code:writeError?.code||'unknown'});error.textContent='تعذر إنشاء طلب الهدية، حاول مرة أخرى.';button.disabled=false;button.textContent='🎁 احجز الهدية وحوّل';return;}
+  try{await ref.set(order);console.log('[GIFT_FIREBASE_SAVE_SUCCESS]');}catch(writeError){if(reservedWindow&&!reservedWindow.closed)reservedWindow.close();claritySafeFailure('gift_failed',writeError,'save');console.error('[GIFT_FIREBASE_SAVE_FAILED]',{code:writeError?.code||'unknown'});error.textContent='تعذر إنشاء طلب الهدية، حاول مرة أخرى.';button.disabled=false;button.textContent='🎁 احجز الهدية وحوّل';return;}
   let waUrl='';
   try{
     console.log('[GIFT_WHATSAPP_START]');
@@ -5967,6 +6047,7 @@ document.getElementById('giftForm')?.addEventListener('submit',async event=>{
     error.innerHTML=`<span style="color:#27ae60">تم إنشاء الهدية بنجاح 🎁<br>رقم طلبك: <strong>${orderCode}</strong><br>أرسل صورة التحويل لتثبيت الهدية.</span>`;
   }catch(whatsAppError){
     if(reservedWindow&&!reservedWindow.closed)reservedWindow.close();
+    claritySafeFailure('gift_failed',whatsAppError,'whatsapp');
     console.error('[GIFT_WHATSAPP_OPEN_FAILED]',{code:whatsAppError?.code||'unknown'});
     error.innerHTML=`<span style="color:#e67e22">تم إنشاء الهدية بنجاح، لكن تعذر فتح WhatsApp تلقائياً. رقم الطلب: <strong>${orderCode}</strong></span>`;
     if(waUrl){const link=document.createElement('a');link.href=waUrl;link.target='_blank';link.rel='noopener';link.className='btn btn-primary';link.textContent='فتح WhatsApp وإرسال إثبات التحويل';link.style.cssText='display:inline-block;margin-top:10px;text-decoration:none;color:white;padding:8px 16px;border-radius:8px;';error.append(document.createElement('br'),link);}
