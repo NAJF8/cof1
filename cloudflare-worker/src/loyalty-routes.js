@@ -821,9 +821,8 @@ async function createLoyaltyCustomer(request, env, current) {
   if (!Number.isInteger(hearts) || hearts < 0 || hearts > 5) throw invalidField('hearts');
   const defaultMemberType = decodeURIComponent('%D8%B2%D8%A8%D9%88%D9%86');
   const memberType = String(p.memberType || defaultMemberType).slice(0, 80);
-  const pepper = String(env.LOYALTY_PIN_PEPPER || ''), revealKey = String(env.PIN_REVEAL_ENCRYPTION_KEY || '').trim();
+  const pepper = String(env.LOYALTY_PIN_PEPPER || ''), revealKey = String(env.LOYALTY_PIN_REVEAL_KEY || '').trim();
   if (!pepper || !revealKey) throw Error('INTERNAL_ERROR');
-  await security.revealKey(revealKey);
 
   const opPath = operationPath('customer-create', id);
   if (opPath) {
