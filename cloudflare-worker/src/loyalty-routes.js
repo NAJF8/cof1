@@ -97,18 +97,15 @@ async function createLoyaltyCredential(pin, env, now = Date.now(), onStage) {
   return credential;
 }
 async function chooseUniqueLoyaltyPin(root, pepper) {
-  const customers = root.loyalty_customers || {}, credentials = root.loyalty_credentials || {}, indexes = root.loyalty_pin_index || {};
+  const customers = root.loyalty_customers || {}, indexes = root.loyalty_pin_index || {};
   for (let attempt = 0; attempt < 100; attempt += 1) {
     const pin = security.generatePin(), indexKey = await security.pinIndexKey(pin, pepper);
     if (indexes[indexKey]) continue;
     const legacyCollision = Object.values(customers).some(customer => customer && customer.status !== 'inactive' && customer.deleted !== true && String(customer.pin || '') === pin);
     if (legacyCollision) continue;
-    let hashedCollision = false;
-    for (const [membership, credential] of Object.entries(credentials)) {
-      if (hashedCollision || !customers[membership] || customers[membership].status === 'inactive' || customers[membership].deleted === true || !credentialShapeIsUsable(credential)) continue;
-      hashedCollision = await security.timingSafePinMatch(pin, credential, pepper);
-    }
-    if (!hashedCollision) return { pin, indexKey };
+    // The HMAC index is the authoritative collision guard for migrated/revealable credentials.
+    // Do not PBKDF2 every existing credential here: that makes member creation exceed Worker CPU limits.
+    return { pin, indexKey };
   }
   throw Error('PIN_GENERATION_FAILED');
 }
