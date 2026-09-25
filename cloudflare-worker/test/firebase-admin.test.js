@@ -67,9 +67,11 @@ await firebaseAdminAtomicPatch(env, root => ({ updates: { 'a/x': root.a.x + 1 },
 assert.equal(atomicCalls.length, 4);
 assert.equal(atomicCalls[0].method, 'GET');
 assert.equal(atomicCalls[1].method, 'PATCH');
+assert.equal(atomicCalls[1].headers['If-Match'], '"one"');
 assert.deepEqual(atomicCalls[1].body, { 'a/x': 2 });
 assert.equal(atomicCalls[2].method, 'GET');
 assert.equal(atomicCalls[3].method, 'PATCH');
+assert.equal(atomicCalls[3].headers['If-Match'], '"two"');
 assert.deepEqual(atomicCalls[3].body, { 'a/x': 2 });
 let retryReads = 0;
 await assert.rejects(() => firebaseAdminAtomicPatch({}, () => ({ updates: { 'a/x': 1 }, result: true }), {

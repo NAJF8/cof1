@@ -192,7 +192,7 @@ async function firebaseAdminAtomicPatch(env, plan, options = {}) {
   const maxRootBytes = Number.isFinite(Number(options.maxRootBytes)) ? Number(options.maxRootBytes) : 10 * 1024 * 1024;
   const write = options.write || (async (currentEnv, mergedRoot, etag, retry, writeOptions, updates) => {
     const base = String(currentEnv.FIREBASE_DATABASE_URL || 'https://coffee-30fa7-default-rtdb.firebaseio.com').replace(/\/$/, '');
-    const response = await firebaseFetch(`${base}/.json`, { method: 'PATCH', headers: { Authorization: `Bearer ${await serviceAccountToken(currentEnv)}`, 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify(updates) });
+    const response = await firebaseFetch(`${base}/.json`, { method: 'PATCH', headers: { Authorization: `Bearer ${await serviceAccountToken(currentEnv)}`, 'Content-Type': 'application/json', Accept: 'application/json', 'If-Match': etag }, body: JSON.stringify(updates) });
     const text = await response.text();
     console.info({ tag: 'FIREBASE_MULTI_LOCATION_PATCH', status: response.status, retry });
       if (response.status === 412) {
