@@ -227,7 +227,9 @@ async function login(request, env) {
   } catch (error) {
     if (stage === 'INPUT_VALIDATION' && ['INVALID_CONTENT_TYPE', 'PAYLOAD_TOO_LARGE'].includes(error?.message)) return loginFailure(request, env, requestId, stage, error.message, error.message === 'PAYLOAD_TOO_LARGE' ? 413 : 415);
     if (stage === 'INPUT_VALIDATION' && error?.name === 'SyntaxError') return loginFailure(request, env, requestId, stage, 'REQUEST_FAILED', 400);
-    const code = String(error?.message || '').startsWith('FIREBASE_') ? 'FIREBASE_BACKEND_ERROR' : stage === 'UID_LINK_RESOLVE' ? 'UID_LINK_RESOLUTION_FAILED' : stage === 'FIREBASE_AUTH' ? 'FIREBASE_AUTH_FAILED' : stage === 'LEGACY_MIGRATION' ? 'PIN_MIGRATION_FAILED' : stage === 'HASH_VERIFY' || stage === 'LEGACY_VERIFY' ? 'PIN_VERIFICATION_FAILED' : 'LOGIN_BACKEND_ERROR';
+    const raw = String(error?.message || '');
+    if (raw === 'PROFILE_LINK_CONFLICT') return loginFailure(request, env, requestId, stage, raw, 409);
+    const code = raw.startsWith('FIREBASE_') ? 'FIREBASE_BACKEND_ERROR' : stage === 'UID_LINK_RESOLVE' ? 'UID_LINK_RESOLUTION_FAILED' : stage === 'FIREBASE_AUTH' ? 'FIREBASE_AUTH_FAILED' : stage === 'LEGACY_MIGRATION' ? 'PIN_MIGRATION_FAILED' : stage === 'HASH_VERIFY' || stage === 'LEGACY_VERIFY' ? 'PIN_VERIFICATION_FAILED' : 'LOGIN_BACKEND_ERROR';
     const status = code === 'RATE_LIMITED' ? 429 : code === 'FIREBASE_AUTH_FAILED' || code === 'LOGIN_BACKEND_ERROR' || code === 'FIREBASE_BACKEND_ERROR' || code === 'PIN_MIGRATION_FAILED' ? 500 : 401;
     return loginFailure(request, env, requestId, stage, code, status);
   }

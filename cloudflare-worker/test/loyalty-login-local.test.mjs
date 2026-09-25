@@ -6,7 +6,7 @@ import { handleLoyaltyRoutes } from '../src/loyalty-routes.js';
 const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
 const privateKeyPem = privateKey.export({ type: 'pkcs8', format: 'pem' });
 const env = { ALLOWED_ORIGINS: 'https://101coffees.com', FIREBASE_DATABASE_URL: 'https://fixture.firebaseio.test', FIREBASE_SERVICE_ACCOUNT_EMAIL: 'fixture@example.test', FIREBASE_SERVICE_ACCOUNT_PRIVATE_KEY: privateKeyPem, LOYALTY_PIN_PEPPER: 'fixture-pepper', LOYALTY_PIN_REVEAL_KEY: 'fixture-reveal-key' };
-const root = { loyalty_customers: { '101-100': { name: 'Legacy Fixture', hearts: 2, pin: '1234' }, '101-101': { name: 'Hashed Fixture', uid: 'existing-google-uid', hearts: 5, currentHearts: 5 }, '101-102': { name: 'Broken Credential Fixture', uid: 'existing-google-uid-2', hearts: 4, pin: '2468' }, '101-103': { name: 'Malformed Credential Fixture', uid: 'existing-google-uid-3', hearts: 5, pin: '1357' }, '101-104': { name: 'Unlinked Fixture', hearts: 1, pin: '9876' } }, loyalty_links: { 'linked-google-uid': '101-100' }, loyalty_credentials: { '101-101': await createCredential('5678', env.LOYALTY_PIN_PEPPER), '101-102': { pinHash: 'old-but-incomplete' }, '101-103': { pinHash: '%%%not-base64%%%', salt: '%%%not-base64%%%', algorithm: 'PBKDF2-SHA512', iterations: 100000 } }, loyalty_login_attempts: {} };
+const root = { loyalty_customers: { '101-100': { name: 'Legacy Fixture', hearts: 2, pin: '1234' }, '101-101': { name: 'Hashed Fixture', email: 'member@example.test', uid: 'existing-google-uid', hearts: 5, currentHearts: 5 }, '101-102': { name: 'Broken Credential Fixture', uid: 'existing-google-uid-2', hearts: 4, pin: '2468' }, '101-103': { name: 'Malformed Credential Fixture', uid: 'existing-google-uid-3', hearts: 5, pin: '1357' }, '101-104': { name: 'Unlinked Fixture', hearts: 1, pin: '9876' }, '101-105': { name: 'No Email UID Fixture', uid: 'existing-no-email-uid', hearts: 3, currentHearts: 3 }, '101-106': { name: 'Conflicted Fixture', uid: 'conflicted-uid', hearts: 2 } }, loyalty_links: { 'linked-google-uid': '101-100', 'conflicted-uid': '101-999' }, loyalty_credentials: { '101-101': await createCredential('5678', env.LOYALTY_PIN_PEPPER), '101-102': { pinHash: 'old-but-incomplete' }, '101-103': { pinHash: '%%%not-base64%%%', salt: '%%%not-base64%%%', algorithm: 'PBKDF2-SHA512', iterations: 100000 }, '101-105': await createCredential('2469', env.LOYALTY_PIN_PEPPER), '101-106': await createCredential('8642', env.LOYALTY_PIN_PEPPER) }, loyalty_login_attempts: {} };
 let failCredentialPut = false;
 
 function setPath(path, value) { const parts = path.split('/'); let target = root; for (const part of parts.slice(0, -1)) target = target[part] ||= {}; if (value === null) delete target[parts.at(-1)]; else target[parts.at(-1)] = value; }
@@ -44,9 +44,21 @@ assert.equal(root.loyalty_credentials['101-100'].pinHash.length > 20, true);
 result = await login('101-104', '9876');
 assert.equal(result.status, 200);
 assert.equal(decodeTokenPayload(result.body.token).uid, 'loyalty-member:101-104');
+assert.equal(root.loyalty_customers['101-104'].uid, 'loyalty-member:101-104');
+assert.equal(root.loyalty_links['loyalty-member:101-104'], '101-104');
 assert.equal(root.loyalty_customers['101-104'].pin, undefined);
 assert.equal(root.loyalty_customers['101-104'].hearts, 1);
 assert.equal(root.loyalty_credentials['101-104'].pinHash.length > 20, true);
+
+result = await login('101-105', '2469');
+assert.equal(result.status, 200);
+assert.equal(decodeTokenPayload(result.body.token).uid, 'existing-no-email-uid');
+assert.equal(result.body.profile.currentHearts, 3);
+
+result = await login('101-106', '8642');
+assert.equal(result.status, 409);
+assert.equal(result.body.error, 'PROFILE_LINK_CONFLICT');
+assert.equal(root.loyalty_customers['101-106'].uid, 'conflicted-uid');
 
 result = await login('101-101', '9999');
 assert.equal(result.status, 401);
