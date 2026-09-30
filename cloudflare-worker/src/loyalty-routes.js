@@ -3,7 +3,6 @@ import { firebaseAdminRequest, firebaseAdminReadWithEtag, firebaseAdminCondition
 import { planGiftDecision, planGiftRedemption } from './gift-delivery.js';
 
 const PROJECT_ID = 'coffee-30fa7';
-const SUPER_ADMIN_EMAIL = 'mohameadalhaear100@gmail.com';
 const PROVISION_BUILD_LABEL = 'provision-google-stages-v3';
 const FULL_GIT_SHA = /^[0-9a-f]{40}$/i;
 const requestContext = new WeakMap();
@@ -146,19 +145,14 @@ async function ensurePinLoginLink(env, membership, tokenUid) {
 }
 function normalizeStaffRole(value) { const role = String(value || '').trim().toLowerCase().replace(/[\s-]+/g, '_'); return role === 'superadmin' ? 'super_admin' : role; }
 async function staff(env, current, capability = 'staff') {
-  let record = {};
-  try { record = await firebaseAdminRequest(env, `admins/${current.uid}`) || {}; } catch (error) { if (!(current.emailVerified && current.email === SUPER_ADMIN_EMAIL)) throw error; }
-  const allowlisted = current.emailVerified && current.email === SUPER_ADMIN_EMAIL;
-  // The verified server-side Super Admin allowlist is authoritative for this account.
-  const role = allowlisted ? 'super_admin' : normalizeStaffRole(record.role);
-  const bootstrap = capability === 'provision-super-admin' && allowlisted;
-  if (record.status !== 'active' && !allowlisted && !bootstrap) throw Error('FORBIDDEN');
+  const record = await firebaseAdminRequest(env, `admins/${current.uid}`) || {};
+  const role = normalizeStaffRole(record.role);
+  if (record.status !== 'active') throw Error('FORBIDDEN');
   const permissions = record.permissions || {};
   const full = ['super_admin', 'admin', 'manager'].includes(role);
   const cashier = role === 'cashier' && ['search', 'adjust', 'redeem', 'consume', 'redeem-gift', 'manage-gifts'].includes(capability);
-  const permitted = full || cashier || permissions[capability] === true || bootstrap;
-  if (!permitted || (capability === 'delete' || capability === 'provision-super-admin') && role !== 'super_admin' && !bootstrap) throw Error('FORBIDDEN');
-  if (bootstrap) await firebaseAdminRequest(env, `admins/${current.uid}`, { method: 'PATCH', body: { email: current.email, role: 'super_admin', status: 'active', displayName: current.name || 'Super Admin', addedBy: 'server', addedAt: Date.now() } });
+  const permitted = full || cashier || permissions[capability] === true;
+  if (!permitted || (capability === 'delete' || capability === 'provision-super-admin') && role !== 'super_admin') throw Error('FORBIDDEN');
   return { record, role };
 }
 function productImageType(bytes) { if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg'; if (bytes.length >= 8 && bytes.slice(0, 8).every((value, index) => value === [137, 80, 78, 71, 13, 10, 26, 10][index])) return 'image/png'; if (bytes.length >= 12 && String.fromCharCode(...bytes.slice(0, 4)) === 'RIFF' && String.fromCharCode(...bytes.slice(8, 12)) === 'WEBP') return 'image/webp'; return ''; }
@@ -594,7 +588,7 @@ async function revealPin(request, env, current) {
 }
 async function revealPinForAdmin(request, env, current) {
   const actor = await staff(env, current, 'reveal-pin');
-  const canReveal = actor.role === 'super_admin' || (actor.role === 'manager' && actor.record?.permissions?.canRevealMemberPin === true);
+  const canReveal = ['super_admin', 'manager', 'admin'].includes(actor.role);
   if (!canReveal) throw Error('FORBIDDEN');
   const payload = await body(request), membership = security.normalizeMembershipNumber(payload.membership);
   if (!membership) throw Error('INVALID_MEMBERSHIP');
@@ -610,7 +604,7 @@ async function revealPinForAdmin(request, env, current) {
 }
 async function revealPinAuthorization(request, env, current) {
   const actor = await staff(env, current, 'reveal-pin');
-  const canRevealMemberPin = actor.role === 'super_admin' || (actor.role === 'manager' && actor.record?.permissions?.canRevealMemberPin === true);
+  const canRevealMemberPin = ['super_admin', 'manager', 'admin'].includes(actor.role);
   if (!canRevealMemberPin) throw Error('FORBIDDEN');
   return response(request, env, { ok: true, canRevealMemberPin: true, stage: 'WORKER_AUTHORIZATION' });
 }
@@ -732,7 +726,6 @@ async function provision(request, env, current, superAdmin = false) {
   try {
     setStage('AUTH_START');
     if (!current.emailVerified || !current.email) return fail(request, env, 'VERIFIED_EMAIL_REQUIRED', 403);
-    if (superAdmin && current.email !== SUPER_ADMIN_EMAIL) throw Error('FORBIDDEN');
     setStage('AUTH_OK');
     setStage('PROFILE_LOOKUP');
     const pending = await firebaseAdminRequest(env, `loyalty_pending/${current.uid}`) || {};
