@@ -93,6 +93,21 @@ async function optionalAuth(request) { const header = request.headers.get('Autho
 async function customToken(env, uid, membership) { const email = String(env.FIREBASE_SERVICE_ACCOUNT_EMAIL || '').trim(), privateKey = String(env.FIREBASE_SERVICE_ACCOUNT_PRIVATE_KEY || ''); if (!email || !privateKey) throw Error('FIREBASE_SERVICE_ACCOUNT_NOT_CONFIGURED'); const fingerprint = privateKey.slice(0, 24); if (customTokenKey.fingerprint !== fingerprint) customTokenKey = { fingerprint, value: await crypto.subtle.importKey('pkcs8', pemBytes(privateKey), { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']) }; const now = Math.floor(Date.now() / 1000), head = jsonPart({ alg: 'RS256', typ: 'JWT' }), claim = jsonPart({ iss: email, sub: email, aud: 'https://identitytoolkit.googleapis.com/google.identity.identitytoolkit.v1.IdentityToolkit', iat: now, exp: now + 3600, uid, claims: { loyaltyMembership: membership } }), signature = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', customTokenKey.value, new TextEncoder().encode(`${head}.${claim}`)); return `${head}.${claim}.${b64url(signature)}`; }
 function safeCustomer(membership, customer) { return security.publicProfile(membership, customer); }
 function credentialShapeIsUsable(credential) { return Boolean(credential && typeof credential.pinHash === 'string' && typeof credential.salt === 'string' && /^[A-Za-z0-9+/_-]+={0,2}$/.test(credential.pinHash) && /^[A-Za-z0-9+/_-]+={0,2}$/.test(credential.salt)); }
+function loginVerifyDiagnostic(requestId, membership, customer, credential, verifyBranch, verifyResult) {
+  const iterations = credential && credential.iterations !== undefined && Number.isFinite(Number(credential.iterations)) ? Number(credential.iterations) : null;
+  console.info('[LOYALTY_LOGIN_VERIFY]', {
+    requestId,
+    membershipNumber: membership,
+    customerFound: Boolean(customer),
+    credentialFound: Boolean(credential),
+    hasPinHash: typeof credential?.pinHash === 'string' && credential.pinHash.length > 0,
+    hasSalt: typeof credential?.salt === 'string' && credential.salt.length > 0,
+    iterations,
+    hasLegacyPin: security.validPin(customer?.pin),
+    verifyBranch,
+    verifyResult: Boolean(verifyResult)
+  });
+}
 async function createLoyaltyCredential(pin, env, now = Date.now(), onStage) {
   const credential = await security.createCredential(pin, String(env.LOYALTY_PIN_PEPPER || ''), now, onStage);
   const revealKey = String(env.LOYALTY_PIN_REVEAL_KEY || '').trim();
@@ -209,6 +224,8 @@ async function login(request, env) {
         migrated = true;
       }
     }
+    const verifyBranch = !customer ? 'CUSTOMER_NOT_FOUND' : stage === 'LEGACY_VERIFY' || stage === 'LEGACY_MIGRATION' ? 'LEGACY_VERIFY' : !credential || !credentialShapeIsUsable(credential) ? 'MISSING_CREDENTIAL' : 'HASH_VERIFY';
+    loginVerifyDiagnostic(requestId, membership, customer, credential, verifyBranch, valid);
     if (!customer || !valid) {
       const within = Number(state.firstFailureAt) > 0 && now - Number(state.firstFailureAt) < security.WINDOW_MS, failures = within ? Number(state.failedAttempts || 0) + 1 : 1;
       stage = 'FAILURE_RECORD';
