@@ -30,8 +30,9 @@ async function serviceAccountToken(env) {
 function firebaseErrorDetails(text, fallbackCode) {
   try {
     const value = JSON.parse(text || '{}');
-    const raw = typeof value?.error === 'object' ? value.error : value;
-    return { firebaseErrorCode: raw?.code || fallbackCode || null, firebaseErrorMessage: typeof raw?.message === 'string' ? raw.message.slice(0, 160) : null };
+    const raw = typeof value?.error === 'object' && value.error !== null ? value.error : value;
+    const message = typeof value?.error === 'string' ? value.error : typeof raw?.message === 'string' ? raw.message : null;
+    return { firebaseErrorCode: raw?.code || fallbackCode || null, firebaseErrorMessage: typeof message === 'string' ? message.slice(0, 160) : null };
   } catch {
     return { firebaseErrorCode: fallbackCode || null, firebaseErrorMessage: null };
   }
@@ -107,6 +108,7 @@ async function firebaseAdminRequest(env, path, options = {}) {
   if (!response.ok) {
     const error = new Error(`FIREBASE_${response.status}`);
     error.firebaseOp = options.method || 'GET';
+    error.firebasePath = String(path).replace(/^\//, '') || '/';
     error.firebaseStatus = response.status;
     error.firebaseBodySummary = firebaseErrorDetails(text, `FIREBASE_${response.status}`);
     throw error;
@@ -123,6 +125,7 @@ async function firebaseAdminReadWithEtag(env, path = '') {
     console.error({ tag: 'FIREBASE_ETAG_READ_FAILED', path, status: response.status, ...firebaseErrorDetails(text, `FIREBASE_${response.status}`) });
     const error = new Error(`FIREBASE_${response.status}`);
     error.firebaseOp = 'GET';
+    error.firebasePath = String(path).replace(/^\//, '') || '/';
     error.firebaseStatus = response.status;
     error.firebaseBodySummary = firebaseErrorDetails(text, `FIREBASE_${response.status}`);
     throw error;
@@ -137,12 +140,14 @@ async function firebaseAdminConditionalPut(env, path, body, etag) {
   if (response.status === 412) {
     const error = new Error('FIREBASE_ETAG_CONFLICT');
     error.firebaseOp = 'PUT';
+    error.firebasePath = String(path).replace(/^\//, '') || '/';
     error.firebaseStatus = response.status;
     throw error;
   }
   if (!response.ok) {
     const error = new Error(`FIREBASE_${response.status}`);
     error.firebaseOp = 'PUT';
+    error.firebasePath = String(path).replace(/^\//, '') || '/';
     error.firebaseStatus = response.status;
     error.firebaseBodySummary = firebaseErrorDetails(text, `FIREBASE_${response.status}`);
     throw error;
@@ -199,6 +204,7 @@ async function firebaseAdminAtomicPatch(env, plan, options = {}) {
       console.error({ tag: 'FIREBASE_MULTI_LOCATION_PATCH_CONFLICT', status: response.status, retry, stage: writeOptions.stage || 'ATOMIC_PATCH', requestId: writeOptions.requestId || null });
         const error = new Error('FIREBASE_ETAG_CONFLICT');
         error.firebaseOp = 'PATCH';
+        error.firebasePath = '/';
         error.firebaseStatus = response.status;
         throw error;
     }
@@ -206,6 +212,7 @@ async function firebaseAdminAtomicPatch(env, plan, options = {}) {
       console.error({ tag: 'FIREBASE_MULTI_LOCATION_PATCH_FAILED', status: response.status, ...firebaseErrorDetails(text, `FIREBASE_${response.status}`), stage: writeOptions.stage || 'ATOMIC_PATCH', requestId: writeOptions.requestId || null });
         const error = new Error(`FIREBASE_${response.status}`);
         error.firebaseOp = 'PATCH';
+        error.firebasePath = '/';
         error.firebaseStatus = response.status;
         error.firebaseBodySummary = firebaseErrorDetails(text, `FIREBASE_${response.status}`);
         throw error;
@@ -213,8 +220,20 @@ async function firebaseAdminAtomicPatch(env, plan, options = {}) {
     return text ? JSON.parse(text) : null;
   });
   for (let attempt = 0; attempt < attempts; attempt += 1) {
-    const snapshot = await read(env);
-    const decision = await plan(snapshot.data || {});
+    let snapshot;
+    try {
+      snapshot = await read(env);
+    } catch (error) {
+      error.firebaseStage = options.stage ? `${options.stage}:ROOT_READ_ETAG` : 'ATOMIC_PATCH_READ';
+      throw error;
+    }
+    let decision;
+    try {
+      decision = await plan(snapshot.data || {});
+    } catch (error) {
+      error.firebaseStage = options.stage ? `${options.stage}:PLAN` : 'ATOMIC_PATCH_PLAN';
+      throw error;
+    }
     if (decision?.replay) return decision.result;
     if (!decision?.updates || typeof decision.result === 'undefined') throw new Error('FIREBASE_ATOMIC_PLAN_INVALID');
     const diagnostics = firebasePayloadDiagnostics(decision.updates);
@@ -225,7 +244,12 @@ async function firebaseAdminAtomicPatch(env, plan, options = {}) {
     options.onStage?.('ROOT_MERGE_OK');
     try {
       options.onStage?.('ATOMIC_PUT_START');
-      await write(env, options.write ? mergedRoot : JSON.parse(serializedRoot), snapshot.etag, attempt, options, decision.updates);
+      try {
+        await write(env, options.write ? mergedRoot : JSON.parse(serializedRoot), snapshot.etag, attempt, options, decision.updates);
+      } catch (error) {
+        error.firebaseStage = options.stage ? `${options.stage}:ROOT_PATCH` : 'ATOMIC_PATCH_WRITE';
+        throw error;
+      }
       options.onStage?.('ATOMIC_PUT_OK');
       return decision.result;
     } catch (error) {

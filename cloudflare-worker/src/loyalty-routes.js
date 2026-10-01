@@ -145,7 +145,13 @@ async function ensurePinLoginLink(env, membership, tokenUid) {
 }
 function normalizeStaffRole(value) { const role = String(value || '').trim().toLowerCase().replace(/[\s-]+/g, '_'); return role === 'superadmin' ? 'super_admin' : role; }
 async function staff(env, current, capability = 'staff') {
-  const record = await firebaseAdminRequest(env, `admins/${current.uid}`) || {};
+  let record;
+  try {
+    record = await firebaseAdminRequest(env, `admins/${current.uid}`) || {};
+  } catch (error) {
+    error.firebaseStage = 'ADMIN_LOOKUP';
+    throw error;
+  }
   const role = normalizeStaffRole(record.role);
   if (record.status !== 'active') throw Error('FORBIDDEN');
   const permissions = record.permissions || {};
@@ -1177,7 +1183,9 @@ async function route(request, env, url) {
     if (url.pathname === '/api/loyalty/reveal-pin') console.error('[PIN_BACKEND_FAIL]', { code: String(error?.message || 'UNKNOWN').slice(0, 80) });
     if (url.pathname === '/api/admin/club/search') console.error('[CLUB_SEARCH_FAIL]', { code: String(error?.message || 'UNKNOWN').slice(0, 80) });
     const requestContextValue = url.pathname === '/api/loyalty/provision-google' ? provisionRequestId(request) : null;
-    console.error('[LOYALTY_ROUTE_FAILED]', { path: url.pathname, requestId: requestContextValue?.requestId || null, code: String(error?.message || 'UNKNOWN').slice(0, 80), stage: error?.provisionStage || requestContextValue?.stage || null, firebaseStatus: Number.isInteger(error?.firebaseStatus) ? error.firebaseStatus : null, firebaseOp: error?.firebaseOp || null });
+    const routeDiagnostic = { path: url.pathname, requestId: requestContextValue?.requestId || null, code: String(error?.message || 'UNKNOWN').slice(0, 80), stage: error?.firebaseStage || error?.provisionStage || requestContextValue?.stage || null, firebaseStatus: Number.isInteger(error?.firebaseStatus) ? error.firebaseStatus : null, firebaseOp: error?.firebaseOp || null };
+    if (url.pathname === '/api/admin/loyalty/create' && error?.firebaseOp) Object.assign(routeDiagnostic, { httpMethod: error.firebaseOp, firebasePath: error.firebasePath || null, firebaseBodySummary: error.firebaseBodySummary || null });
+    console.error('[LOYALTY_ROUTE_FAILED]', routeDiagnostic);
     const rawCode = String(error?.message || ''), firebaseUnavailable = /^FIREBASE_(?:429|5\d\d)$/.test(rawCode);
     const code = ['AUTH_REQUIRED', 'AUTH_INVALID', 'INVALID_CONTENT_TYPE', 'PAYLOAD_TOO_LARGE', 'FORBIDDEN', 'NOT_FOUND', 'ALREADY_EXISTS', 'GIFT_NOT_FOUND', 'GIFT_ALREADY_REDEEMED', 'GIFT_EXPIRED', 'GIFT_NOT_AVAILABLE', 'GIFT_ALREADY_DECIDED', 'GIFT_NOT_PENDING', 'CONCURRENT_MODIFICATION', 'COUNTER_CONFLICT', 'INVALID_ARGUMENT', 'INVALID_FIELD', 'INVALID_INPUT', 'INVALID_MEMBERSHIP', 'INVALID_PENDING', 'INVALID_PIN', 'PIN_GENERATION_FAILED', 'CREDENTIAL_CREATE_FAILED', 'PIN_REVEAL_KEY_NOT_CONFIGURED', 'PROFILE_READBACK_FAILED', 'INSUFFICIENT_HEARTS', 'HEARTS_OUT_OF_RANGE', 'CLUB_UNAVAILABLE', 'CLUB_MEMBER_NOT_FOUND', 'CLUB_PHONE_AMBIGUOUS', 'CLAIM_INVALID', 'PIN_RESERVATION_FAILED', 'PIN_REVEAL_WRITE_UNVERIFIED', 'PIN_BACKUP_UNVERIFIED', 'PIN_RECOVERY_CONFIGURATION_MISSING', 'CONFIRMATION_REQUIRED', 'VERIFIED_EMAIL_REQUIRED', 'PROFILE_NOT_FOUND', 'PROFILE_LINK_CONFLICT', 'BACKEND_AUTH_ERROR', 'INTERNAL_ERROR', 'SUB_REQUEST_NOT_FOUND', 'SUB_REQUEST_NOT_PENDING', 'SUB_PLAN_NOT_FOUND', 'SUB_CUSTOMER_ALREADY_ACTIVE', 'SUB_CUSTOMER_DATA_INCOMPLETE'].includes(rawCode) ? rawCode : firebaseUnavailable ? 'BACKEND_UNAVAILABLE' : rawCode.startsWith('FIREBASE_') ? (rawCode.includes('401') || rawCode.includes('403') ? 'BACKEND_AUTH_ERROR' : 'INTERNAL_ERROR') : 'REQUEST_FAILED';
     const firebaseStatus = Number.isInteger(error?.firebaseStatus) ? error.firebaseStatus : null;
