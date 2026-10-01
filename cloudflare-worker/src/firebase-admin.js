@@ -195,26 +195,28 @@ async function firebaseAdminAtomicPatch(env, plan, options = {}) {
   const attempts = Math.max(1, Math.min(Number(options.attempts) || 8, 20));
   const read = options.read || ((currentEnv) => firebaseAdminReadWithEtag(currentEnv, ''));
   const maxRootBytes = Number.isFinite(Number(options.maxRootBytes)) ? Number(options.maxRootBytes) : 10 * 1024 * 1024;
-  const write = options.write || (async (currentEnv, mergedRoot, etag, retry, writeOptions, updates) => {
+  const write = options.write || (async (currentEnv, mergedRoot, etag, retry, writeOptions) => {
     const base = String(currentEnv.FIREBASE_DATABASE_URL || 'https://coffee-30fa7-default-rtdb.firebaseio.com').replace(/\/$/, '');
-    const response = await firebaseFetch(`${base}/.json`, { method: 'PATCH', headers: { Authorization: `Bearer ${await serviceAccountToken(currentEnv)}`, 'Content-Type': 'application/json', Accept: 'application/json', 'If-Match': etag }, body: JSON.stringify(updates) });
+    // RTDB rejects If-Match on PATCH. mergedRoot is a complete, validated
+    // snapshot, so conditional PUT preserves the atomic multi-path update.
+    const response = await firebaseFetch(`${base}/.json`, { method: 'PUT', headers: { Authorization: `Bearer ${await serviceAccountToken(currentEnv)}`, 'Content-Type': 'application/json', Accept: 'application/json', 'If-Match': etag }, body: JSON.stringify(mergedRoot) });
     const text = await response.text();
-    console.info({ tag: 'FIREBASE_MULTI_LOCATION_PATCH', status: response.status, retry });
-      if (response.status === 412) {
-      console.error({ tag: 'FIREBASE_MULTI_LOCATION_PATCH_CONFLICT', status: response.status, retry, stage: writeOptions.stage || 'ATOMIC_PATCH', requestId: writeOptions.requestId || null });
-        const error = new Error('FIREBASE_ETAG_CONFLICT');
-        error.firebaseOp = 'PATCH';
-        error.firebasePath = '/';
-        error.firebaseStatus = response.status;
-        throw error;
+    console.info({ tag: 'FIREBASE_ATOMIC_PUT', status: response.status, retry });
+    if (response.status === 412) {
+      console.error({ tag: 'FIREBASE_ATOMIC_PUT_CONFLICT', status: response.status, retry, stage: writeOptions.stage || 'ATOMIC_PATCH', requestId: writeOptions.requestId || null });
+      const error = new Error('FIREBASE_ETAG_CONFLICT');
+      error.firebaseOp = 'PUT';
+      error.firebasePath = '/';
+      error.firebaseStatus = response.status;
+      throw error;
     }
     if (!response.ok) {
-      console.error({ tag: 'FIREBASE_MULTI_LOCATION_PATCH_FAILED', status: response.status, ...firebaseErrorDetails(text, `FIREBASE_${response.status}`), stage: writeOptions.stage || 'ATOMIC_PATCH', requestId: writeOptions.requestId || null });
-        const error = new Error(`FIREBASE_${response.status}`);
-        error.firebaseOp = 'PATCH';
-        error.firebasePath = '/';
-        error.firebaseStatus = response.status;
-        error.firebaseBodySummary = firebaseErrorDetails(text, `FIREBASE_${response.status}`);
+      console.error({ tag: 'FIREBASE_ATOMIC_PUT_FAILED', status: response.status, ...firebaseErrorDetails(text, `FIREBASE_${response.status}`), stage: writeOptions.stage || 'ATOMIC_PATCH', requestId: writeOptions.requestId || null });
+      const error = new Error(`FIREBASE_${response.status}`);
+      error.firebaseOp = 'PUT';
+      error.firebasePath = '/';
+      error.firebaseStatus = response.status;
+      error.firebaseBodySummary = firebaseErrorDetails(text, `FIREBASE_${response.status}`);
         throw error;
     }
     return text ? JSON.parse(text) : null;

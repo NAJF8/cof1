@@ -18,7 +18,7 @@ globalThis.fetch = async (url, options = {}) => {
   if (!address.startsWith(env.FIREBASE_DATABASE_URL)) throw Error(`unexpected request ${address}`);
   if (firebaseUnavailable) return new Response('{"error":"unavailable"}', { status: 503, headers: { 'Content-Type': 'application/json' } });
   const path = decodeURIComponent(new URL(address).pathname).replace(/^\//, '').replace(/\.json$/, '');
-  if (options.method === 'PATCH') { for (const [key, value] of Object.entries(JSON.parse(options.body))) setPath(key, value); return Response.json({}); }
+  if (options.method === 'PUT' && path === '') { const next = JSON.parse(options.body); for (const key of Object.keys(root)) delete root[key]; Object.assign(root, next); return Response.json({}); }
   let value = root; for (const part of path ? path.split('/') : []) value = value?.[part];
   return new Response(JSON.stringify(value ?? null), { headers: { 'Content-Type': 'application/json', ETag: 'fixture-etag' } });
 };

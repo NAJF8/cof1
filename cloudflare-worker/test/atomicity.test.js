@@ -78,6 +78,19 @@ test('PIN: 20 concurrent reservations never duplicate a PIN', async () => {
   assert.equal(Object.keys(t.value().subscription_pin_index).length, 20);
 });
 
+test('CREATE: concurrent membership plans retry on ETag conflict and keep unique IDs', async () => {
+  const t = memoryTransport({ loyalty_counter: 40, loyalty_customers: {} });
+  const create = name => atomic(t, root => {
+    let counter = Number(root.loyalty_counter) || 0, membership;
+    do { counter += 1; membership = `101-${counter}`; } while (root.loyalty_customers?.[membership]);
+    return { updates: { [`loyalty_customers/${membership}`]: { name }, loyalty_counter: counter }, result: membership };
+  });
+  const results = await Promise.all([create('A'), create('B')]);
+  assert.deepEqual(new Set(results), new Set(['101-41', '101-42']));
+  assert.deepEqual(Object.keys(t.value().loyalty_customers).sort(), ['101-41', '101-42']);
+  assert.equal(t.value().loyalty_counter, 42);
+});
+
 test('MEMBERSHIP CHANGE: two users cannot claim the same new membership', async () => {
   const t = memoryTransport({ loyalty_customers: { oldA: { uid: 'a' }, oldB: { uid: 'b' } }, loyalty_links: {} });
   const change = (oldId, uid) => atomic(t, root => {

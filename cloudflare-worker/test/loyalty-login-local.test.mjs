@@ -16,7 +16,7 @@ globalThis.fetch = async (url, options = {}) => {
   if (!address.startsWith(env.FIREBASE_DATABASE_URL)) throw new Error(`unexpected fixture request: ${address}`);
   const path = decodeURIComponent(new URL(address).pathname).replace(/^\//, '').replace(/\.json$/, '');
   if ((options.method || 'GET') === 'PUT' && path.startsWith('loyalty_credentials/') && failCredentialPut) return new Response('{}', { status: 500 });
-  if ((options.method || 'GET') === 'PUT' || (options.method || 'GET') === 'PATCH') { if (path) setPath(path, JSON.parse(options.body)); else for (const [key, value] of Object.entries(JSON.parse(options.body))) setPath(key, value); return Response.json({}); }
+  if ((options.method || 'GET') === 'PUT' || (options.method || 'GET') === 'PATCH') { if (path) setPath(path, JSON.parse(options.body)); else if ((options.method || 'GET') === 'PUT') { const next = JSON.parse(options.body); for (const key of Object.keys(root)) delete root[key]; Object.assign(root, next); } else for (const [key, value] of Object.entries(JSON.parse(options.body))) setPath(key, value); return Response.json({}); }
   if ((options.method || 'GET') === 'DELETE') { setPath(path, null); return Response.json(null); }
    let value = root; for (const part of path ? path.split('/') : []) value = value?.[part]; return new Response(JSON.stringify(value ?? null), { status: 200, headers: path ? { 'Content-Type': 'application/json' } : { 'Content-Type': 'application/json', ETag: '"fixture-etag"' } });
 };
