@@ -1,0 +1,24 @@
+{
+  "baselineDate": "2026-10-03",
+  "project": "101 COFFEE",
+  "repository": {
+    "path": "C:\\Users\\MSI\\Desktop\\101-COFFEE-PRODUCTION-CLEAN-20260925",
+    "remote": "https://github.com/NAJF8/cof1.git",
+    "branch": "main",
+    "approvedRef": "refs/tags/production-baseline"
+  },
+  "services": {
+    "firebaseProject": "coffee-30fa7",
+    "firebaseDatabase": "coffee-30fa7-default-rtdb",
+    "cloudflareWorker": "coffee-101-ai-chat",
+    "cloudflareWorkerBuild": "cc93cf013dc8547be5bc43201bd79f6bdb7cd1dd",
+    "cloudflareWorkerVersionId": "6bfef5fd-51d2-4c2f-b636-48127e47556a"
+  },
+  "checks": {
+    "workingTreeClean": true,
+    "npmTest": true,
+    "nodeCheck": true,
+    "gitDiffCheck": true,
+    "firebaseRulesDryRun": true
+  }
+}
