@@ -11,7 +11,8 @@ if (-not (Test-Path -LiteralPath $baselinePath)) { Fail 'baseline file is missin
 $baseline = Get-Content -LiteralPath $baselinePath -Raw | ConvertFrom-Json
 
 if ($repo -ne $baseline.repository.path) { Fail "run from approved path: $($baseline.repository.path)" }
-if ((git rev-parse --show-toplevel).Trim() -ne $repo) { Fail 'not the approved Git repository' }
+$gitRoot = (Resolve-Path (git rev-parse --show-toplevel).Trim()).Path
+if ($gitRoot -ne $repo) { Fail 'not the approved Git repository' }
 if ((git remote get-url origin).Trim() -ne $baseline.repository.remote) { Fail 'origin URL mismatch' }
 if ((git branch --show-current).Trim() -ne $baseline.repository.branch) { Fail 'branch mismatch' }
 if ((git status --porcelain)) { Fail 'working tree is not clean' }
