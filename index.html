@@ -5560,6 +5560,14 @@
             if (result.type === 'cart_get') return result.snapshot.itemCount ? result.snapshot.items.map(item => `☕ ${item.name} × ${item.quantity}`).join('\n') : (currentLang === 'en' ? 'Your cart is empty.' : 'السلة فارغة ☕');
             return '';
         }
+        function safeAIChatReply(value) {
+            if (typeof value !== 'string') return '';
+            const reply = value.trim();
+            if (!reply || reply.length > 1400) return '';
+            // Do not render model protocol, JSON fragments or internal reasoning.
+            if (/(?:```|(?:^|\\s)\\{\\s*["']?(?:reply|actions)["']?\\s*:|["'](?:reply|actions)["']\\s*:|output\\s+must\\s+be\\s+json|refine\\s+response|exact\\s+menu\\s+names\\s+used|system\\s+prompt|developer\\s+instruction|\\bjson\\b\\s*[:{]|\\*\\*[^*]+\\*\\*)/i.test(reply)) return '';
+            return reply;
+        }
         async function handleAIChatSubmit(e) {
             e.preventDefault();
             if (aiChatRequestInFlight) return;
@@ -5612,7 +5620,7 @@
                 }
                 if (localCartIntent(text, addReply)) return;
                 const actions = Array.isArray(result.actions) ? result.actions : [];
-                const reply = actions.length ? actions.map(executeChatCartAction).map(chatActionMessage).join('\n') : (result.reply || (currentLang === 'en' ? 'I could not answer right now.' : 'لم أتمكن من الإجابة الآن.'));
+                const reply = actions.length ? actions.map(executeChatCartAction).map(chatActionMessage).join('\n') : (safeAIChatReply(result.reply) || (currentLang === 'en' ? 'I could not answer right now. Please try again.' : 'ما كدرت أفهم الرد هالمرة، جرّب تسألني مرة ثانية ☕'));
                 addReply(reply); if (voiceModeActive) speakChatReply(reply);
             } catch (error) {
                 console.error('[CHAT_WORKER_FAILED]', error);
