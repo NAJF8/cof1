@@ -1,9 +1,33 @@
 {
-  "functions": { "source": "functions" },
-  "database": { "rules": "database.rules.json" },
-  "storage": { "rules": "storage.rules" },
+  "functions": {
+    "source": "functions"
+  },
+  "database": {
+    "rules": "database.rules.json"
+  },
+  "storage": {
+    "rules": "storage.rules"
+  },
   "hosting": {
     "public": ".",
-    "ignore": ["firebase.json", "firebase-rules.json", "database.rules.json", "storage.rules", "functions/**", "node_modules/**", ".git/**"]
+    "ignore": [
+      "firebase.json",
+      "firebase-rules.json",
+      "database.rules.json",
+      "storage.rules",
+      "functions/**",
+      "node_modules/**",
+      ".git/**",
+      "cloudflare-worker/**",
+      "scripts/**",
+      "test/**",
+      "docs/**",
+      "admins.json",
+      "101-PRODUCTION-BASELINE.json",
+      "101_Coffee_House_Menu.xlsx",
+      "PRODUCTION_CHECKLIST.md",
+      "verify-production.ps1",
+      "start-server.bat"
+    ]
   }
 }

@@ -1,0 +1,40 @@
+name: Security regression (no deployment)
+on:
+  pull_request:
+    paths:
+      - 'cloudflare-worker/**'
+      - 'database.rules.json'
+      - 'firebase.json'
+      - '.github/workflows/security-regression.yml'
+  workflow_dispatch:
+jobs:
+  security-regression:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify AI replies and cart actions
+        run: node --test cloudflare-worker/test/ai-response-guard.test.mjs
+      - name: Verify JSON config and guest order/booking rules
+        shell: bash
+        run: |
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          import assert from 'node:assert/strict';
+          const rules = JSON.parse(fs.readFileSync('database.rules.json','utf8')).rules;
+          JSON.parse(fs.readFileSync('firebase.json','utf8'));
+          for (const key of ['orders','bookings','eventBookings','loyalty_customers','subscription_customers']) {
+            assert.ok(rules[key], 'missing rule group: '+key);
+          }
+          assert.match(rules.orders['$orderId']['.write'],/auth == null/);
+          assert.match(rules.bookings['$bookingId']['.write'],/auth == null/);
+          assert.match(rules.eventBookings['$bookingId']['.write'],/auth == null/);
+          console.log('Guest checkout and booking authorization paths preserved.');
+          JS
+      - name: Run existing Worker tests
+        working-directory: cloudflare-worker
+        run: npm test

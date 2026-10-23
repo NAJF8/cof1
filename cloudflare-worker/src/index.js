@@ -97,7 +97,19 @@ function buildSystemInstruction(context,language,message,preferences,recommendat
 function extractGeminiText(payload){const candidate=Array.isArray(payload?.candidates)?payload.candidates[0]:null;const parts=Array.isArray(candidate?.content?.parts)?candidate.content.parts:[];return parts.filter(part=>part?.thought!==true).map(part=>typeof part?.text==="string"?part.text:"").filter(Boolean).join("\n");}
 const CART_ACTION_TYPES=new Set(["cart_add","cart_remove","cart_decrease","cart_increase","cart_clear","cart_get","cart_total"]);
 function normalizeActions(raw,menu){const ids=new Set(menu.map(item=>item.productId));return (Array.isArray(raw)?raw:[]).filter(action=>CART_ACTION_TYPES.has(action?.type)).map(action=>({type:action.type,productId:['cart_add','cart_remove','cart_decrease','cart_increase'].includes(action.type)&&ids.has(String(action.productId??""))?String(action.productId):null,quantity:['cart_add','cart_remove','cart_decrease','cart_increase'].includes(action.type)?Math.max(1,Math.min(20,Math.floor(Number(action.quantity)||1))):null})).filter(action=>!['cart_add','cart_remove','cart_decrease','cart_increase'].includes(action.type)||action.productId).slice(0,10);}
-function parseGeminiReply(text){const raw=cleanText(text,1800);try{const value=JSON.parse(raw.replace(/^```(?:json)?\s*|\s*```$/gi,""));return{reply:cleanText(value?.reply,1400)||raw,actions:(Array.isArray(value?.actions)?value.actions:[]).filter(action=>CART_ACTION_TYPES.has(action?.type)).slice(0,10)};}catch{return{reply:raw,actions:[]};}}
+function parseGeminiReply(text){
+    // Never display unstructured model output: it may contain prompts or model directives.
+    const raw=cleanText(text,1800).trim();
+    let value;
+    try{value=JSON.parse(raw.replace(/^\x60\x60\x60(?:json)?\s*|\s*\x60\x60\x60$/gi,""));}
+    catch{return null;}
+    if(!isPlainObject(value)||typeof value.reply!=="string"||!Array.isArray(value.actions))return null;
+    const reply=cleanText(value.reply,1400).trim();
+    if(!reply && value.actions.length===0)return null;
+    // Reject model meta-instructions, including content accidentally placed inside reply.
+    if(/(?:output\s+must\s+be\s+json|refine\s+response|system\s+prompt|developer\s+instruction|\x60\x60\x60|<\/ ?(?:system|assistant)>)/i.test(reply))return null;
+    return {reply,actions:value.actions.filter(action=>CART_ACTION_TYPES.has(action?.type)).slice(0,10)};
+}
 async function auditGeminiKeyAction(env,auth,action,slot,extra={}){const safeExtra=Object.fromEntries(Object.entries(extra).filter(([key])=>!/(api|secret|token|key)/i.test(key)));return firebaseRequest(env,"ai_gemini_key_audit",{method:"POST",authToken:auth.idToken,body:{action,slot,adminUid:auth.uid,timestamp:Date.now(),...safeExtra}}).catch(()=>console.warn("[GEMINI_KEY_AUDIT_FAILED]",action,slot));}
 async function readAdminJson(request){const raw=await request.text();if(new TextEncoder().encode(raw).byteLength>MAX_BODY_BYTES)throw new Error("PAYLOAD_TOO_LARGE");let payload={};try{payload=raw?JSON.parse(raw):{};}catch{throw new Error("INVALID_REQUEST");}if(!isPlainObject(payload))throw new Error("INVALID_REQUEST");return payload;}
 async function adminKeyStatusResponse(request,env,auth){const [secretNames,metadata]=await Promise.all([cloudflareSecrets(env),adminGeminiKeyMetadata(env,auth)]);const rows=publicKeyRows(secretNames,metadata),configuredCount=rows.filter(row=>row.configured&&!row.legacy).length;return withCors(request,env,{ok:true,autoFailover:true,configuredCount,keys:rows});}
@@ -203,7 +215,7 @@ async function callGeminiWithKey(apiKey,payload,keyInfo){
         if(!response.ok)return {ok:false,status:response.status,code,detail,source,index};
         const reply=cleanText(extractGeminiText(data),1800);
         if(!reply)return {ok:false,status:response.status,code:"AI_EMPTY_REPLY",source,index};
-        return {ok:true,status:response.status,code:"OK",source,index,...parseGeminiReply(reply)};
+        const parsed=parseGeminiReply(reply);if(!parsed)return {ok:false,status:response.status,code:"AI_INVALID_RESPONSE",source,index};return {ok:true,status:response.status,code:"OK",source,index,...parsed};
     }catch(error){const code=error?.name==="AbortError"?"NETWORK_TIMEOUT":"NETWORK_ERROR";console.info("[GEMINI_KEY_STATUS]",source,0);console.info("[GEMINI_KEY_ERROR_CODE]",source,code);return {ok:false,status:0,code,source,index};}
     finally{clearTimeout(timeout);}
 }
@@ -285,6 +297,7 @@ async function callKie(message,language,context,history,preferences,recommendati
         }
 
         const parsed=parseGeminiReply(cleaned);
+        if(!parsed)return {ok:false,status:response.status,code:"KIE_INVALID_RESPONSE"};
         console.info("[AI_PROVIDER_SELECTED]","KIE");
 
         return {
